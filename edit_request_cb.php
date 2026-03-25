@@ -883,16 +883,41 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
     return (annual - tax) / 12;
   };
-  const ndflBracketRate = (grossMonthly) => {
+  const ndflDetails = (grossMonthly) => {
     const gross = Math.max(0, Number(grossMonthly) || 0);
     if (!gross) return null;
+
     const annual = gross * 12;
-    if (annual <= 2400000) return 13;
-    if (annual <= 5000000) return 15;
-    if (annual <= 20000000) return 18;
-    return 20; // 20–50 млн и выше в рамках текущей шкалы задачи
+    const brackets = [
+      { limit: 2400000, rate: 13 },
+      { limit: 5000000, rate: 15 },
+      { limit: 20000000, rate: 18 },
+      { limit: 50000000, rate: 20 },
+      { limit: Infinity, rate: 20 }
+    ];
+
+    let tax = 0;
+    let prev = 0;
+    const usedRates = [];
+    for (const b of brackets) {
+      if (annual <= prev) break;
+      const upper = Math.min(annual, b.limit);
+      const slice = Math.max(0, upper - prev);
+      if (slice > 0) {
+        tax += slice * (b.rate / 100);
+        if (!usedRates.includes(b.rate)) usedRates.push(b.rate);
+      }
+      prev = b.limit;
+    }
+
+    const effectiveRate = annual > 0 ? (tax / annual) * 100 : 0;
+    return { usedRates, effectiveRate };
   };
-  const formatRate = (rate) => (rate === null ? '' : `(НДФЛ: ${rate}%)`);
+  const formatRate = (details) => {
+    if (!details) return '';
+    const ratesLabel = details.usedRates.map((r) => `${r}%`).join(' + ');
+    return `(НДФЛ: ставки ${ratesLabel}; эффективная ${details.effectiveRate.toFixed(2)}%)`;
+  };
 
   const compute = () => {
     const typeName = (bonusType.options[bonusType.selectedIndex]?.dataset.optionName || '').toLowerCase();
@@ -920,8 +945,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
     netIncome.value = (netGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
 
-    if (kpiRate) kpiRate.textContent = formatRate(ndflBracketRate(kpiGross));
-    if (netRate) netRate.textContent = formatRate(ndflBracketRate(netGross));
+    if (kpiRate) kpiRate.textContent = formatRate(ndflDetails(kpiGross));
+    if (netRate) netRate.textContent = formatRate(ndflDetails(netGross));
   };
 
   [bonusType, salary, bonusPercent, isn].forEach((el) => {
