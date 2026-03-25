@@ -360,8 +360,8 @@ function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $i
     $bonusPercent = max(0.0, (float)$bonusPercent);
     $isnGross = max(0.0, (float)$isnGross);
 
-    $kpiGross = 0.0;
-    $netGross = 0.0;
+    $kpiGross = null;
+    $netGross = null;
 
     if (mb_strpos($bonusTypeName, 'ежемесяч') !== false) {
         $kpiGross = $salaryGross + $isnGross + ($salaryGross * $bonusPercent / 100);
@@ -372,8 +372,8 @@ function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $i
     }
 
     return [
-        'kpi' => (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
-        'net' => (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
+        'kpi' => ($kpiGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
+        'net' => ($netGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
     ];
 }
 
@@ -660,10 +660,18 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $codeEsc = htmlspecialcharsbx($code);
     $nameEsc = htmlspecialcharsbx($name);
     $readonlyAttr = $editable ? '' : 'disabled';
+    $rowIdAttr = ' id="row_'.$codeEsc.'"';
+
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
+        $nameEsc .= ' <span id="ndfl_rate_kpi" style="color:#6b7280;font-weight:400;"></span>';
+    }
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL') {
+        $nameEsc .= ' <span id="ndfl_rate_net" style="color:#6b7280;font-weight:400;"></span>';
+    }
 
     if ($code === 'NEPOSREDSTVENNYY_RUKOVODITEL') {
         ob_start();
-        echo '<div class="ui-form-row">';
+        echo '<div class="ui-form-row"'.$rowIdAttr.'>';
         echo '<div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>';
         echo '<div class="ui-form-content">';
         if ($editable) {
@@ -695,7 +703,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         $selectedY = ($val === 'Y') ? 'selected' : '';
         $selectedN = ($val === 'N') ? 'selected' : '';
         return '
-        <div class="ui-form-row">
+        <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
@@ -724,7 +732,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     if ($isTextarea) {
         return '
-        <div class="ui-form-row">
+        <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
@@ -743,7 +751,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
 
     return '
-    <div class="ui-form-row">
+    <div class="ui-form-row"'.$rowIdAttr.'>
       <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
@@ -839,6 +847,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   const isn = document.getElementById('field_ISN_RUB_GROSS');
   const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
   const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const kpiRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
+  const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const kpiRate = document.getElementById('ndfl_rate_kpi');
+  const netRate = document.getElementById('ndfl_rate_net');
 
   if (!bonusType || !salary || !bonusPercent || !isn || !kpiIncome || !netIncome) return;
 
@@ -871,6 +883,13 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
     return (annual - tax) / 12;
   };
+  const ndflRatePercent = (grossMonthly) => {
+    const gross = Math.max(0, Number(grossMonthly) || 0);
+    if (!gross) return null;
+    const net = monthlyNetByProgressiveNdfl(gross);
+    return ((gross - net) / gross) * 100;
+  };
+  const formatRate = (rate) => (rate === null ? '' : `(НДФЛ: ${rate.toFixed(2)}%)`);
 
   const compute = () => {
     const typeName = (bonusType.options[bonusType.selectedIndex]?.dataset.optionName || '').toLowerCase();
@@ -878,19 +897,28 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     const p = parseNum(bonusPercent.value);
     const i = parseNum(isn.value);
 
-    let kpiGross = 0;
-    let netGross = 0;
+    let kpiGross = null;
+    let netGross = null;
+    const isMonthly = typeName.includes('ежемесяч');
+    const isQuarterly = typeName.includes('ежекварт');
+    const isNoBonus = typeName.includes('без прем');
 
-    if (typeName.includes('ежемесяч')) {
+    if (isMonthly) {
       kpiGross = s + i + (s * p / 100);
-    } else if (typeName.includes('ежекварт')) {
+    } else if (isQuarterly) {
       kpiGross = s + i + ((s * p / 100) / 3);
-    } else if (typeName.includes('без прем')) {
+    } else if (isNoBonus) {
       netGross = s + i;
     }
 
-    kpiIncome.value = String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
-    netIncome.value = String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
+    if (kpiRow) kpiRow.style.display = (isMonthly || isQuarterly) ? '' : 'none';
+    if (netRow) netRow.style.display = isNoBonus ? '' : 'none';
+
+    kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
+    netIncome.value = (netGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
+
+    if (kpiRate) kpiRate.textContent = formatRate(ndflRatePercent(kpiGross));
+    if (netRate) netRate.textContent = formatRate(ndflRatePercent(netGross));
   };
 
   [bonusType, salary, bonusPercent, isn].forEach((el) => {
