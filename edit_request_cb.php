@@ -883,13 +883,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
     return (annual - tax) / 12;
   };
-  const ndflRatePercent = (grossMonthly) => {
+  const ndflBracketRate = (grossMonthly) => {
     const gross = Math.max(0, Number(grossMonthly) || 0);
     if (!gross) return null;
-    const net = monthlyNetByProgressiveNdfl(gross);
-    return ((gross - net) / gross) * 100;
+    const annual = gross * 12;
+    if (annual <= 2400000) return 13;
+    if (annual <= 5000000) return 15;
+    if (annual <= 20000000) return 18;
+    return 20; // 20–50 млн и выше в рамках текущей шкалы задачи
   };
-  const formatRate = (rate) => (rate === null ? '' : `(НДФЛ: ${rate.toFixed(2)}%)`);
+  const formatRate = (rate) => (rate === null ? '' : `(НДФЛ: ${rate}%)`);
 
   const compute = () => {
     const typeName = (bonusType.options[bonusType.selectedIndex]?.dataset.optionName || '').toLowerCase();
@@ -917,8 +920,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
     netIncome.value = (netGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
 
-    if (kpiRate) kpiRate.textContent = formatRate(ndflRatePercent(kpiGross));
-    if (netRate) netRate.textContent = formatRate(ndflRatePercent(netGross));
+    if (kpiRate) kpiRate.textContent = formatRate(ndflBracketRate(kpiGross));
+    if (netRate) netRate.textContent = formatRate(ndflBracketRate(netGross));
   };
 
   [bonusType, salary, bonusPercent, isn].forEach((el) => {
