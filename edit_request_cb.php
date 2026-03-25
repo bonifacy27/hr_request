@@ -322,6 +322,60 @@ function labelWithoutPrivyazka($name) {
 function getGroupByCode($code, $groupMap) {
     return $groupMap[$code] ?? 'Подбор';
 }
+function parseMoneyInput($value) {
+    $v = trim((string)$value);
+    if ($v === '') return 0.0;
+    $v = str_replace(["\xc2\xa0", ' '], '', $v);
+    $v = str_replace(',', '.', $v);
+    return is_numeric($v) ? (float)$v : 0.0;
+}
+function calcMonthlyNetByProgressiveNdfl($grossMonthly) {
+    $grossMonthly = max(0.0, (float)$grossMonthly);
+    if ($grossMonthly <= 0) return 0.0;
+
+    // Прогрессивная шкала НДФЛ c 01.01.2026 (в рамках задачи: 13%..20%)
+    $annual = $grossMonthly * 12;
+    $brackets = [
+        ['limit' => 2400000.0, 'rate' => 0.13],
+        ['limit' => 5000000.0, 'rate' => 0.15],
+        ['limit' => 20000000.0, 'rate' => 0.18],
+        ['limit' => INF, 'rate' => 0.20],
+    ];
+
+    $tax = 0.0;
+    $prevLimit = 0.0;
+    foreach ($brackets as $b) {
+        if ($annual <= $prevLimit) break;
+        $sliceUpper = min($annual, (float)$b['limit']);
+        $slice = max(0.0, $sliceUpper - $prevLimit);
+        $tax += $slice * (float)$b['rate'];
+        $prevLimit = (float)$b['limit'];
+    }
+
+    return ($annual - $tax) / 12;
+}
+function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross) {
+    $bonusTypeName = mb_strtolower(trim((string)$bonusTypeName));
+    $salaryGross = max(0.0, (float)$salaryGross);
+    $bonusPercent = max(0.0, (float)$bonusPercent);
+    $isnGross = max(0.0, (float)$isnGross);
+
+    $kpiGross = 0.0;
+    $netGross = 0.0;
+
+    if (mb_strpos($bonusTypeName, 'ежемесяч') !== false) {
+        $kpiGross = $salaryGross + $isnGross + ($salaryGross * $bonusPercent / 100);
+    } elseif (mb_strpos($bonusTypeName, 'ежекварт') !== false) {
+        $kpiGross = $salaryGross + $isnGross + (($salaryGross * $bonusPercent / 100) / 3);
+    } elseif (mb_strpos($bonusTypeName, 'без прем') !== false) {
+        $netGross = $salaryGross + $isnGross;
+    }
+
+    return [
+        'kpi' => (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
+        'net' => (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
+    ];
+}
 
 /* =========================================================
  * 3) INPUT + LOAD
@@ -408,6 +462,16 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $post['employee_id'] = array_values(array_filter(array_map('intval', $post['employee_id'])));
     }
 
+    $bonusTypeId = (int)($post['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? normPropValue($curProps['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? 0));
+    $bonusTypeName = getElementNameById(IBLOCK_BONUSTYPE, $bonusTypeId);
+    $salaryGross = parseMoneyInput($post['OKLAD'] ?? normPropValue($curProps['OKLAD'] ?? ''));
+    $bonusPercent = parseMoneyInput($post['PROTSENT_PREMII_'] ?? normPropValue($curProps['PROTSENT_PREMII_'] ?? ''));
+    $isnGross = parseMoneyInput($post['ISN_RUB_GROSS'] ?? normPropValue($curProps['ISN_RUB_GROSS'] ?? ''));
+
+    $calculatedIncome = calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross);
+    $post['DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_'] = $calculatedIncome['kpi'];
+    $post['DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL'] = $calculatedIncome['net'];
+
     foreach ($FIELDS as $f) {
         if (empty($f['EDITABLE'])) continue;
 
@@ -421,6 +485,19 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $oldVal = (int)normPropValue($curProps[$code] ?? 0);
 
             if ($newVal > 0 && $newVal !== $oldVal) {
+                $updates[$code] = $newVal;
+                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                $jsonChanged[$code] = $newVal;
+            }
+            continue;
+        }
+
+        if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
+            $newVal = mb_strtoupper(trim((string)($post[$code] ?? '')));
+            if (!in_array($newVal, ['Y', 'N'], true)) $newVal = '';
+            $oldVal = mb_strtoupper(trim((string)normPropValue($curProps[$code] ?? '')));
+
+            if ($newVal !== $oldVal) {
                 $updates[$code] = $newVal;
                 $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
                 $jsonChanged[$code] = $newVal;
@@ -561,7 +638,8 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
     foreach ($options as $o) {
         $id = (int)$o['ID'];
         $sel = ($selectedId === $id) ? 'selected' : '';
-        $optionsHtml .= '<option value="'.$id.'" '.$sel.'>'.htmlspecialcharsbx($o['NAME']).'</option>';
+        $name = (string)$o['NAME'];
+        $optionsHtml .= '<option value="'.$id.'" '.$sel.' data-option-name="'.htmlspecialcharsbx(mb_strtolower($name)).'">'.htmlspecialcharsbx($name).'</option>';
     }
 
     return '
@@ -570,7 +648,7 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
           <div class="ui-ctl-after ui-ctl-icon-angle"></div>
-          <select class="ui-ctl-element" name="'.$codeEsc.'" '.$readonlyAttr.'>
+          <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.'>
             '.$optionsHtml.'
           </select>
         </div>
@@ -612,6 +690,26 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         return ob_get_clean();
     }
 
+    if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
+        $val = mb_strtoupper(trim((string)normPropValue($value)));
+        $selectedY = ($val === 'Y') ? 'selected' : '';
+        $selectedN = ($val === 'N') ? 'selected' : '';
+        return '
+        <div class="ui-form-row">
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
+              <div class="ui-ctl-after ui-ctl-icon-angle"></div>
+              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.'>
+                <option value="">— выберите —</option>
+                <option value="Y" '.$selectedY.'>Да</option>
+                <option value="N" '.$selectedN.'>Нет</option>
+              </select>
+            </div>
+          </div>
+        </div>';
+    }
+
     if (isset($referenceMap[$code])) {
         $label = labelWithoutPrivyazka($name);
         $selectedId = (int)normPropValue($value);
@@ -636,12 +734,20 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         </div>';
     }
 
+    $isCalculatedIncomeField = in_array($code, [
+        'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_',
+        'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL',
+    ], true);
+    if ($isCalculatedIncomeField) {
+        $readonlyAttr = 'readonly';
+    }
+
     return '
     <div class="ui-form-row">
       <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
-          <input class="ui-ctl-element" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.'>
+          <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.'>
         </div>
       </div>
     </div>';
@@ -724,5 +830,76 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     </div>
   </div>
 </form>
+
+<script>
+(function () {
+  const bonusType = document.getElementById('field_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA');
+  const salary = document.getElementById('field_OKLAD');
+  const bonusPercent = document.getElementById('field_PROTSENT_PREMII_');
+  const isn = document.getElementById('field_ISN_RUB_GROSS');
+  const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
+  const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+
+  if (!bonusType || !salary || !bonusPercent || !isn || !kpiIncome || !netIncome) return;
+
+  const parseNum = (v) => {
+    if (!v) return 0;
+    const norm = String(v).replace(/\s/g, '').replace(',', '.');
+    const n = Number(norm);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const monthlyNetByProgressiveNdfl = (grossMonthly) => {
+    const gross = Math.max(0, Number(grossMonthly) || 0);
+    if (!gross) return 0;
+    const annual = gross * 12;
+    const brackets = [
+      { limit: 2400000, rate: 0.13 },
+      { limit: 5000000, rate: 0.15 },
+      { limit: 20000000, rate: 0.18 },
+      { limit: Infinity, rate: 0.20 }
+    ];
+
+    let tax = 0;
+    let prev = 0;
+    for (const b of brackets) {
+      if (annual <= prev) break;
+      const upper = Math.min(annual, b.limit);
+      const slice = Math.max(0, upper - prev);
+      tax += slice * b.rate;
+      prev = b.limit;
+    }
+    return (annual - tax) / 12;
+  };
+
+  const compute = () => {
+    const typeName = (bonusType.options[bonusType.selectedIndex]?.dataset.optionName || '').toLowerCase();
+    const s = parseNum(salary.value);
+    const p = parseNum(bonusPercent.value);
+    const i = parseNum(isn.value);
+
+    let kpiGross = 0;
+    let netGross = 0;
+
+    if (typeName.includes('ежемесяч')) {
+      kpiGross = s + i + (s * p / 100);
+    } else if (typeName.includes('ежекварт')) {
+      kpiGross = s + i + ((s * p / 100) / 3);
+    } else if (typeName.includes('без прем')) {
+      netGross = s + i;
+    }
+
+    kpiIncome.value = String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
+    netIncome.value = String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
+  };
+
+  [bonusType, salary, bonusPercent, isn].forEach((el) => {
+    el.addEventListener('change', compute);
+    el.addEventListener('input', compute);
+  });
+
+  compute();
+})();
+</script>
 
 <?php require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); ?>
