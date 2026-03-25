@@ -2,7 +2,7 @@
 /**
  * Скрипт: /forms/recruiting/create_recruitment_request.php
  * Назначение: Форма заявки на подбор персонала с сохранением в ИБ и хранением JSON-копии
- * Версия: v0.5.0 (2026-02-10)
+ * Версия: v0.6.0 (2026-03-25)
  * Автор: ChatGPT
  *
  * Добавлено:
@@ -25,6 +25,7 @@ const IBLOCK_FORMAT     = 234;
 const IBLOCK_OFFICE     = 233;
 const IBLOCK_CONTRACT   = 325;
 const IBLOCK_EQUIPMENT  = 326;
+const IBLOCK_FURNITURE  = 400;
 const IBLOCK_RECRUIT    = 201;
 
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
@@ -207,6 +208,7 @@ $formatList    = getIblockOptions(IBLOCK_FORMAT);
 $officeList    = getIblockOptions(IBLOCK_OFFICE);
 $contractList  = getIblockOptions(IBLOCK_CONTRACT);
 $equipList     = getIblockOptions(IBLOCK_EQUIPMENT);
+$furnitureRows = getIblockOptions(IBLOCK_FURNITURE, ['PROPERTY_MULT_SELECT']);
 
 // ===== Обработка сохранения =====
 $saveMessage = null; $createdId = null;
@@ -248,6 +250,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     $officeName    = getNameById($officeList, (int)($post['office'] ?? 0));
     $contractName  = getNameById($contractList, (int)($post['contract'] ?? 0));
     $equipName     = getNameById($equipList, (int)($post['equipment'] ?? 0));
+    $equipComment  = trim((string)($post['equipment_comment'] ?? ''));
+    $equipCombined = trim($equipName . ($equipComment !== '' ? PHP_EOL . $equipComment : ''));
+
+    $furnitureNameById = [];
+    $furnitureMultiById = [];
+    foreach ($furnitureRows as $furnitureRow) {
+        $furnitureId = (string)$furnitureRow['ID'];
+        $furnitureNameById[$furnitureId] = (string)$furnitureRow['NAME'];
+        $furnitureMultiById[$furnitureId] = ((string)($furnitureRow['PROPERTY_MULT_SELECT_VALUE'] ?? '') === 'Y');
+    }
+    $furnitureSelected = $post['furniture'] ?? [];
+    if (!is_array($furnitureSelected)) {
+        $furnitureSelected = [$furnitureSelected];
+    }
+    $furnitureSelected = array_values(array_unique(array_filter(array_map(static function($v){
+        return (string)(int)$v;
+    }, $furnitureSelected), static function($v){
+        return $v !== '0' && $v !== '';
+    })));
+    $singleFurniture = [];
+    $multiFurniture = [];
+    foreach ($furnitureSelected as $furnitureId) {
+        if (!isset($furnitureNameById[$furnitureId])) {
+            continue;
+        }
+        if (!empty($furnitureMultiById[$furnitureId])) {
+            $multiFurniture[] = $furnitureId;
+        } else {
+            $singleFurniture[] = $furnitureId;
+        }
+    }
+    $furnitureIdsForText = $multiFurniture ?: (empty($singleFurniture) ? [] : [reset($singleFurniture)]);
+    $furnitureNames = [];
+    foreach ($furnitureIdsForText as $furnitureId) {
+        $furnitureNames[] = $furnitureNameById[$furnitureId];
+    }
+    $furnitureText = implode(', ', $furnitureNames);
 
     $reasonMap = [
         'new_unit'   => 'Новая штатная единица',
@@ -337,7 +376,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'              => (int)($post['start_time'] ?? 0),
         'KONFIDENTSIALNYY_POISK'                        => trim((string)($post['confidential'] ?? 'Нет')),
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'            => (int)($post['equipment'] ?? 0),
-        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipName,
+        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipCombined,
+        'NEOBKHODIMAYA_MEBEL'                           => $furnitureText,
         // === НОВОЕ СВОЙСТВО ===
         'JSON'                                          => $jsonData,
     ];
@@ -382,7 +422,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 <div class="container my-4">
   <div class="d-flex align-items-center mb-3">
     <h1 class="h3 mb-0">Заявка на подбор персонала</h1>
-    <span class="ml-3 badge badge-secondary" title="Версия скрипта">v0.5.0</span>
+    <span class="ml-3 badge badge-secondary" title="Версия скрипта">v0.6.0</span>
   </div>
   <form id="recruitForm" method="post">
     <?= bitrix_sessid_post(); ?>
@@ -671,6 +711,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             </select>
           </div>
         </div>
+        <div class="form-group">
+          <label>Комментарии к оборудованию для работы <small class="text-muted">(необязательно)</small></label>
+          <textarea class="form-control" name="equipment_comment" rows="2" placeholder="Если есть доп. требования к оборудованию, указать здесь: например, к ноутбуку дополнительно нужен монитор/мышка/наушники или такие-то требования к ПК и т.д."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Необходима ли мебель? <span class="text-danger">*</span></label>
+          <input type="hidden" name="furniture_required" id="furnitureRequired" required>
+          <div class="card p-2" id="furnitureWrap">
+            <div class="small text-muted mb-2">Можно выбрать несколько вариантов только у позиций с признаком множественного выбора.</div>
+            <?php foreach ($furnitureRows as $row): ?>
+              <?php
+              $fId = (int)$row['ID'];
+              $fName = (string)$row['NAME'];
+              $isMulti = (string)($row['PROPERTY_MULT_SELECT_VALUE'] ?? '') === 'Y';
+              ?>
+              <div class="form-check">
+                <input
+                  class="form-check-input furniture-input <?= $isMulti ? 'furniture-multi' : 'furniture-single' ?>"
+                  type="<?= $isMulti ? 'checkbox' : 'radio' ?>"
+                  name="furniture[]"
+                  value="<?= $fId ?>"
+                  id="furniture_<?= $fId ?>"
+                >
+                <label class="form-check-label" for="furniture_<?= $fId ?>"><?= htmlspecialcharsbx($fName) ?></label>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
         <div class="form-row">
           <div class="form-group col-md-6">
             <label>Конфиденциальный поиск
@@ -792,6 +860,22 @@ BX.ready(function(){
       }
     }
   });
+
+  function syncFurnitureValue() {
+    var hasMulti = $('.furniture-multi:checked').length > 0;
+    var hasSingle = $('.furniture-single:checked').length > 0;
+    if (hasMulti) {
+      $('.furniture-single').prop('checked', false);
+      hasSingle = false;
+    }
+    if (hasSingle) {
+      $('.furniture-multi').prop('checked', false);
+      hasMulti = false;
+    }
+    $('#furnitureRequired').val((hasMulti || hasSingle) ? 'Y' : '');
+  }
+  $('.furniture-input').on('change', syncFurnitureValue);
+  syncFurnitureValue();
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); ?>
