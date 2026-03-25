@@ -142,6 +142,8 @@ $GROUP_MAP = [
     // Требования
     'OBRAZOVANIE_TEKST' => 'Требования',
     'OBYAZANNOSTI' => 'Требования',
+    'RAZNITSA_TEKSTOV' => 'Требования',
+    'DOLZHNOSTNYE_OBYAZANNOSTI_1C' => 'Требования',
     'POL_STROKA' => 'Требования',
     'ZHELAEMAYA_SPETSIALNOST' => 'Требования',
     'OPYT_RABOTY' => 'Требования',
@@ -208,7 +210,9 @@ $FIELDS = [
     ["CODE" => "DOLZHNOST_RUKOVODITELYA", "NAME" => "Должность руководителя", "EDITABLE" => true],
 
     ["CODE" => "OBRAZOVANIE_TEKST", "NAME" => "Образование", "EDITABLE" => false],
-    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности", "EDITABLE" => true],
+    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности, заполненные руководителем", "EDITABLE" => true],
+    ["CODE" => "RAZNITSA_TEKSTOV", "NAME" => "Разница текстов", "EDITABLE" => false],
+    ["CODE" => "DOLZHNOSTNYE_OBYAZANNOSTI_1C", "NAME" => "Обязанности из 1с", "EDITABLE" => true],
     ["CODE" => "POL_STROKA", "NAME" => "Пол", "EDITABLE" => false],
     ["CODE" => "ZHELAEMAYA_SPETSIALNOST", "NAME" => "Желаемая специальность", "EDITABLE" => false],
     ["CODE" => "OPYT_RABOTY", "NAME" => "Опыт работы", "EDITABLE" => false],
@@ -375,6 +379,54 @@ function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $i
         'kpi' => ($kpiGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
         'net' => ($netGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
     ];
+}
+function splitResponsibilitiesToItems($text) {
+    $text = (string)$text;
+    if (trim($text) === '') return [];
+    $parts = preg_split('/[\r\n;]+/u', $text) ?: [];
+    $items = [];
+    foreach ($parts as $p) {
+        $item = trim((string)$p);
+        $item = trim($item, " \t\n\r\0\x0B-•.");
+        if ($item === '') continue;
+        $key = mb_strtolower(preg_replace('/\s+/u', ' ', $item));
+        $items[$key] = $item;
+    }
+    return $items;
+}
+function buildResponsibilitiesDiffText($managerText, $from1cText) {
+    $manager = splitResponsibilitiesToItems($managerText);
+    $from1c = splitResponsibilitiesToItems($from1cText);
+
+    if ($manager === $from1c) return '';
+
+    $added = [];
+    foreach ($manager as $k => $v) {
+        if (!array_key_exists($k, $from1c)) $added[] = $v;
+    }
+
+    $removed = [];
+    foreach ($from1c as $k => $v) {
+        if (!array_key_exists($k, $manager)) $removed[] = $v;
+    }
+
+    if (empty($added) && empty($removed)) return '';
+
+    $out = [];
+    $out[] = 'Добавлено:';
+    if ($added) {
+        foreach ($added as $item) $out[] = '- ' . rtrim($item, ';') . ';';
+    } else {
+        $out[] = '- нет;';
+    }
+    $out[] = 'Удалено:';
+    if ($removed) {
+        foreach ($removed as $item) $out[] = '- ' . rtrim($item, ';') . ';';
+    } else {
+        $out[] = '- нет;';
+    }
+
+    return implode("\n", $out);
 }
 
 /* =========================================================
@@ -719,6 +771,24 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         </div>';
     }
 
+    if ($code === 'RAZNITSA_TEKSTOV') {
+        global $curProps;
+        $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
+        $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
+        $diffText = buildResponsibilitiesDiffText($managerText, $from1cText);
+        if ($diffText === '') return '';
+
+        return '
+        <div class="ui-form-row"'.$rowIdAttr.'>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
+              <textarea class="ui-ctl-element" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
+            </div>
+          </div>
+        </div>';
+    }
+
     if (isset($referenceMap[$code])) {
         $label = labelWithoutPrivyazka($name);
         $selectedId = (int)normPropValue($value);
@@ -729,15 +799,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $valEsc = htmlspecialcharsbx($valStr);
 
     // textarea?
-    $isTextarea = in_array($code, ['OBYAZANNOSTI','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
+    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
 
     if ($isTextarea) {
+        $rows = ($code === 'OBYAZANNOSTI') ? 8 : 4;
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
-              <textarea class="ui-ctl-element" name="'.$codeEsc.'" rows="4" '.$readonlyAttr.'>'.$valEsc.'</textarea>
+              <textarea class="ui-ctl-element" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
             </div>
           </div>
         </div>';
