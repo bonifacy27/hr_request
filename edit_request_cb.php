@@ -717,12 +717,20 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $readonlyAttr = $editable ? '' : 'disabled';
     $rowIdAttr = ' id="row_'.$codeEsc.'"';
     $labelNoteHtml = '';
+    $labelAfterTitleHtml = '';
 
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
     }
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_net"></div>';
+    }
+    if ($code === 'OBYAZANNOSTI') {
+        global $curProps;
+        $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
+        $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
+        $hasDiff = (buildResponsibilitiesDiffText($managerText, $from1cText) !== '');
+        $labelAfterTitleHtml = '<span class="req-manager-edited-note" id="manager_edited_note"'.($hasDiff ? '' : ' style="display:none;"').'> (обязанности отредактированы руководителем)</span>';
     }
 
     if ($code === 'NEPOSREDSTVENNYY_RUKOVODITEL') {
@@ -760,7 +768,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         $selectedN = ($val === 'N') ? 'selected' : '';
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
               <div class="ui-ctl-after ui-ctl-icon-angle"></div>
@@ -775,21 +783,22 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
 
     if ($code === 'RAZNITSA_TEKSTOV') {
-        // Поле оставлено для обратной совместимости в списке FIELDS.
-        // Фактическая разница формируется отдельно и показывается в UI только при необходимости.
         global $curProps;
         $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
         $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
         $diffText = buildResponsibilitiesDiffText($managerText, $from1cText);
-        if ($diffText === '') return '';
+        $displayStyle = ($diffText === '') ? ' style="display:none;"' : '';
 
         return '
-        <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+        <div class="ui-form-row"'.$rowIdAttr.$displayStyle.'>
+          <div class="ui-form-label"></div>
           <div class="ui-form-content">
-            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
-              <textarea class="ui-ctl-element" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
-            </div>
+            <details class="req-diff-details" id="diff_details" open>
+              <summary>Разница текстов</summary>
+              <div class="ui-ctl ui-ctl-textarea ui-ctl-w100" style="margin-top:8px;">
+                <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
+              </div>
+            </details>
           </div>
         </div>';
     }
@@ -810,10 +819,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         $rows = ($code === 'OBYAZANNOSTI') ? 8 : 4;
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
-              <textarea class="ui-ctl-element" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
+              <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
             </div>
           </div>
         </div>';
@@ -829,7 +838,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     return '
     <div class="ui-form-row"'.$rowIdAttr.'>
-      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
+      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
           <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.'>
@@ -865,6 +874,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     line-height: 1.25;
     font-weight: 400;
     color:#6b7280;
+  }
+  .req-manager-edited-note{
+    color:#8b5e00;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .req-diff-details summary{
+    cursor: pointer;
+    color:#2067b0;
+    font-weight: 600;
   }
 </style>
 
@@ -931,6 +950,11 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   const isn = document.getElementById('field_ISN_RUB_GROSS');
   const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
   const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const managerResponsibilities = document.getElementById('field_OBYAZANNOSTI');
+  const responsibilities1c = document.getElementById('field_DOLZHNOSTNYE_OBYAZANNOSTI_1C');
+  const responsibilitiesDiff = document.getElementById('field_RAZNITSA_TEKSTOV');
+  const managerEditedNote = document.getElementById('manager_edited_note');
+  const diffRow = document.getElementById('row_RAZNITSA_TEKSTOV');
   const kpiRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
   const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
   const kpiRate = document.getElementById('ndfl_rate_kpi');
@@ -1005,6 +1029,45 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     const ratesLabel = details.usedRates.map((r) => `${r}%`).join(' + ');
     return `(НДФЛ: ставки ${ratesLabel}; эффективная ${details.effectiveRate.toFixed(2)}%)`;
   };
+  const responsibilitiesItems = (text) => {
+    if (!text || !String(text).trim()) return {};
+    const parts = String(text).split(/[\n;]+/);
+    const res = {};
+    parts.forEach((p) => {
+      const item = p.trim().replace(/^[-•\s]+/, '').replace(/[.]+$/, '').trim();
+      if (!item) return;
+      const key = item.toLowerCase().replace(/\s+/g, ' ');
+      res[key] = item;
+    });
+    return res;
+  };
+  const responsibilitiesDiffText = (managerText, from1cText) => {
+    const manager = responsibilitiesItems(managerText);
+    const from1c = responsibilitiesItems(from1cText);
+    const managerKeys = Object.keys(manager);
+    const from1cKeys = Object.keys(from1c);
+    if (managerKeys.length === from1cKeys.length && managerKeys.every((k) => from1c[k])) {
+      return '';
+    }
+    const added = managerKeys.filter((k) => !from1c[k]).map((k) => manager[k]);
+    const removed = from1cKeys.filter((k) => !manager[k]).map((k) => from1c[k]);
+    if (!added.length && !removed.length) return '';
+
+    const lines = ['Добавлено:'];
+    lines.push(...(added.length ? added.map((i) => `- ${i.replace(/;+$/, '')};`) : ['- нет;']));
+    lines.push('Удалено:');
+    lines.push(...(removed.length ? removed.map((i) => `- ${i.replace(/;+$/, '')};`) : ['- нет;']));
+    return lines.join('\n');
+  };
+  const updateResponsibilitiesDiff = () => {
+    if (!managerResponsibilities || !responsibilities1c || !responsibilitiesDiff || !diffRow) return;
+    const diff = responsibilitiesDiffText(managerResponsibilities.value, responsibilities1c.value);
+    responsibilitiesDiff.value = diff;
+    diffRow.style.display = diff ? '' : 'none';
+    if (managerEditedNote) {
+      managerEditedNote.style.display = diff ? '' : 'none';
+    }
+  };
 
   // Главный пересчет: управляет видимостью полей KPI/Без премии и пересчитывает значения на лету.
   const compute = () => {
@@ -1041,8 +1104,14 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     el.addEventListener('change', compute);
     el.addEventListener('input', compute);
   });
+  [managerResponsibilities, responsibilities1c].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('change', updateResponsibilitiesDiff);
+    el.addEventListener('input', updateResponsibilitiesDiff);
+  });
 
   compute();
+  updateResponsibilitiesDiff();
 })();
 </script>
 
