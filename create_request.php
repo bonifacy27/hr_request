@@ -47,7 +47,6 @@ Extension::load([
     'ui.buttons',
     'ui.notification',
     'ui.layout-form',
-    'ui.entity-selector',
 ]);
 
 $APPLICATION->SetTitle('Заявка на подбор персонала');
@@ -484,9 +483,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
           </div>
           <div class="form-group col-md-6">
             <label>Непосредственный руководитель <span class="text-danger">*</span></label>
-            <input type="hidden" name="employee_id" id="employeeId" required>
-            <input type="hidden" name="employee_name" id="employeeName">
-            <div id="managerSelector"></div>
+            <?php
+            $APPLICATION->IncludeComponent(
+                'bitrix:intranet.user.selector',
+                '',
+                [
+                    'INPUT_NAME'          => 'employee_id',
+                    'INPUT_NAME_STRING'   => 'employee_name',
+                    'INPUT_VALUE'         => [],
+                    'MULTIPLE'            => 'N',
+                    'NAME_TEMPLATE'       => '#LAST_NAME# #NAME# #SECOND_NAME#',
+                    'SHOW_EXTRANET_USERS' => 'NONE',
+                    'EXTERNAL'            => 'A',
+                    'POPUP'               => 'Y',
+                ],
+                false,
+                ['HIDE_ICONS' => 'Y']
+            );
+            ?>
           </div>
         </div>
 
@@ -846,32 +860,6 @@ BX.ready(function(){
       }
     }
   });
-
-  var managerDialog = new BX.UI.EntitySelector.Dialog({
-    multiple: false,
-    entities: [{ id: 'user' }],
-    enableSearch: true,
-    context: 'RECRUIT_MANAGER',
-    dropdownMode: true,
-    events: {
-      'Item:onSelect': function(event) {
-        var item = event.getData().item;
-        if (item && item.getEntityId() === 'user') {
-          $('#employeeId').val(item.getId());
-          $('#employeeName').val(item.getTitle());
-        }
-      },
-      'Item:onDeselect': function() {
-        $('#employeeId').val('');
-        $('#employeeName').val('');
-      }
-    }
-  });
-  var managerSelector = new BX.UI.EntitySelector.TagSelector({
-    dialog: managerDialog,
-    multiple: false
-  });
-  managerSelector.renderTo(document.getElementById('managerSelector'));
 
   function syncFurnitureValue() {
     var hasMulti = $('.furniture-multi:checked').length > 0;
