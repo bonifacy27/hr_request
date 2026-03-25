@@ -661,18 +661,19 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $nameEsc = htmlspecialcharsbx($name);
     $readonlyAttr = $editable ? '' : 'disabled';
     $rowIdAttr = ' id="row_'.$codeEsc.'"';
+    $labelNoteHtml = '';
 
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
-        $nameEsc .= ' <span id="ndfl_rate_kpi" style="color:#6b7280;font-weight:400;"></span>';
+        $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
     }
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL') {
-        $nameEsc .= ' <span id="ndfl_rate_net" style="color:#6b7280;font-weight:400;"></span>';
+        $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_net"></div>';
     }
 
     if ($code === 'NEPOSREDSTVENNYY_RUKOVODITEL') {
         ob_start();
         echo '<div class="ui-form-row"'.$rowIdAttr.'>';
-        echo '<div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>';
+        echo '<div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>';
         echo '<div class="ui-form-content">';
         if ($editable) {
             global $APPLICATION;
@@ -704,7 +705,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         $selectedN = ($val === 'N') ? 'selected' : '';
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
               <div class="ui-ctl-after ui-ctl-icon-angle"></div>
@@ -733,7 +734,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     if ($isTextarea) {
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
               <textarea class="ui-ctl-element" name="'.$codeEsc.'" rows="4" '.$readonlyAttr.'>'.$valEsc.'</textarea>
@@ -752,7 +753,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     return '
     <div class="ui-form-row"'.$rowIdAttr.'>
-      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelNoteHtml.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
           <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.'>
@@ -781,6 +782,13 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   }
   .req-group__body .ui-form-row{
     margin-top: 8px;
+  }
+  .req-ndfl-note{
+    margin-top: 2px;
+    font-size: 11px;
+    line-height: 1.25;
+    font-weight: 400;
+    color:#6b7280;
   }
 </style>
 
