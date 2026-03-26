@@ -649,6 +649,23 @@ if ($request->isPost() && check_bitrix_sessid()) {
             continue;
         }
 
+        if ($code === 'STAVKA') {
+            $newRaw = trim((string)($post[$code] ?? ''));
+            $oldRaw = (string)normPropValue($curProps[$code] ?? '');
+            $newNum = (float)str_replace(',', '.', $newRaw);
+            $oldNum = (float)str_replace(',', '.', $oldRaw);
+
+            if (abs($newNum - $oldNum) > 0.00001) {
+                $newVal = number_format($newNum, 1, '.', '');
+                $oldVal = number_format($oldNum, 1, '.', '');
+                $updates[$code] = $newVal;
+                $hasWorkflowRelevantChanges = true;
+                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                $jsonChanged[$code] = $newVal;
+            }
+            continue;
+        }
+
         // Справочник по карте
         if (isset($REFERENCE_IBLOCK_BY_CODE[$code])) {
             $ib = (int)$REFERENCE_IBLOCK_BY_CODE[$code];
@@ -1344,7 +1361,13 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     document.querySelectorAll('input[id^="field_"], textarea[id^="field_"], select[id^="field_"]').forEach((field) => {
       const oldVal = (initialFieldValues[field.id] || '').trim();
       const newVal = getFieldValueForPreview(field);
-      if (oldVal === newVal) return;
+      if (field.id === 'field_STAVKA') {
+        const oldNum = Number(String(oldVal).replace(',', '.'));
+        const newNum = Number(String(newVal).replace(',', '.'));
+        if (Number.isFinite(oldNum) && Number.isFinite(newNum) && Math.abs(oldNum - newNum) < 0.00001) return;
+      } else if (oldVal === newVal) {
+        return;
+      }
       const row = field.closest('.ui-form-row');
       const labelEl = row?.querySelector('.ui-form-label .ui-ctl-label-text');
       const label = (labelEl?.textContent || field.id).trim();
