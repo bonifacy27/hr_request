@@ -508,6 +508,10 @@ $success = false;
 
 if ($request->isPost() && check_bitrix_sessid()) {
     $post = $request->getPostList()->toArray();
+    $isConfirmedSave = (isset($post['confirm_save']) && (string)$post['confirm_save'] === 'Y');
+    if (!$isConfirmedSave) {
+        $errors[] = 'Сначала подтвердите сохранение изменений в окне проверки.';
+    }
 
     $updates = [];
     $historyChanged = [];
@@ -538,6 +542,51 @@ if ($request->isPost() && check_bitrix_sessid()) {
     }
     if (!in_array($leadPosition, ['Y', 'N'], true)) {
         $errors[] = 'Поле "Руководящая должность" обязательно для заполнения.';
+    }
+
+    // Дополнительные обязательные поля по требованиям.
+    if (trim((string)($post['DOLZHNOST'] ?? '')) === '') {
+        $errors[] = 'Поле "Должность" обязательно для заполнения.';
+    }
+    if ((int)($post['YURIDICHESKOE_LITSO'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Юридическое лицо" обязательно для заполнения.';
+    }
+    if ((int)($post['PODRAZDELENIE_0_UROVNYA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Подразделение 0 уровня" обязательно для заполнения.';
+    }
+    $employeeId = 0;
+    if (!empty($post['employee_id']) && is_array($post['employee_id']) && !empty($post['employee_id'][0])) {
+        $employeeId = (int)$post['employee_id'][0];
+    }
+    if ($employeeId <= 0) {
+        $errors[] = 'Поле "Непосредственный руководитель" обязательно для заполнения.';
+    }
+    if (trim((string)($post['DOLZHNOST_RUKOVODITELYA'] ?? '')) === '') {
+        $errors[] = 'Поле "Должность руководителя" обязательно для заполнения.';
+    }
+    if ((int)($post['TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Тип договора с сотрудником" обязательно для заполнения.';
+    }
+    if ((int)($post['OFIS_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Офис" обязательно для заполнения.';
+    }
+    if ((int)($post['GRAFIK_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "График работы" обязательно для заполнения.';
+    }
+    if ((int)($post['FORMAT_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Формат работы" обязательно для заполнения.';
+    }
+    if ((int)($post['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Оборудование для работы" обязательно для заполнения.';
+    }
+    if (trim((string)($post['NEOBKHODIMAYA_MEBEL'] ?? '')) === '') {
+        $errors[] = 'Поле "Необходимая мебель" обязательно для заполнения.';
+    }
+    if (trim((string)($post['KOMANDIROVKI_TEKST'] ?? '')) === '') {
+        $errors[] = 'Поле "Командировки" обязательно для заполнения.';
+    }
+    if (trim((string)($post['PRICHINA_OTKRYTIYA_VAKANSII_TEKST'] ?? '')) === '') {
+        $errors[] = 'Поле "Причина открытия вакансии" обязательно для заполнения.';
     }
 
     $calculatedIncome = calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross);
@@ -666,7 +715,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
         // Запуск БП уведомления.
         // В текущем контуре шаблон БП ожидает ID элемента как document third-part.
-        $documentId = ['iblock', 'CIBlockDocument', $elementId];
+        $documentId = ['lists', 'BizprocDocument', $elementId];
         $arErrorsTmp = [];
         $bpParams = [
             'par_Changes' => (string)$historyBlock,
@@ -679,6 +728,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
         }
 
         $success = true;
+        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        return;
 
         // перечитать свойства
         $props = [];
@@ -711,8 +762,19 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
     $codeEsc = htmlspecialcharsbx($code);
     $labelEsc = htmlspecialcharsbx($label);
     $readonlyAttr = $editable ? '' : 'disabled';
-    $requiredAttr = ($code === 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA') ? 'required' : '';
-    $requiredMark = ($code === 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA') ? ' <span style="color:#d42626">*</span>' : '';
+    $requiredCodes = [
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+        'YURIDICHESKOE_LITSO',
+        'PODRAZDELENIE_0_UROVNYA',
+        'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
+        'OFIS_PRIVYAZKA',
+        'GRAFIK_RABOTY_PRIVYAZKA',
+        'FORMAT_RABOTY_PRIVYAZKA',
+        'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
+    ];
+    $isRequired = in_array($code, $requiredCodes, true);
+    $requiredAttr = $isRequired ? 'required' : '';
+    $requiredMark = $isRequired ? ' <span style="color:#d42626">*</span>' : '';
 
     $options = getIblockOptionsCached((int)$iblockId);
     $selectedId = (int)$selectedId;
@@ -746,7 +808,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $rowIdAttr = ' id="row_'.$codeEsc.'"';
     $labelNoteHtml = '';
     $labelAfterTitleHtml = '';
-    $requiredCodes = ['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA', 'OKLAD', 'RUKOVODYASHCHAYA_DOLZHNOST'];
+    $requiredCodes = [
+        'DOLZHNOST',
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+        'OKLAD',
+        'RUKOVODYASHCHAYA_DOLZHNOST',
+        'DOLZHNOST_RUKOVODITELYA',
+        'NEOBKHODIMAYA_MEBEL',
+        'KOMANDIROVKI_TEKST',
+        'PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
+    ];
     $isRequiredField = in_array($code, $requiredCodes, true);
     $requiredAttr = $isRequiredField ? 'required' : '';
     $requiredMark = $isRequiredField ? ' <span style="color:#d42626">*</span>' : '';
@@ -938,6 +1009,48 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     color:#2067b0;
     font-weight: 600;
   }
+  .req-modal{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:2000;
+  }
+  .req-modal--open{ display:block; }
+  .req-modal__backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(17,24,39,.45);
+  }
+  .req-modal__dialog{
+    position:relative;
+    max-width:800px;
+    margin:6vh auto;
+    background:#fff;
+    border-radius:10px;
+    box-shadow:0 20px 45px rgba(0,0,0,.2);
+    overflow:hidden;
+  }
+  .req-modal__head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:14px 16px;
+    border-bottom:1px solid #edf0f4;
+    font-weight:600;
+  }
+  .req-modal__close{
+    border:0;
+    background:transparent;
+    font-size:24px;
+    line-height:1;
+    color:#6b7280;
+    cursor:pointer;
+  }
+  .req-modal__body{
+    padding:16px;
+    max-height:70vh;
+    overflow:auto;
+  }
 </style>
 
 <div class="ui-alert ui-alert-primary">
@@ -958,6 +1071,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
 <form method="post" class="ui-form" style="max-width: 1100px;">
   <?= bitrix_sessid_post(); ?>
+  <input type="hidden" name="confirm_save" id="confirm_save" value="">
 
   <?php
   // раскладываем по группам
@@ -990,13 +1104,39 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   <div class="ui-form-row" style="margin-top:18px;">
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
-      <button type="submit" class="ui-btn ui-btn-success">Сохранить</button>
+      <button type="button" class="ui-btn ui-btn-success" id="open_confirm_modal">Сохранить</button>
     </div>
   </div>
 </form>
 
+<div class="req-modal" id="save_confirm_modal" aria-hidden="true">
+  <div class="req-modal__backdrop" id="save_confirm_backdrop"></div>
+  <div class="req-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="save_confirm_title">
+    <div class="req-modal__head">
+      <div id="save_confirm_title">Проверьте изменения перед сохранением</div>
+      <button type="button" class="req-modal__close" id="close_confirm_modal" aria-label="Закрыть">×</button>
+    </div>
+    <div class="req-modal__body">
+      <div id="save_changes_preview"></div>
+      <div style="margin-top:16px; display:flex; gap:10px;">
+        <button type="button" class="ui-btn ui-btn-success" id="confirm_save_changes">Сохранить изменения</button>
+        <button type="button" class="ui-btn ui-btn-light-border" id="cancel_save_changes">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
+  const formEl = document.querySelector('form.ui-form');
+  const openConfirmModalBtn = document.getElementById('open_confirm_modal');
+  const confirmSaveInput = document.getElementById('confirm_save');
+  const saveConfirmModal = document.getElementById('save_confirm_modal');
+  const saveConfirmBackdrop = document.getElementById('save_confirm_backdrop');
+  const closeConfirmModal = document.getElementById('close_confirm_modal');
+  const cancelSaveChanges = document.getElementById('cancel_save_changes');
+  const confirmSaveChanges = document.getElementById('confirm_save_changes');
+  const saveChangesPreview = document.getElementById('save_changes_preview');
   const bonusType = document.getElementById('field_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA');
   const salary = document.getElementById('field_OKLAD');
   const bonusPercent = document.getElementById('field_PROTSENT_PREMII_');
@@ -1013,6 +1153,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
   const kpiRate = document.getElementById('ndfl_rate_kpi');
   const netRate = document.getElementById('ndfl_rate_net');
+  const initialFieldValues = {};
 
   if (!bonusType || !salary || !bonusPercent || !isn || !kpiIncome || !netIncome) return;
 
@@ -1122,6 +1263,66 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
       managerEditedNote.style.display = diff ? '' : 'none';
     }
   };
+  const getFieldValueForPreview = (field) => {
+    if (!field) return '';
+    if (field.tagName === 'SELECT') {
+      return field.options[field.selectedIndex]?.textContent?.trim() || '';
+    }
+    return (field.value || '').trim();
+  };
+  const captureInitialValues = () => {
+    document.querySelectorAll('input[id^="field_"], textarea[id^="field_"], select[id^="field_"]').forEach((field) => {
+      initialFieldValues[field.id] = getFieldValueForPreview(field);
+    });
+    const employeeName = document.querySelector('input[name="employee_name"]');
+    if (employeeName) initialFieldValues.employee_name = (employeeName.value || '').trim();
+  };
+  const collectChangesForPreview = () => {
+    const changes = [];
+    document.querySelectorAll('input[id^="field_"], textarea[id^="field_"], select[id^="field_"]').forEach((field) => {
+      const oldVal = (initialFieldValues[field.id] || '').trim();
+      const newVal = getFieldValueForPreview(field);
+      if (oldVal === newVal) return;
+      const row = field.closest('.ui-form-row');
+      const labelEl = row?.querySelector('.ui-form-label .ui-ctl-label-text');
+      const label = (labelEl?.textContent || field.id).trim();
+      changes.push({ label, oldVal, newVal });
+    });
+    const employeeName = document.querySelector('input[name="employee_name"]');
+    if (employeeName) {
+      const oldVal = (initialFieldValues.employee_name || '').trim();
+      const newVal = (employeeName.value || '').trim();
+      if (oldVal !== newVal) {
+        changes.push({ label: 'Непосредственный руководитель', oldVal, newVal });
+      }
+    }
+    return changes;
+  };
+  const renderChangesPreview = (changes) => {
+    if (!saveChangesPreview) return;
+    if (!changes.length) {
+      saveChangesPreview.innerHTML = '<div>Изменений не обнаружено.</div>';
+      return;
+    }
+    const esc = (value) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    saveChangesPreview.innerHTML = `<ul>${changes.map((item) => `<li><b>${esc(item.label)}</b>: ${esc(item.oldVal)} → ${esc(item.newVal)}</li>`).join('')}</ul>`;
+  };
+  const openSaveModal = () => {
+    if (!saveConfirmModal) return;
+    const changes = collectChangesForPreview();
+    renderChangesPreview(changes);
+    saveConfirmModal.classList.add('req-modal--open');
+    saveConfirmModal.setAttribute('aria-hidden', 'false');
+  };
+  const closeSaveModal = () => {
+    if (!saveConfirmModal) return;
+    saveConfirmModal.classList.remove('req-modal--open');
+    saveConfirmModal.setAttribute('aria-hidden', 'true');
+  };
 
   // Главный пересчет: управляет видимостью полей KPI/Без премии и пересчитывает значения на лету.
   const compute = () => {
@@ -1165,9 +1366,27 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     el.addEventListener('change', updateResponsibilitiesDiff);
     el.addEventListener('input', updateResponsibilitiesDiff);
   });
+  [saveConfirmBackdrop, closeConfirmModal, cancelSaveChanges].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('click', closeSaveModal);
+  });
+  if (openConfirmModalBtn) {
+    openConfirmModalBtn.addEventListener('click', () => {
+      if (!formEl || !formEl.reportValidity()) return;
+      openSaveModal();
+    });
+  }
+  if (confirmSaveChanges) {
+    confirmSaveChanges.addEventListener('click', () => {
+      if (!formEl) return;
+      if (confirmSaveInput) confirmSaveInput.value = 'Y';
+      formEl.submit();
+    });
+  }
 
   compute();
   updateResponsibilitiesDiff();
+  captureInitialValues();
 })();
 </script>
 
