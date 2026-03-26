@@ -665,9 +665,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
 
         // Запуск БП уведомления.
-        // Для ИБ-документа обязателен корректный DOCUMENT_ID вида iblock_{IBLOCK_ID}_{ELEMENT_ID},
-        // иначе процесс может стартовать, но не привязаться к элементу в журнале.
-        $documentId = ['iblock', 'CIBlockDocument', 'iblock_' . IBLOCK_RECRUIT . '_' . $elementId];
+        // В текущем контуре шаблон БП ожидает ID элемента как document third-part.
+        $documentId = ['iblock', 'CIBlockDocument', $elementId];
         $arErrorsTmp = [];
         $bpParams = [
             'par_Changes' => (string)$historyBlock,
