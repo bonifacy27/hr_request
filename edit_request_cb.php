@@ -168,6 +168,8 @@ $GROUP_MAP = [
     'VAKANSIYA_PODTVERZHDENA_C_B' => 'Мотивация',
     'PRIZNAK_PO_DOLZHNOSTI_TEKST' => 'Мотивация',
     'RUKOVODYASHCHAYA_DOLZHNOST' => 'Мотивация',
+    'STAVKA' => 'Мотивация',
+    'KOMMENTARII_C_B' => 'Мотивация',
 
     // Условия работы
     'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA' => 'Условия работы',
@@ -176,6 +178,7 @@ $GROUP_MAP = [
     'FORMAT_RABOTY_PRIVYAZKA' => 'Условия работы',
     'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA' => 'Условия работы',
     'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA' => 'Условия работы',
+    'OBORUDOVANIE_DLYA_RABOTY_TEKST' => 'Условия работы',
     'NEOBKHODIMAYA_MEBEL' => 'Условия работы',
     'KOMANDIROVKI_TEKST' => 'Условия работы',
     'KOMANDIROVKI_PRODOLZHITELNOST' => 'Условия работы',
@@ -188,7 +191,7 @@ $GROUP_MAP = [
     'DATA_PEREVODA' => 'Подбор',
     'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => 'Подбор',
     'OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV' => 'Подбор',
-    'KONFIDENTSIALNYY_POISK_LST' => 'Подбор',
+    'KONFIDENTSIALNYY_POISK' => 'Подбор',
     'REKRUTER' => 'Подбор',
     'STATUS_ZAYAVKI' => 'Подбор',
     'KOMMENTARII_K_ZAYAVKE' => 'Подбор',
@@ -214,7 +217,7 @@ $FIELDS = [
     ["CODE" => "DOLZHNOST_RUKOVODITELYA", "NAME" => "Должность руководителя", "EDITABLE" => true],
 
     ["CODE" => "OBRAZOVANIE_TEKST", "NAME" => "Образование", "EDITABLE" => false],
-    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности, заполненные руководителем", "EDITABLE" => true],
+    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности, заполненные руководителем", "EDITABLE" => false],
     ["CODE" => "RAZNITSA_TEKSTOV", "NAME" => "Разница текстов", "EDITABLE" => false],
     ["CODE" => "DOLZHNOSTNYE_OBYAZANNOSTI_1C", "NAME" => "Обязанности из 1с", "EDITABLE" => true],
     ["CODE" => "POL_STROKA", "NAME" => "Пол", "EDITABLE" => false],
@@ -239,6 +242,7 @@ $FIELDS = [
     ["CODE" => "FORMAT_RABOTY_PRIVYAZKA", "NAME" => "Формат работы (привязка)", "EDITABLE" => true],
     ["CODE" => "NACHALO_RABOCHEGO_DNYA_PRIVYAZKA", "NAME" => "Начало рабочего дня (привязка)", "EDITABLE" => false],
     ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA", "NAME" => "Оборудование для работы (привязка)", "EDITABLE" => true],
+    ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_TEKST", "NAME" => "Доп. требования к оборудованию", "EDITABLE" => true],
     ["CODE" => "NEOBKHODIMAYA_MEBEL", "NAME" => "Необходимая мебель", "EDITABLE" => true],
     ["CODE" => "KOMANDIROVKI_TEKST", "NAME" => "Командировки", "EDITABLE" => true],
     ["CODE" => "KOMANDIROVKI_PRODOLZHITELNOST", "NAME" => "Командировки (продолжительность)", "EDITABLE" => true],
@@ -252,7 +256,9 @@ $FIELDS = [
     ["CODE" => "OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV", "NAME" => "Отделы для поиска внутренних кандидатов", "EDITABLE" => true],
     ["CODE" => "PRIZNAK_PO_DOLZHNOSTI_TEKST", "NAME" => "Признак по должности", "EDITABLE" => true],
     ["CODE" => "RUKOVODYASHCHAYA_DOLZHNOST", "NAME" => "Руководящая должность", "EDITABLE" => true],
-    ["CODE" => "KONFIDENTSIALNYY_POISK_LST", "NAME" => "Конфиденциальный поиск", "EDITABLE" => false],
+    ["CODE" => "STAVKA", "NAME" => "Ставка", "EDITABLE" => true],
+    ["CODE" => "KOMMENTARII_C_B", "NAME" => "Комментарии C&B", "EDITABLE" => true],
+    ["CODE" => "KONFIDENTSIALNYY_POISK", "NAME" => "Конфиденциальный поиск", "EDITABLE" => false],
     ["CODE" => "REKRUTER", "NAME" => "Рекрутер", "EDITABLE" => false],
     ["CODE" => "STATUS_ZAYAVKI", "NAME" => "Статус заявки", "EDITABLE" => false],
     ["CODE" => "KOMMENTARII_K_ZAYAVKE", "NAME" => "Комментарий к заявке", "EDITABLE" => false],
@@ -516,6 +522,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
     $updates = [];
     $historyChanged = [];
     $jsonChanged = [];
+    $hasWorkflowRelevantChanges = false;
 
     if (isset($post['employee_id']) && is_array($post['employee_id'])) {
         $post['employee_id'] = array_values(array_filter(array_map('intval', $post['employee_id'])));
@@ -590,6 +597,9 @@ if ($request->isPost() && check_bitrix_sessid()) {
     if (trim((string)($post['PRICHINA_OTKRYTIYA_VAKANSII_TEKST'] ?? '')) === '') {
         $errors[] = 'Поле "Причина открытия вакансии" обязательно для заполнения.';
     }
+    if ((float)($post['STAVKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Ставка" обязательно для заполнения.';
+    }
 
     $calculatedIncome = calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross);
     $post['DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_'] = $calculatedIncome['kpi'];
@@ -614,8 +624,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
             if ($newVal > 0 && $newVal !== $oldVal) {
                 $updates[$code] = $newVal;
-                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
             }
             continue;
         }
@@ -627,8 +640,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
             if ($newVal !== $oldVal) {
                 $updates[$code] = $newVal;
-                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
             }
             continue;
         }
@@ -641,12 +657,17 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
             if ($newId !== $oldId) {
                 $updates[$code] = $newId;
-                $jsonChanged[$code] = $newId;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $jsonChanged[$code] = $newId;
+                }
 
                 $oldName = $ib ? getElementNameById($ib, $oldId) : (string)$oldId;
                 $newName = $ib ? getElementNameById($ib, $newId) : (string)$newId;
 
-                $historyChanged[] = labelWithoutPrivyazka($f['NAME']) . ': ' . $oldName . ' → ' . $newName;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $historyChanged[] = labelWithoutPrivyazka($f['NAME']) . ': ' . $oldName . ' → ' . $newName;
+                }
             }
             continue;
         }
@@ -657,8 +678,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $oldEnumId = (int)($curProps[$code]['VALUE_ENUM_ID'] ?? 0);
             if ($newEnumId !== $oldEnumId) {
                 $updates[$code] = $newEnumId;
-                $jsonChanged[$code] = $newEnumId;
-                $historyChanged[] = $f['NAME'] . ': ' . (string)($curProps[$code]['VALUE'] ?? '') . ' → ' . $newEnumId;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $jsonChanged[$code] = $newEnumId;
+                    $historyChanged[] = $f['NAME'] . ': ' . (string)($curProps[$code]['VALUE'] ?? '') . ' → ' . $newEnumId;
+                }
             }
             continue;
         }
@@ -669,8 +693,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $oldVal = (string)normPropValue($curProps[$code] ?? '');
             if ($newVal !== $oldVal) {
                 $updates[$code] = $newVal;
-                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
             }
             continue;
         }
@@ -680,14 +707,22 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $oldVal = (string)normPropValue($curProps[$code] ?? '');
         if ($newVal !== $oldVal) {
             $updates[$code] = $newVal;
-            $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-            $jsonChanged[$code] = $newVal;
+            if ($code !== 'KOMMENTARII_C_B') {
+                $hasWorkflowRelevantChanges = true;
+                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                $jsonChanged[$code] = $newVal;
+            }
         }
     }
     }
 
     if (empty($errors) && empty($updates)) {
         $errors[] = 'Нет изменений для сохранения.';
+    } elseif (empty($errors) && !$hasWorkflowRelevantChanges) {
+        CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
+        $success = true;
+        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        return;
     } elseif (empty($errors)) {
         // История append
         $historyCode = 'KOMMENTARII';
@@ -716,7 +751,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
 
         // Запуск БП уведомления.
-        // В текущем контуре шаблон БП ожидает ID элемента как document third-part.
         $documentId = ['lists', 'BizprocDocument', $elementId];
         $arErrorsTmp = [];
         $bpParams = [
@@ -815,6 +849,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
         'OKLAD',
         'RUKOVODYASHCHAYA_DOLZHNOST',
+        'STAVKA',
         'DOLZHNOST_RUKOVODITELYA',
         'NEOBKHODIMAYA_MEBEL',
         'KOMANDIROVKI_TEKST',
@@ -887,6 +922,31 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         </div>';
     }
 
+    if ($code === 'STAVKA') {
+        $val = (string)normPropValue($value);
+        $numericVal = (float)str_replace(',', '.', $val);
+        if ($numericVal <= 0) $numericVal = 1.0;
+        $options = '';
+        for ($i = 1; $i <= 10; $i++) {
+            $optionVal = number_format($i / 10, 1, '.', '');
+            $selected = ((float)$optionVal === (float)$numericVal) ? 'selected' : '';
+            $options .= '<option value="'.$optionVal.'" '.$selected.'>'.$optionVal.'</option>';
+        }
+
+        return '
+        <div class="ui-form-row"'.$rowIdAttr.'>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
+              <div class="ui-ctl-after ui-ctl-icon-angle"></div>
+              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.' '.$requiredAttr.'>
+                '.$options.'
+              </select>
+            </div>
+          </div>
+        </div>';
+    }
+
     if ($code === 'RAZNITSA_TEKSTOV') {
         global $curProps;
         $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
@@ -939,7 +999,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $valEsc = htmlspecialcharsbx($valStr);
 
     // textarea?
-    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
+    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
 
     if ($isTextarea) {
         $rows = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true) ? 8 : 4;
