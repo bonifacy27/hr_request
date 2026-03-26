@@ -554,7 +554,9 @@ if ($request->isPost() && check_bitrix_sessid()) {
     if ((int)($post['PODRAZDELENIE_0_UROVNYA'] ?? 0) <= 0) {
         $errors[] = 'Поле "Подразделение 0 уровня" обязательно для заполнения.';
     }
-    $employeeId = 0;
+    // Для селектора руководителя employee_id может отсутствовать в POST, если поле не меняли.
+    // В этом случае берем текущее значение из заявки.
+    $employeeId = (int)normPropValue($curProps['NEPOSREDSTVENNYY_RUKOVODITEL'] ?? 0);
     if (!empty($post['employee_id']) && is_array($post['employee_id']) && !empty($post['employee_id'][0])) {
         $employeeId = (int)$post['employee_id'][0];
     }
