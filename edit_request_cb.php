@@ -664,15 +664,19 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
 
-        // Запуск БП
-        $documentId = ['iblock', 'CIBlockDocument', $elementId];
+        // Запуск БП уведомления.
+        // Для ИБ-документа обязателен корректный DOCUMENT_ID вида iblock_{IBLOCK_ID}_{ELEMENT_ID},
+        // иначе процесс может стартовать, но не привязаться к элементу в журнале.
+        $documentId = ['iblock', 'CIBlockDocument', 'iblock_' . IBLOCK_RECRUIT . '_' . $elementId];
         $arErrorsTmp = [];
-$bpParams = [
+        $bpParams = [
             'par_Changes' => (string)$historyBlock,
         ];
-        CBPDocument::StartWorkflow(BP_TEMPLATE_ID_EDIT_NOTIFY, $documentId, $bpParams, $arErrorsTmp);
+        $wfId = CBPDocument::StartWorkflow(BP_TEMPLATE_ID_EDIT_NOTIFY, $documentId, $bpParams, $arErrorsTmp);
         if (!empty($arErrorsTmp)) {
             $errors[] = 'Заявка сохранена, но БП не запустился: ' . print_r($arErrorsTmp, true);
+        } elseif (empty($wfId)) {
+            $errors[] = 'Заявка сохранена, но БП вернул пустой ID процесса (проверьте шаблон БП и тип документа).';
         }
 
         $success = true;
