@@ -34,7 +34,7 @@ const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
  * Логин  - Constant1698403240866
  * Пароль - Constant1698403290839
  */
-function fwGetCredentials(): array
+function fwGetCredentials()
 {
     $result = [
         'username' => '',
@@ -123,7 +123,7 @@ function fwGetCredentials(): array
     return $result;
 }
 
-function h($value): string
+function h($value)
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
@@ -134,7 +134,20 @@ function valueOr($array, $key, $default = '')
 }
 
 
-function normalizeText(?string $value): string
+
+
+function fwLog($message, $data = null)
+{
+    if (is_array($data) || is_object($data)) {
+        $data = print_r($data, true);
+    }
+    if ($data !== null) {
+        $message .= ' | ' . (string)$data;
+    }
+    error_log('[request_to_fw] ' . $message);
+}
+
+function normalizeText($value)
 {
     $value = trim((string)$value);
     if ($value === '') {
@@ -147,7 +160,7 @@ function normalizeText(?string $value): string
 
 
 
-function buildDescription(array $fields): string
+function buildDescription($fields)
 {
     $header = "<b>Триколор</b> — мультиплатформенный оператор, предлагающий единое информационное пространство развлечений и сервисов для всей семьи.<br>\n"
         . "Наряду с ТВ, мы предлагаем передовые digital-сервисы и услуги, включая онлайн-кинотеатр, умный дом, видеонаблюдение и спутниковый интернет.<br><br>";
@@ -181,7 +194,7 @@ function buildDescription(array $fields): string
 /**
  * Авторизация в FW. Возвращает путь к cookie-файлу и отладочные данные.
  */
-function fwLoginAndGetCookieFile(string $username, string $password): array
+function fwLoginAndGetCookieFile($username, $password)
 {
     if ($username === '' || $password === '') {
         return [false, 'Не заданы логин/пароль FriendWork.', '', ['username' => $username, 'password' => $password]];
@@ -204,13 +217,14 @@ function fwLoginAndGetCookieFile(string $username, string $password): array
 
     if ($response === false || $httpCode >= 400) {
         @unlink($cookieFile);
+        fwLog('Ошибка авторизации FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]);
         return [false, 'Ошибка авторизации FriendWork. HTTP: ' . $httpCode . '; CURL: ' . $curlErr, '', ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
     }
 
     return [true, '', $cookieFile, ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
 }
 
-function fwCreateJob(array $payload, string $cookieFile): array
+function fwCreateJob($payload, $cookieFile)
 {
     $ch = curl_init(FW_JOBS_ENDPOINT);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -226,6 +240,7 @@ function fwCreateJob(array $payload, string $cookieFile): array
     curl_close($ch);
 
     if ($responseRaw === false) {
+        fwLog('Ошибка CURL при создании вакансии', ['httpCode' => $httpCode, 'curlError' => $curlErr]);
         return [false, 'Ошибка CURL при создании вакансии: ' . $curlErr, [], $httpCode, ''];
     }
 
@@ -235,17 +250,19 @@ function fwCreateJob(array $payload, string $cookieFile): array
     }
 
     if ($httpCode >= 400) {
+        fwLog('FriendWork Jobs HTTP error', ['httpCode' => $httpCode, 'response' => $responseRaw]);
         return [false, 'FriendWork вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
     if (empty($response['jobId'])) {
+        fwLog('FriendWork Jobs missing jobId', ['httpCode' => $httpCode, 'response' => $responseRaw]);
         return [false, 'FriendWork не вернул jobId. Ответ: ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
-function fwGetAccounts(string $cookieFile): array
+function fwGetAccounts($cookieFile)
 {
     $ch = curl_init(FW_ACCOUNTS_ENDPOINT);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
@@ -259,6 +276,7 @@ function fwGetAccounts(string $cookieFile): array
     curl_close($ch);
 
     if ($responseRaw === false) {
+        fwLog('Ошибка CURL при получении аккаунтов FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr]);
         return [false, 'Ошибка CURL при получении аккаунтов FriendWork: ' . $curlErr, [], $httpCode, ''];
     }
 
@@ -268,6 +286,7 @@ function fwGetAccounts(string $cookieFile): array
     }
 
     if ($httpCode >= 400) {
+        fwLog('FriendWork Accounts HTTP error', ['httpCode' => $httpCode, 'response' => $responseRaw]);
         return [false, 'FriendWork /api/Accounts вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
