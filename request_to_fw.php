@@ -74,6 +74,7 @@ function fwGetCredentials(): array
                 return '';
             }
 
+            // 1) Пробуем как есть (массив/строка после serialize()).
             $unserialized = @unserialize($raw, ['allowed_classes' => false]);
             if (is_array($unserialized)) {
                 if (isset($unserialized['value'])) {
@@ -82,6 +83,27 @@ function fwGetCredentials(): array
                 if (isset($unserialized[0])) {
                     return trim((string)$unserialized[0]);
                 }
+            }
+            if (is_string($unserialized)) {
+                return trim($unserialized);
+            }
+
+            // 2) Частый кейс в таблице: экранированная сериализованная строка,
+            // например: s:27:"test@tricolor.tv";
+            $unescaped = stripcslashes($raw);
+            if ($unescaped !== $raw) {
+                $unserialized = @unserialize($unescaped, ['allowed_classes' => false]);
+                if (is_string($unserialized)) {
+                    return trim($unserialized);
+                }
+            }
+
+            // 3) Fallback для "s:<len>:"value";" без успешного unserialize.
+            if (preg_match('/^s:\d+:"(.*)";$/s', $unescaped, $m)) {
+                return trim((string)$m[1]);
+            }
+            if (preg_match('/^s:\d+:"(.*)";$/s', $raw, $m)) {
+                return trim((string)$m[1]);
             }
 
             return trim($raw);
