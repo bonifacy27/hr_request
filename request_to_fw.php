@@ -21,12 +21,12 @@ global $APPLICATION;
 $APPLICATION->SetTitle('Отправка заявки в FriendWork');
 
 const IBLOCK_RECRUITMENT = 201;
-const IBLOCK_FW_ACCOUNTS = 211;
 const FW_CLIENT_ID = 5322;
 const FW_STATUS_DRAFT = 5;
 const FW_POSITION_COUNT = 1;
 const FW_LOGIN_ENDPOINT = 'https://app.friend.work/api/Accounts/LogIn';
 const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
+const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
 
 /**
@@ -141,31 +141,6 @@ function normalizeText(?string $value): string
 
 
 
-/**
- * Возвращает ID аккаунта FriendWork по e-mail пользователя.
- * Поиск по ИБ 211: PROPERTY_USERNAME (email) -> PROPERTY_FWACCOUNT_ID.
- */
-function resolveFwResponsibleIdByEmail(string $email): int
-{
-    $email = mb_strtolower(trim($email));
-    if ($email === '') {
-        return 0;
-    }
-
-    $arSelect = ['ID', 'IBLOCK_ID', 'PROPERTY_FWACCOUNT_ID', 'PROPERTY_USERNAME'];
-    $arFilter = [
-        'IBLOCK_ID' => IBLOCK_FW_ACCOUNTS,
-        'ACTIVE' => 'Y',
-        'PROPERTY_USERNAME' => $email,
-    ];
-
-    $rs = CIBlockElement::GetList([], $arFilter, false, ['nTopCount' => 1], $arSelect);
-    if ($row = $rs->GetNext()) {
-        return (int)($row['PROPERTY_FWACCOUNT_ID_VALUE'] ?? 0);
-    }
-
-    return 0;
-}
 function buildDescription(array $fields): string
 {
     $header = "<b>Триколор</b> — мультиплатформенный оператор, предлагающий единое информационное пространство развлечений и сервисов для всей семьи.<br>\n"
@@ -264,6 +239,36 @@ function fwCreateJob(array $payload, string $cookieFile): array
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
+function fwGetAccounts(string $cookieFile): array
+{
+    $ch = curl_init(FW_ACCOUNTS_ENDPOINT);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $responseRaw = curl_exec($ch);
+    $curlErr = curl_error($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($responseRaw === false) {
+        return [false, 'Ошибка CURL при получении аккаунтов FriendWork: ' . $curlErr, [], $httpCode, ''];
+    }
+
+    $response = json_decode($responseRaw, true);
+    if (!is_array($response)) {
+        $response = [];
+    }
+
+    if ($httpCode >= 400) {
+        return [false, 'FriendWork /api/Accounts вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
+    }
+
+    return [true, '', $response, $httpCode, $responseRaw];
+}
+
+
 if (!Loader::includeModule('iblock')) {
     ShowError('Не удалось подключить модуль iblock.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
@@ -318,7 +323,6 @@ if ($recruiterId > 0) {
     }
 }
 
-$responsibleFwId = resolveFwResponsibleIdByEmail($recruiterEmail);
 
 $fields = [
     'name' => normalizeText($element['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
@@ -341,7 +345,7 @@ $payload = [
     'Name' => $fields['name'],
     'Description' => $description,
     'Comment' => $comment,
-    'ResponsibleId' => $responsibleFwId,
+    'ResponsibleId' => 0,
 ];
 
 $existingFwId = trim((string)($element['PROPERTY_ID_FW_VAKANSII_VALUE'] ?? ''));
@@ -363,9 +367,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     if ($recruiterEmail === '') {
         $errors[] = 'Не удалось определить e-mail рекрутера (поле REKRUTER).';
     }
-    if ((int)$payload['ResponsibleId'] <= 0) {
-        $errors[] = 'Не удалось определить ID аккаунта FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
-    }
 
     if (!$errors) {
         $fwCredentials = fwGetCredentials();
@@ -379,33 +380,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             if (!$loginOk) {
                 $errors[] = $loginError;
             } else {
-                [$createOk, $createError, $fwResponse, $createHttpCode, $createRaw] = fwCreateJob($payload, $cookieFile);
-                @unlink($cookieFile);
-                $debugInfo['create'] = [
-                    'httpCode' => $createHttpCode,
-                    'rawResponse' => $createRaw,
-                    'parsedResponse' => $fwResponse,
+                [$accountsOk, $accountsError, $accountsResponse, $accountsHttpCode, $accountsRaw] = fwGetAccounts($cookieFile);
+                $debugInfo['accounts'] = [
+                    'httpCode' => $accountsHttpCode,
+                    'rawResponse' => $accountsRaw,
                 ];
 
-                if (!$createOk) {
-                    $errors[] = $createError;
+                if (!$accountsOk) {
+                    @unlink($cookieFile);
+                    $errors[] = $accountsError;
                 } else {
-                    $jobId = (int)$fwResponse['jobId'];
-                    $jobUrl = FW_JOB_EDIT_URL . $jobId;
+                    $emailLower = mb_strtolower(trim($recruiterEmail));
+                    $resolvedResponsibleId = 0;
+                    foreach ($accountsResponse as $account) {
+                        $accountEmail = mb_strtolower(trim((string)($account['userName'] ?? '')));
+                        if ($accountEmail === $emailLower) {
+                            $resolvedResponsibleId = (int)($account['accountId'] ?? 0);
+                            break;
+                        }
+                    }
 
-                    CIBlockElement::SetPropertyValuesEx(
-                        $requestId,
-                        IBLOCK_RECRUITMENT,
-                        [
-                            'ID_FW_VAKANSII' => $jobId,
-                            'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
-                        ]
-                    );
+                    if ($resolvedResponsibleId <= 0) {
+                        @unlink($cookieFile);
+                        $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
+                    } else {
+                        $payload['ResponsibleId'] = $resolvedResponsibleId;
 
-                    $existingFwId = (string)$jobId;
-                    $existingFwUrl = $jobUrl;
-                    $alreadyCreated = true;
-                    $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId);
+                        [$createOk, $createError, $fwResponse, $createHttpCode, $createRaw] = fwCreateJob($payload, $cookieFile);
+                        @unlink($cookieFile);
+                        $debugInfo['create'] = [
+                            'httpCode' => $createHttpCode,
+                            'rawResponse' => $createRaw,
+                            'parsedResponse' => $fwResponse,
+                        ];
+
+                        if (!$createOk) {
+                            $errors[] = $createError;
+                        } else {
+                            $jobId = (int)$fwResponse['jobId'];
+                            $jobUrl = FW_JOB_EDIT_URL . $jobId;
+
+                            CIBlockElement::SetPropertyValuesEx(
+                                $requestId,
+                                IBLOCK_RECRUITMENT,
+                                [
+                                    'ID_FW_VAKANSII' => $jobId,
+                                    'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
+                                ]
+                            );
+
+                            $existingFwId = (string)$jobId;
+                            $existingFwUrl = $jobUrl;
+                            $alreadyCreated = true;
+                            $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId);
+                        }
+                    }
                 }
             }
         }
@@ -486,6 +515,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                         'password' => $fwCredentials['password'] ?? '',
                     ],
                     'login' => $debugInfo['login'] ?? null,
+                    'accounts' => $debugInfo['accounts'] ?? null,
                     'create' => $debugInfo['create'] ?? null,
                     'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
                 ];
