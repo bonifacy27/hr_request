@@ -391,8 +391,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                     $errors[] = $accountsError;
                 } else {
                     $emailLower = mb_strtolower(trim($recruiterEmail));
+                    $emailLocalPart = $emailLower;
+                    if (strpos($emailLower, '@') !== false) {
+                        $emailLocalPart = (string)substr($emailLower, 0, strpos($emailLower, '@'));
+                    }
+
                     $resolvedResponsibleId = 0;
-                    foreach ($accountsResponse as $account) {
+                        $accountLocalPart = $accountEmail;
+                        if (strpos($accountEmail, '@') !== false) {
+                            $accountLocalPart = (string)substr($accountEmail, 0, strpos($accountEmail, '@'));
+                        }
+
+                        $isDirectEmailMatch = ($accountEmail !== '' && $accountEmail === $emailLower);
+                        $isLocalPartMatch = ($accountLocalPart !== '' && $accountLocalPart === $emailLocalPart);
+
+                        if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0) {
                         $accountEmail = mb_strtolower(trim((string)($account['userName'] ?? '')));
                         if ($accountEmail === $emailLower) {
                             $resolvedResponsibleId = (int)($account['accountId'] ?? 0);
