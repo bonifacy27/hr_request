@@ -375,7 +375,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             $errors[] = $fwCredentials['error'];
             $debugInfo['credentials'] = $fwCredentials;
         } else {
-            [$loginOk, $loginError, $cookieFile, $loginDebug] = fwLoginAndGetCookieFile(
+            list($loginOk, $loginError, $cookieFile, $loginDebug) = fwLoginAndGetCookieFile(
                 $fwCredentials['username'],
                 $fwCredentials['password']
             );
@@ -384,7 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             if (!$loginOk) {
                 $errors[] = $loginError;
             } else {
-                [$accountsOk, $accountsError, $accountsResponse, $accountsHttpCode, $accountsRaw] = fwGetAccounts($cookieFile);
+                list($accountsOk, $accountsError, $accountsResponse, $accountsHttpCode, $accountsRaw) = fwGetAccounts($cookieFile);
                 $debugInfo['accounts'] = [
                     'httpCode' => $accountsHttpCode,
                     'rawResponse' => $accountsRaw,
@@ -413,7 +413,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 
                         [$createOk, $createError, $fwResponse, $createHttpCode, $createRaw] = fwCreateJob($payload, $cookieFile);
                         @unlink($cookieFile);
-                        $debugInfo['create'] = [
+                        list($createOk, $createError, $fwResponse, $createHttpCode, $createRaw) = fwCreateJob($payload, $cookieFile);
                             'httpCode' => $createHttpCode,
                             'rawResponse' => $createRaw,
                             'parsedResponse' => $fwResponse,
