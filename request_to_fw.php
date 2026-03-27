@@ -411,8 +411,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                             $resolvedResponsibleId = (int)($account['accountId'] ?? 0);
                             break;
                         }
-                    }
-
+                            if ($resolvedResponsibleId <= 0) {
+                                $resolvedResponsibleId = $accountId;
+                            }
                     if ($resolvedResponsibleId <= 0) {
                         @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
