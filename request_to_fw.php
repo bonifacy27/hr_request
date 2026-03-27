@@ -161,6 +161,25 @@ function normalizeText($value)
 
 
 
+
+
+function normalizeEmail($email)
+{
+    $email = mb_strtolower(trim((string)$email));
+    $email = preg_replace('/\s+/', '', $email);
+    return $email;
+}
+
+function emailLocalPart($email)
+{
+    $email = normalizeEmail($email);
+    $pos = strpos($email, '@');
+    if ($pos === false) {
+        return $email;
+    }
+    return (string)substr($email, 0, $pos);
+}
+
 function buildDescription($fields)
 {
     $header = "<b>Триколор</b> — мультиплатформенный оператор, предлагающий единое информационное пространство развлечений и сервисов для всей семьи.<br>\n"
@@ -421,34 +440,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     @unlink($cookieFile);
                     $errors[] = $accountsError;
                 } else {
-                    $emailLower = mb_strtolower(trim($recruiterEmail));
-                    $emailLocalPart = $emailLower;
-                    if (strpos($emailLower, '@') !== false) {
-                        $emailLocalPart = (string)substr($emailLower, 0, strpos($emailLower, '@'));
-                    }
+                    $emailLower = normalizeEmail($recruiterEmail);
+                    $emailLocalPart = emailLocalPart($recruiterEmail);
 
                     $resolvedResponsibleId = 0;
 
                     $accountsList = $accountsResponse;
+                    $debugInfo['responsibleLookup'] = array('recruiterEmailRaw' => $recruiterEmail);
                     if (isset($accountsResponse['items']) && is_array($accountsResponse['items'])) {
                         $accountsList = $accountsResponse['items'];
                     } elseif (isset($accountsResponse['data']) && is_array($accountsResponse['data'])) {
                         $accountsList = $accountsResponse['data'];
+                    } elseif (isset($accountsResponse['accounts']) && is_array($accountsResponse['accounts'])) {
+                        $accountsList = $accountsResponse['accounts'];
                     }
 
+                    $debugInfo['responsibleLookup']['accountsCount'] = is_array($accountsList) ? count($accountsList) : 0;
                     foreach ($accountsList as $account) {
                         if (!is_array($account)) {
                             continue;
                         }
 
-                        $accountEmailRaw = (string)(isset($account['userName']) ? $account['userName'] : (isset($account['username']) ? $account['username'] : (isset($account['email']) ? $account['email'] : (isset($account['mail']) ? $account['mail'] : ''))));
-                        $accountEmail = mb_strtolower(trim($accountEmailRaw));
-                        $accountId = (int)(isset($account['accountId']) ? $account['accountId'] : (isset($account['id']) ? $account['id'] : 0));
+                        $accountEmailRaw = (string)(
+                            isset($account['userName']) ? $account['userName'] : (
+                            isset($account['username']) ? $account['username'] : (
+                            isset($account['UserName']) ? $account['UserName'] : (
+                            isset($account['USERNAME']) ? $account['USERNAME'] : (
+                            isset($account['email']) ? $account['email'] : (
+                            isset($account['EMAIL']) ? $account['EMAIL'] : (
+                            isset($account['mail']) ? $account['mail'] : ''))))))
+                        );
+                        $accountEmail = normalizeEmail($accountEmailRaw);
+                        $accountId = (int)(
+                            isset($account['accountId']) ? $account['accountId'] : (
+                            isset($account['accountID']) ? $account['accountID'] : (
+                            isset($account['AccountId']) ? $account['AccountId'] : (
+                            isset($account['id']) ? $account['id'] : (
+                            isset($account['ID']) ? $account['ID'] : 0))))
+                        );
 
-                        $accountLocalPart = $accountEmail;
-                        if (strpos($accountEmail, '@') !== false) {
-                            $accountLocalPart = (string)substr($accountEmail, 0, strpos($accountEmail, '@'));
-                        }
+                        $accountLocalPart = emailLocalPart($accountEmail);
 
                         $isDirectEmailMatch = ($accountEmail !== '' && $accountEmail === $emailLower);
                         $isLocalPartMatch = ($accountLocalPart !== '' && $accountLocalPart === $emailLocalPart);
@@ -457,6 +488,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                             $resolvedResponsibleId = $accountId;
                         }
                     }
+
+                    $debugInfo['responsibleLookup']['recruiterEmailNormalized'] = $emailLower;
+                    $debugInfo['responsibleLookup']['recruiterLocalPart'] = $emailLocalPart;
+                    $debugInfo['responsibleLookup']['resolvedResponsibleId'] = $resolvedResponsibleId;
 
                     if ($resolvedResponsibleId <= 0) {
                         @unlink($cookieFile);
@@ -576,6 +611,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     'accounts' => valueOr($debugInfo, 'accounts', null),
                     'create' => valueOr($debugInfo, 'create', null),
                     'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
+                    'responsibleLookup' => valueOr($debugInfo, 'responsibleLookup', null),
                 ];
                 echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
             ?></div>
