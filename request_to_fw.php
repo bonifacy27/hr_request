@@ -62,11 +62,11 @@ function fwGetCredentials(): array
         ");
 
         while ($row = $rs->fetch()) {
-            $rows[$row['ID']] = (string)($row['PROPERTY_VALUE'] ?? '');
+            $rows[$row['ID']] = (string)valueOr($row, 'PROPERTY_VALUE', '');
         }
 
-        $usernameRaw = $rows['Constant1698403240866'] ?? '';
-        $passwordRaw = $rows['Constant1698403290839'] ?? '';
+        $usernameRaw = valueOr($rows, 'Constant1698403240866', '');
+        $passwordRaw = valueOr($rows, 'Constant1698403290839', '');
 
         // Значение констант в БП часто хранится сериализованным массивом вида ['value' => '...'].
         $decodeValue = static function (string $raw): string {
@@ -127,6 +127,12 @@ function h($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
+
+function valueOr($array, $key, $default = '')
+{
+    return (is_array($array) && isset($array[$key])) ? $array[$key] : $default;
+}
+
 
 function normalizeText(?string $value): string
 {
@@ -275,7 +281,7 @@ if (!Loader::includeModule('iblock')) {
     return;
 }
 
-$requestId = (int)($_REQUEST['id'] ?? 0);
+$requestId = (int)valueOr($_REQUEST, 'id', 0);
 if ($requestId <= 0) {
     ShowError('Не передан корректный id заявки (параметр id).');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
@@ -318,20 +324,20 @@ $recruiterName = '';
 if ($recruiterId > 0) {
     $rsUser = CUser::GetByID($recruiterId);
     if ($user = $rsUser->Fetch()) {
-        $recruiterEmail = trim((string)($user['EMAIL'] ?? ''));
-        $recruiterName = trim((string)($user['NAME'] ?? '') . ' ' . (string)($user['LAST_NAME'] ?? ''));
+        $recruiterEmail = trim((string)valueOr($user, 'EMAIL', ''));
+        $recruiterName = trim((string)valueOr($user, 'NAME', '') . ' ' . (string)valueOr($user, 'LAST_NAME', ''));
     }
 }
 
 
 $fields = [
-    'name' => normalizeText($element['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
-    'functions' => normalizeText($element['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
-    'speciality' => normalizeText($element['PROPERTY_ZHELAEMAYA_SPETSIALNOST_VALUE'] ?? ''),
-    'experience' => normalizeText($element['PROPERTY_OPYT_RABOTY_VALUE'] ?? ''),
-    'softskills' => normalizeText($element['PROPERTY_DELOVYE_KACHESTVA_VALUE'] ?? ''),
-    'software_skills' => normalizeText($element['PROPERTY_ZNANIE_SPETSIALNYKH_PROGRAMM_VALUE'] ?? ''),
-    'extra_requests' => normalizeText($element['PROPERTY_DOPOLNITELNYE_TREBOVANIYA_VALUE'] ?? ''),
+    'name' => normalizeText(valueOr($element, 'PROPERTY_DOLZHNOST_VALUE', '')),
+    'functions' => normalizeText(valueOr($element, 'PROPERTY_OBYAZANNOSTI_VALUE', '')),
+    'speciality' => normalizeText(valueOr($element, 'PROPERTY_ZHELAEMAYA_SPETSIALNOST_VALUE', '')),
+    'experience' => normalizeText(valueOr($element, 'PROPERTY_OPYT_RABOTY_VALUE', '')),
+    'softskills' => normalizeText(valueOr($element, 'PROPERTY_DELOVYE_KACHESTVA_VALUE', '')),
+    'software_skills' => normalizeText(valueOr($element, 'PROPERTY_ZNANIE_SPETSIALNYKH_PROGRAMM_VALUE', '')),
+    'extra_requests' => normalizeText(valueOr($element, 'PROPERTY_DOPOLNITELNYE_TREBOVANIYA_VALUE', '')),
 ];
 
 $description = buildDescription($fields);
@@ -348,15 +354,15 @@ $payload = [
     'ResponsibleId' => 0,
 ];
 
-$existingFwId = trim((string)($element['PROPERTY_ID_FW_VAKANSII_VALUE'] ?? ''));
-$existingFwUrl = trim((string)($element['PROPERTY_SSYLKA_NA_VAKANSIYU_FW_VALUE'] ?? ''));
+$existingFwId = trim((string)valueOr($element, 'PROPERTY_ID_FW_VAKANSII_VALUE', ''));
+$existingFwUrl = trim((string)valueOr($element, 'PROPERTY_SSYLKA_NA_VAKANSIYU_FW_VALUE', ''));
 $alreadyCreated = ($existingFwId !== '');
 
 $errors = [];
 $success = '';
 $debugInfo = [];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['action'] ?? '') === 'submit_to_fw') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_POST, 'action', '') === 'submit_to_fw') {
     if ($alreadyCreated) {
         $errors[] = 'По этой заявке уже создана вакансия в FriendWork (ID: ' . h($existingFwId) . '). Повторное создание недоступно.';
     }
@@ -401,8 +407,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                     }
 
                     $resolvedResponsibleId = 0;
-                        $accountEmailRaw = (string)($account['userName'] ?? $account['username'] ?? $account['email'] ?? $account['mail'] ?? '');
-                        $accountId = (int)($account['accountId'] ?? $account['id'] ?? 0);
+                        $accountEmailRaw = (string)(isset($account['userName']) ? $account['userName'] : (isset($account['username']) ? $account['username'] : (isset($account['email']) ? $account['email'] : (isset($account['mail']) ? $account['mail'] : ''))));
+                        $accountId = (int)(isset($account['accountId']) ? $account['accountId'] : (isset($account['id']) ? $account['id'] : 0));
                         }
                         if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0 && $resolvedResponsibleId <= 0) {
                             $resolvedResponsibleId = $accountId;
@@ -518,11 +524,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                     'credentials' => [
                         'username' => $fwCredentials['username'] ?? '',
                         'password' => $fwCredentials['password'] ?? '',
-                    ],
-                    'login' => $debugInfo['login'] ?? null,
-                    'accounts' => $debugInfo['accounts'] ?? null,
-                    'create' => $debugInfo['create'] ?? null,
-                    'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
+                        'username' => valueOr($fwCredentials, 'username', ''),
+                        'password' => valueOr($fwCredentials, 'password', ''),
+                    'login' => valueOr($debugInfo, 'login', null),
+                    'accounts' => valueOr($debugInfo, 'accounts', null),
+                    'create' => valueOr($debugInfo, 'create', null),
                 ];
                 echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
             ?></div>
