@@ -148,12 +148,12 @@ function buildDescription(array $fields): string
 }
 
 /**
- * Авторизация в FW. Возвращает путь к cookie-файлу.
+ * Авторизация в FW. Возвращает путь к cookie-файлу и отладочные данные.
  */
 function fwLoginAndGetCookieFile(string $username, string $password): array
 {
     if ($username === '' || $password === '') {
-        return [false, 'Не заданы логин/пароль FriendWork.', ''];
+        return [false, 'Не заданы логин/пароль FriendWork.', '', ['username' => $username, 'password' => $password]];
     }
 
     $cookieFile = sys_get_temp_dir() . '/fw_cookie_' . md5($username . microtime(true)) . '.txt';
@@ -173,10 +173,10 @@ function fwLoginAndGetCookieFile(string $username, string $password): array
 
     if ($response === false || $httpCode >= 400) {
         @unlink($cookieFile);
-        return [false, 'Ошибка авторизации FriendWork. HTTP: ' . $httpCode . '; CURL: ' . $curlErr, ''];
+        return [false, 'Ошибка авторизации FriendWork. HTTP: ' . $httpCode . '; CURL: ' . $curlErr, '', ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
     }
 
-    return [true, '', $cookieFile];
+    return [true, '', $cookieFile, ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
 }
 
 function fwCreateJob(array $payload, string $cookieFile): array
@@ -298,6 +298,7 @@ $alreadyCreated = ($existingFwId !== '');
 
 $errors = [];
 $success = '';
+$debugInfo = [];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['action'] ?? '') === 'submit_to_fw') {
     if ($alreadyCreated) {
@@ -315,13 +316,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         $fwCredentials = fwGetCredentials();
         if ($fwCredentials['error'] !== '') {
             $errors[] = $fwCredentials['error'];
+            $debugInfo['credentials'] = $fwCredentials;
         } else {
-            [$loginOk, $loginError, $cookieFile] = fwLoginAndGetCookieFile($fwCredentials['username'], $fwCredentials['password']);
+            [$loginOk, $loginError, $cookieFile, $loginDebug] = fwLoginAndGetCookieFile($fwCredentials['username'], $fwCredentials['password']);
+            $debugInfo['login'] = $loginDebug;
+
             if (!$loginOk) {
                 $errors[] = $loginError;
             } else {
-                [$createOk, $createError, $fwResponse] = fwCreateJob($payload, $cookieFile);
+                [$createOk, $createError, $fwResponse, $createHttpCode, $createRaw] = fwCreateJob($payload, $cookieFile);
                 @unlink($cookieFile);
+                $debugInfo['create'] = [
+                    'httpCode' => $createHttpCode,
+                    'rawResponse' => $createRaw,
+                    'parsedResponse' => $fwResponse,
+                ];
 
                 if (!$createOk) {
                     $errors[] = $createError;
@@ -409,6 +418,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         <div class="fw-label">JSON, который будет отправлен в FriendWork</div>
         <div class="fw-value"><?= h(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></div>
     </div>
+
+
+    <?php if ($_SERVER['REQUEST_METHOD'] === 'POST'): ?>
+        <div class="fw-row">
+            <div class="fw-label">Диагностика FriendWork (логин/пароль и ответы API)</div>
+            <div class="fw-value"><?php
+                $diagnostic = [
+                    'credentials' => [
+                        'username' => $fwCredentials['username'] ?? '',
+                        'password' => $fwCredentials['password'] ?? '',
+                    ],
+                    'login' => $debugInfo['login'] ?? null,
+                    'create' => $debugInfo['create'] ?? null,
+                ];
+                echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
+            ?></div>
+        </div>
+    <?php endif; ?>
 
     <form method="post" class="fw-actions">
         <?= bitrix_sessid_post() ?>
