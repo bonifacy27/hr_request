@@ -364,6 +364,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     if ($payload['Name'] === '') {
         $errors[] = 'Не заполнено поле DOLZHNOST (название должности) — невозможно сформировать Name.';
     }
+
     if ($recruiterEmail === '') {
         $errors[] = 'Не удалось определить e-mail рекрутера (поле REKRUTER).';
     }
@@ -374,7 +375,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             $errors[] = $fwCredentials['error'];
             $debugInfo['credentials'] = $fwCredentials;
         } else {
-            [$loginOk, $loginError, $cookieFile, $loginDebug] = fwLoginAndGetCookieFile($fwCredentials['username'], $fwCredentials['password']);
+            [$loginOk, $loginError, $cookieFile, $loginDebug] = fwLoginAndGetCookieFile(
+                $fwCredentials['username'],
+                $fwCredentials['password']
+            );
             $debugInfo['login'] = $loginDebug;
 
             if (!$loginOk) {
@@ -397,24 +401,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                     }
 
                     $resolvedResponsibleId = 0;
-                        $accountLocalPart = $accountEmail;
-                        if (strpos($accountEmail, '@') !== false) {
-                            $accountLocalPart = (string)substr($accountEmail, 0, strpos($accountEmail, '@'));
+                        $accountEmailRaw = (string)($account['userName'] ?? $account['username'] ?? $account['email'] ?? $account['mail'] ?? '');
+                        $accountId = (int)($account['accountId'] ?? $account['id'] ?? 0);
                         }
-
-                        $isDirectEmailMatch = ($accountEmail !== '' && $accountEmail === $emailLower);
-                        $isLocalPartMatch = ($accountLocalPart !== '' && $accountLocalPart === $emailLocalPart);
-
-                        if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0) {
-                        $accountEmail = mb_strtolower(trim((string)($account['userName'] ?? '')));
-                        if ($accountEmail === $emailLower) {
-                            $resolvedResponsibleId = (int)($account['accountId'] ?? 0);
-                            break;
-                        }
-                            if ($resolvedResponsibleId <= 0) {
-                                $resolvedResponsibleId = $accountId;
-                            }
-                    if ($resolvedResponsibleId <= 0) {
+                        if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0 && $resolvedResponsibleId <= 0) {
+                            $resolvedResponsibleId = $accountId;
                         @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
                     } else {
