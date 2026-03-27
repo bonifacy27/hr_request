@@ -13,6 +13,7 @@
  */
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\Application;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 
@@ -28,17 +29,75 @@ const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
 
 /**
- * Достаём учётные данные FW из env. Для прода лучше хранить в настройках Битрикс/секретах.
+ * Достаём учётные данные FW из глобальных констант БП (b_bp_global_const).
+ * Логин  - Constant1698403240866
+ * Пароль - Constant1698403290839
  */
 function fwGetCredentials(): array
 {
-    $username = trim((string)getenv('FRIENDWORK_USERNAME'));
-    $password = trim((string)getenv('FRIENDWORK_PASSWORD'));
-
-    return [
-        'username' => $username,
-        'password' => $password,
+    $result = [
+        'username' => '',
+        'password' => '',
+        'error' => '',
     ];
+
+    try {
+        $connection = Application::getConnection();
+        $sqlHelper = $connection->getSqlHelper();
+
+        $ids = [
+            'Constant1698403240866',
+            'Constant1698403290839',
+        ];
+
+        $escapedIds = array_map([$sqlHelper, 'forSql'], $ids);
+        $in = "'" . implode("','", $escapedIds) . "'";
+
+        $rows = [];
+        $rs = $connection->query("
+            SELECT ID, PROPERTY_VALUE
+            FROM b_bp_global_const
+            WHERE ID IN (" . $in . ")
+        ");
+
+        while ($row = $rs->fetch()) {
+            $rows[$row['ID']] = (string)($row['PROPERTY_VALUE'] ?? '');
+        }
+
+        $usernameRaw = $rows['Constant1698403240866'] ?? '';
+        $passwordRaw = $rows['Constant1698403290839'] ?? '';
+
+        // Значение констант в БП часто хранится сериализованным массивом вида ['value' => '...'].
+        $decodeValue = static function (string $raw): string {
+            $raw = trim($raw);
+            if ($raw === '') {
+                return '';
+            }
+
+            $unserialized = @unserialize($raw, ['allowed_classes' => false]);
+            if (is_array($unserialized)) {
+                if (isset($unserialized['value'])) {
+                    return trim((string)$unserialized['value']);
+                }
+                if (isset($unserialized[0])) {
+                    return trim((string)$unserialized[0]);
+                }
+            }
+
+            return trim($raw);
+        };
+
+        $result['username'] = $decodeValue($usernameRaw);
+        $result['password'] = $decodeValue($passwordRaw);
+
+        if ($result['username'] === '' || $result['password'] === '') {
+            $result['error'] = 'Не удалось получить логин/пароль FriendWork из b_bp_global_const (Constant1698403240866 / Constant1698403290839).';
+        }
+    } catch (\Throwable $e) {
+        $result['error'] = 'Ошибка получения констант FriendWork из b_bp_global_const: ' . $e->getMessage();
+    }
+
+    return $result;
 }
 
 function h($value): string
@@ -94,7 +153,7 @@ function buildDescription(array $fields): string
 function fwLoginAndGetCookieFile(string $username, string $password): array
 {
     if ($username === '' || $password === '') {
-        return [false, 'Не заданы FRIENDWORK_USERNAME / FRIENDWORK_PASSWORD в окружении.', ''];
+        return [false, 'Не заданы логин/пароль FriendWork.', ''];
     }
 
     $cookieFile = sys_get_temp_dir() . '/fw_cookie_' . md5($username . microtime(true)) . '.txt';
@@ -253,32 +312,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     }
 
     if (!$errors) {
-        [$loginOk, $loginError, $cookieFile] = fwLoginAndGetCookieFile(fwGetCredentials()['username'], fwGetCredentials()['password']);
-        if (!$loginOk) {
-            $errors[] = $loginError;
+        $fwCredentials = fwGetCredentials();
+        if ($fwCredentials['error'] !== '') {
+            $errors[] = $fwCredentials['error'];
         } else {
-            [$createOk, $createError, $fwResponse] = fwCreateJob($payload, $cookieFile);
-            @unlink($cookieFile);
-
-            if (!$createOk) {
-                $errors[] = $createError;
+            [$loginOk, $loginError, $cookieFile] = fwLoginAndGetCookieFile($fwCredentials['username'], $fwCredentials['password']);
+            if (!$loginOk) {
+                $errors[] = $loginError;
             } else {
-                $jobId = (int)$fwResponse['jobId'];
-                $jobUrl = FW_JOB_EDIT_URL . $jobId;
+                [$createOk, $createError, $fwResponse] = fwCreateJob($payload, $cookieFile);
+                @unlink($cookieFile);
 
-                CIBlockElement::SetPropertyValuesEx(
-                    $requestId,
-                    IBLOCK_RECRUITMENT,
-                    [
-                        'ID_FW_VAKANSII' => $jobId,
-                        'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
-                    ]
-                );
+                if (!$createOk) {
+                    $errors[] = $createError;
+                } else {
+                    $jobId = (int)$fwResponse['jobId'];
+                    $jobUrl = FW_JOB_EDIT_URL . $jobId;
 
-                $existingFwId = (string)$jobId;
-                $existingFwUrl = $jobUrl;
-                $alreadyCreated = true;
-                $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId);
+                    CIBlockElement::SetPropertyValuesEx(
+                        $requestId,
+                        IBLOCK_RECRUITMENT,
+                        [
+                            'ID_FW_VAKANSII' => $jobId,
+                            'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
+                        ]
+                    );
+
+                    $existingFwId = (string)$jobId;
+                    $existingFwUrl = $jobUrl;
+                    $alreadyCreated = true;
+                    $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId);
+                }
             }
         }
     }
