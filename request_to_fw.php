@@ -21,6 +21,7 @@ global $APPLICATION;
 $APPLICATION->SetTitle('Отправка заявки в FriendWork');
 
 const IBLOCK_RECRUITMENT = 201;
+const IBLOCK_FW_ACCOUNTS = 211;
 const FW_CLIENT_ID = 5322;
 const FW_STATUS_DRAFT = 5;
 const FW_POSITION_COUNT = 1;
@@ -138,6 +139,33 @@ function normalizeText(?string $value): string
     return $value;
 }
 
+
+
+/**
+ * Возвращает ID аккаунта FriendWork по e-mail пользователя.
+ * Поиск по ИБ 211: PROPERTY_USERNAME (email) -> PROPERTY_FWACCOUNT_ID.
+ */
+function resolveFwResponsibleIdByEmail(string $email): int
+{
+    $email = mb_strtolower(trim($email));
+    if ($email === '') {
+        return 0;
+    }
+
+    $arSelect = ['ID', 'IBLOCK_ID', 'PROPERTY_FWACCOUNT_ID', 'PROPERTY_USERNAME'];
+    $arFilter = [
+        'IBLOCK_ID' => IBLOCK_FW_ACCOUNTS,
+        'ACTIVE' => 'Y',
+        'PROPERTY_USERNAME' => $email,
+    ];
+
+    $rs = CIBlockElement::GetList([], $arFilter, false, ['nTopCount' => 1], $arSelect);
+    if ($row = $rs->GetNext()) {
+        return (int)($row['PROPERTY_FWACCOUNT_ID_VALUE'] ?? 0);
+    }
+
+    return 0;
+}
 function buildDescription(array $fields): string
 {
     $header = "<b>Триколор</b> — мультиплатформенный оператор, предлагающий единое информационное пространство развлечений и сервисов для всей семьи.<br>\n"
@@ -290,6 +318,8 @@ if ($recruiterId > 0) {
     }
 }
 
+$responsibleFwId = resolveFwResponsibleIdByEmail($recruiterEmail);
+
 $fields = [
     'name' => normalizeText($element['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
     'functions' => normalizeText($element['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
@@ -311,7 +341,7 @@ $payload = [
     'Name' => $fields['name'],
     'Description' => $description,
     'Comment' => $comment,
-    'ResponsibleId' => $recruiterEmail,
+    'ResponsibleId' => $responsibleFwId,
 ];
 
 $existingFwId = trim((string)($element['PROPERTY_ID_FW_VAKANSII_VALUE'] ?? ''));
@@ -330,8 +360,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     if ($payload['Name'] === '') {
         $errors[] = 'Не заполнено поле DOLZHNOST (название должности) — невозможно сформировать Name.';
     }
-    if ($payload['ResponsibleId'] === '') {
+    if ($recruiterEmail === '') {
         $errors[] = 'Не удалось определить e-mail рекрутера (поле REKRUTER).';
+    }
+    if ((int)$payload['ResponsibleId'] <= 0) {
+        $errors[] = 'Не удалось определить ID аккаунта FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
     }
 
     if (!$errors) {
@@ -421,8 +454,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     </div>
 
     <div class="fw-row">
-        <div class="fw-label">Ответственный рекрутер (ResponsibleId / e-mail)</div>
-        <div class="fw-value"><?= h($payload['ResponsibleId']) ?></div>
+        <div class="fw-label">Ответственный рекрутер</div>
+        <div class="fw-value">FW ResponsibleId: <?= h($payload['ResponsibleId']) ?></div>
+        <div class="fw-muted">E-mail рекрутера (из REKRUTER): <?= h($recruiterEmail) ?></div>
         <div class="fw-muted">Пользователь: <?= h($recruiterName !== '' ? $recruiterName : ('ID ' . $recruiterId)) ?></div>
     </div>
 
@@ -453,6 +487,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                     ],
                     'login' => $debugInfo['login'] ?? null,
                     'create' => $debugInfo['create'] ?? null,
+                    'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
                 ];
                 echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
             ?></div>
