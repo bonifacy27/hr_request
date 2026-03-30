@@ -93,6 +93,35 @@ function fr_log($label, $data = null) {
 }
 
 /**
+ * Безопасный разбор JSON из свойств Bitrix:
+ * - пробуем как есть;
+ * - пробуем после html_entity_decode (кейс с &quot;);
+ * - убираем BOM/непечатаемые символы в начале.
+ */
+function fr_decode_json_payload($jsonRaw, &$diag = []) {
+    $raw = (string)$jsonRaw;
+    $attempts = [];
+    $attempts['raw'] = $raw;
+    $attempts['html_entity_decode'] = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $attempts['trim_bom'] = preg_replace('/^\xEF\xBB\xBF/u', '', $attempts['html_entity_decode']);
+
+    foreach ($attempts as $attemptName => $payload) {
+        $decoded = json_decode($payload, true);
+        if (is_array($decoded)) {
+            $diag['JSON_PARSE_ATTEMPT'] = $attemptName;
+            return $decoded;
+        }
+        $diag['JSON_PARSE_ERRORS'][$attemptName] = [
+            'code' => json_last_error(),
+            'text' => json_last_error_msg(),
+            'preview' => mb_substr($payload, 0, 500),
+        ];
+    }
+
+    return null;
+}
+
+/**
  * Рекурсивно оставить только заполненные значения для JSON-копии формы.
  * Считаем пустыми: null, пустую строку, пустой массив.
  * Значения "0"/0/false сохраняем.
@@ -266,7 +295,7 @@ if ($sourceRequestId > 0) {
         $prefillDebug['JSON_LENGTH'] = mb_strlen($jsonRaw);
 
         if ($jsonRaw !== '') {
-            $decoded = json_decode($jsonRaw, true);
+            $decoded = fr_decode_json_payload($jsonRaw, $prefillDebug);
             if (is_array($decoded)) {
                 $prefillData = $decoded;
                 $prefillDebug['JSON_DECODED'] = 'Y';
