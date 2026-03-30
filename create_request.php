@@ -236,10 +236,11 @@ $equipList     = getIblockOptions(IBLOCK_EQUIPMENT);
 $furnitureRows = getIblockOptions(IBLOCK_FURNITURE, ['PROPERTY_MULT_SELECT']);
 
 // ===== Обработка сохранения =====
-$saveMessage = null; $createdId = null;
+$saveMessage = null; $createdId = null; $formState = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['action'] ?? '') === 'save') {
     global $USER;
     $post = $_POST;
+    $formState = $post;
     fr_log('POST', $_POST);
 
     // === Подготовка JSON-копии ===
@@ -819,7 +820,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 <div class="container mt-3"><div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div></div>
 <?php endif; ?>
 <script>
+var FORM_STATE = <?= CUtil::PhpToJSObject($formState, false, true) ?>;
+
 BX.ready(function(){
+  function restorePostedFormData(state){
+    if (!state || typeof state !== 'object') return;
+
+    Object.keys(state).forEach(function(key){
+      var value = state[key];
+      var $named = $('[name="' + key + '"]');
+      var $namedArray = $('[name="' + key + '[]"]');
+
+      if (Array.isArray(value)) {
+        if ($namedArray.length) {
+          $namedArray.each(function(){
+            var current = $(this).val();
+            var shouldCheck = value.map(String).indexOf(String(current)) !== -1;
+            $(this).prop('checked', shouldCheck);
+          });
+        } else if ($named.length) {
+          $named.each(function(){
+            var current = $(this).val();
+            var shouldCheck = value.map(String).indexOf(String(current)) !== -1;
+            if ($(this).is(':checkbox, :radio')) {
+              $(this).prop('checked', shouldCheck);
+            } else if (value.length > 0) {
+              $(this).val(value[0]);
+            }
+          });
+        }
+        return;
+      }
+
+      if ($named.length) {
+        $named.each(function(){
+          if ($(this).is(':checkbox, :radio')) {
+            $(this).prop('checked', String($(this).val()) === String(value));
+          } else {
+            $(this).val(value);
+          }
+        });
+      } else if ($namedArray.length) {
+        $namedArray.each(function(){
+          var current = $(this).val();
+          var shouldCheck = String(current) === String(value);
+          $(this).prop('checked', shouldCheck);
+        });
+      }
+    });
+  }
+
+  restorePostedFormData(FORM_STATE);
+
   BX.UI.Hint.init();
   var $legal = $('select[name="legal"]');
   $legal.find('option').each(function(){
