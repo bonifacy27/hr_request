@@ -93,6 +93,31 @@ function fr_log($label, $data = null) {
 }
 
 /**
+ * Рекурсивно оставить только заполненные значения для JSON-копии формы.
+ * Считаем пустыми: null, пустую строку, пустой массив.
+ * Значения "0"/0/false сохраняем.
+ */
+function fr_json_filter_filled($value) {
+    if (is_array($value)) {
+        $filtered = [];
+        foreach ($value as $k => $v) {
+            $fv = fr_json_filter_filled($v);
+            $isEmptyString = is_string($fv) && trim($fv) === '';
+            $isEmptyArray = is_array($fv) && empty($fv);
+            if ($fv === null || $isEmptyString || $isEmptyArray) {
+                continue;
+            }
+            $filtered[$k] = $fv;
+        }
+        return $filtered;
+    }
+    if (is_string($value)) {
+        return trim($value);
+    }
+    return $value;
+}
+
+/**
  * Сформировать краткую "разницу" между исходным текстом обязанностей (из должности)
  * и отредактированным пользователем текстом.
  *
@@ -220,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     // === Подготовка JSON-копии ===
     $postForJson = $post;
     unset($postForJson['action'], $postForJson['sessid']);
+    $postForJson = fr_json_filter_filled($postForJson);
     $jsonData = json_encode($postForJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($jsonData === false) {
         $jsonData = '';
