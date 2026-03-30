@@ -666,6 +666,19 @@ if ($request->isPost() && check_bitrix_sessid()) {
             continue;
         }
 
+        if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
+            $newVal = mb_strtoupper(trim((string)($post[$code] ?? '')));
+            if (!in_array($newVal, ['Y', 'N'], true)) $newVal = '';
+            $oldVal = mb_strtoupper(trim((string)normPropValue($curProps[$code] ?? '')));
+
+            if ($newVal !== $oldVal) {
+                $updates[$code] = $newVal;
+                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                $jsonChanged[$code] = $newVal;
+            }
+            continue;
+        }
+
         // Справочник по карте
         if (isset($REFERENCE_IBLOCK_BY_CODE[$code])) {
             $ib = (int)$REFERENCE_IBLOCK_BY_CODE[$code];
