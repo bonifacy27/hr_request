@@ -242,6 +242,7 @@ $saveMessage = null; $createdId = null;
 $sourceRequestId = (int)($_GET['id'] ?? 0);
 $prefillData = [];
 $prefillError = '';
+$prefillDebug = [];
 $prefillEmployeeId = 0;
 $prefillEmployeeName = '';
 
@@ -255,23 +256,39 @@ if ($sourceRequestId > 0) {
     );
     if ($srcItem = $srcRs->GetNext()) {
         $jsonRaw = (string)($srcItem['PROPERTY_JSON_VALUE'] ?? '');
+        $jsonSource = 'PROPERTY_JSON';
         if ($jsonRaw === '') {
             $jsonRaw = (string)($srcItem['PROPERTY_3036_VALUE'] ?? '');
+            $jsonSource = 'PROPERTY_3036';
         }
+        $prefillDebug['SOURCE_REQUEST_ID'] = $sourceRequestId;
+        $prefillDebug['JSON_SOURCE'] = $jsonSource;
+        $prefillDebug['JSON_LENGTH'] = mb_strlen($jsonRaw);
 
         if ($jsonRaw !== '') {
             $decoded = json_decode($jsonRaw, true);
             if (is_array($decoded)) {
                 $prefillData = $decoded;
+                $prefillDebug['JSON_DECODED'] = 'Y';
+                $prefillDebug['DECODED_KEYS'] = implode(', ', array_slice(array_keys($decoded), 0, 25));
                 $employeeField = $prefillData['employee_id'] ?? null;
                 $employeeRaw = is_array($employeeField) ? (string)reset($employeeField) : (string)$employeeField;
                 $prefillEmployeeId = (preg_match('/([0-9]+)/', $employeeRaw, $m) ? (int)$m[1] : 0);
                 $prefillEmployeeName = trim((string)($prefillData['employee_name'] ?? ''));
             } else {
-                $prefillError = 'Не удалось разобрать JSON исходной заявки.';
+                $jsonErrCode = json_last_error();
+                $jsonErrText = json_last_error_msg();
+                $prefillDebug['JSON_DECODED'] = 'N';
+                $prefillDebug['JSON_ERROR_CODE'] = $jsonErrCode;
+                $prefillDebug['JSON_ERROR_TEXT'] = $jsonErrText;
+                $prefillDebug['JSON_PREVIEW'] = mb_substr($jsonRaw, 0, 500);
+                $prefillError = 'Не удалось разобрать JSON исходной заявки. Код ошибки: '
+                    . $jsonErrCode . ', описание: ' . $jsonErrText . '.';
+                fr_log('PREFILL JSON DECODE ERROR', $prefillDebug);
             }
         } else {
             $prefillError = 'В исходной заявке отсутствует сохраненный JSON (PROPERTY_3036 / JSON).';
+            fr_log('PREFILL JSON EMPTY', $prefillDebug);
         }
     } else {
         $prefillError = 'Исходная заявка не найдена.';
@@ -497,6 +514,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
   </div>
   <?php if ($prefillError): ?>
     <div class="alert alert-warning"><?= htmlspecialcharsbx($prefillError) ?></div>
+    <?php if (!empty($prefillDebug)): ?>
+      <div class="alert alert-light border">
+        <div class="font-weight-bold mb-2">Диагностика JSON-предзаполнения</div>
+        <pre class="mb-0" style="white-space:pre-wrap;"><?= htmlspecialcharsbx(print_r($prefillDebug, true)) ?></pre>
+      </div>
+    <?php endif; ?>
   <?php endif; ?>
   <form id="recruitForm" method="post">
     <?= bitrix_sessid_post(); ?>
