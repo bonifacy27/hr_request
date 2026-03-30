@@ -460,6 +460,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 <div class="container my-4">
+  <?php if ($saveMessage): ?>
+  <div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div>
+  <?php endif; ?>
   <div class="d-flex align-items-center mb-3">
     <h1 class="h3 mb-0">Заявка на подбор персонала</h1>
     <span class="ml-3 badge badge-secondary" title="Версия скрипта">v0.6.0</span>
@@ -816,9 +819,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 </div>
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
-<?php if ($saveMessage): ?>
-<div class="container mt-3"><div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div></div>
-<?php endif; ?>
 <script>
 var FORM_STATE = <?= CUtil::PhpToJSObject($formState, false, true) ?>;
 
