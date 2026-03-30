@@ -236,10 +236,11 @@ $equipList     = getIblockOptions(IBLOCK_EQUIPMENT);
 $furnitureRows = getIblockOptions(IBLOCK_FURNITURE, ['PROPERTY_MULT_SELECT']);
 
 // ===== Обработка сохранения =====
-$saveMessage = null; $createdId = null;
+$saveMessage = null; $createdId = null; $formState = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['action'] ?? '') === 'save') {
     global $USER;
     $post = $_POST;
+    $formState = $post;
     fr_log('POST', $_POST);
 
     // === Подготовка JSON-копии ===
@@ -268,6 +269,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                 break;
             }
         }
+    }
+
+    // Базовая серверная валидация обязательных полей:
+    // важно дублировать проверки с фронта, т.к. UI-компоненты могут обойти required.
+    if ($managerId <= 0) {
+        $saveMessage = [
+            'type' => 'danger',
+            'text' => 'Поле «Непосредственный руководитель» обязательно для заполнения.',
+        ];
     }
 
     $scheduleName  = getNameById($scheduleList, (int)($post['schedule'] ?? 0));
@@ -411,41 +421,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     $elementName = 'Заявка на подбор: ' . ($positionText ?: 'без должности');
     if (!empty($post['directorate'])) $elementName .= ' — ' . trim((string)$post['directorate']);
 
-    $el = new CIBlockElement();
-    $fields = [
-        'IBLOCK_ID'       => IBLOCK_RECRUIT,
-        'ACTIVE'          => 'Y',
-        'NAME'            => $elementName,
-        'PROPERTY_VALUES' => $props,
-        'CREATED_BY'      => is_object($USER) ? (int)$USER->GetID() : 1,
-    ];
+    if (!$saveMessage) {
+        $el = new CIBlockElement();
+        $fields = [
+            'IBLOCK_ID'       => IBLOCK_RECRUIT,
+            'ACTIVE'          => 'Y',
+            'NAME'            => $elementName,
+            'PROPERTY_VALUES' => $props,
+            'CREATED_BY'      => is_object($USER) ? (int)$USER->GetID() : 1,
+        ];
 
-    $newId = $el->Add($fields);
-    if ($newId) {
-        $createdId = (int)$newId;
-        fr_log('ADD OK', $createdId);
+        $newId = $el->Add($fields);
+        if ($newId) {
+            $createdId = (int)$newId;
+            fr_log('ADD OK', $createdId);
 
-        if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
-            $docId = ['lists','BizprocDocument',$createdId];
-            $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
-            $wfErrors = [];
-            $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
-            if (!empty($wfErrors)) {
-                fr_log('BP ERR', $wfErrors);
-            } else {
-                fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
+            if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
+                $docId = ['lists','BizprocDocument',$createdId];
+                $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
+                $wfErrors = [];
+                $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
+                if (!empty($wfErrors)) {
+                    fr_log('BP ERR', $wfErrors);
+                } else {
+                    fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
+                }
             }
-        }
 
-        echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+        } else {
+            fr_log('ADD ERR', $el->LAST_ERROR);
+            $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        }
     } else {
-        fr_log('ADD ERR', $el->LAST_ERROR);
-        $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        fr_log('VALIDATION ERR', $saveMessage['text']);
     }
 }
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 <div class="container my-4">
+  <?php if ($saveMessage): ?>
+  <div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div>
+  <?php endif; ?>
   <div class="d-flex align-items-center mb-3">
     <h1 class="h3 mb-0">Заявка на подбор персонала</h1>
     <span class="ml-3 badge badge-secondary" title="Версия скрипта">v0.6.0</span>
@@ -608,7 +625,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         <div class="form-group">
           <label>Должностные обязанности <span class="text-danger">*</span></label>
           <input type="hidden" name="duties_original" id="dutiesOriginal" value="">
-          <textarea class="form-control" name="duties" id="duties" rows="4" placeholder="Опишите ключевые обязанности..." required></textarea>
+          <textarea class="form-control" name="duties" id="duties" rows="8" placeholder="Опишите ключевые обязанности..." required></textarea>
           <small class="form-text text-muted">Если выбрана должность из списка, поле может быть предзаполнено из карточки должности.</small>
         </div>
         <div class="form-row">
@@ -802,11 +819,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 </div>
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
-<?php if ($saveMessage): ?>
-<div class="container mt-3"><div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div></div>
-<?php endif; ?>
 <script>
+var FORM_STATE = <?= CUtil::PhpToJSObject($formState, false, true) ?>;
+
 BX.ready(function(){
+  function restorePostedFormData(state){
+    if (!state || typeof state !== 'object') return;
+
+    Object.keys(state).forEach(function(key){
+      var value = state[key];
+      var $named = $('[name="' + key + '"]');
+      var $namedArray = $('[name="' + key + '[]"]');
+
+      if (Array.isArray(value)) {
+        if ($namedArray.length) {
+          $namedArray.each(function(){
+            var current = $(this).val();
+            var shouldCheck = value.map(String).indexOf(String(current)) !== -1;
+            $(this).prop('checked', shouldCheck);
+          });
+        } else if ($named.length) {
+          $named.each(function(){
+            var current = $(this).val();
+            var shouldCheck = value.map(String).indexOf(String(current)) !== -1;
+            if ($(this).is(':checkbox, :radio')) {
+              $(this).prop('checked', shouldCheck);
+            } else if (value.length > 0) {
+              $(this).val(value[0]);
+            }
+          });
+        }
+        return;
+      }
+
+      if ($named.length) {
+        $named.each(function(){
+          if ($(this).is(':checkbox, :radio')) {
+            $(this).prop('checked', String($(this).val()) === String(value));
+          } else {
+            $(this).val(value);
+          }
+        });
+      } else if ($namedArray.length) {
+        $namedArray.each(function(){
+          var current = $(this).val();
+          var shouldCheck = String(current) === String(value);
+          $(this).prop('checked', shouldCheck);
+        });
+      }
+    });
+  }
+
+  restorePostedFormData(FORM_STATE);
+
   BX.UI.Hint.init();
   var $legal = $('select[name="legal"]');
   $legal.find('option').each(function(){
