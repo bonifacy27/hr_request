@@ -555,6 +555,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
       </div>
     <?php endif; ?>
   <?php endif; ?>
+  <?php if ($saveMessage): ?>
+    <div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div>
+  <?php endif; ?>
   <form id="recruitForm" method="post">
     <?= bitrix_sessid_post(); ?>
     <div class="card mb-3">
@@ -908,9 +911,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
 </div>
 <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
-<?php if ($saveMessage): ?>
-<div class="container mt-3"><div class="alert alert-<?= $saveMessage['type'] ?>" role="alert"><?= $saveMessage['text'] ?></div></div>
-<?php endif; ?>
 <script>
 var prefillData = <?= \Bitrix\Main\Web\Json::encode($prefillData) ?>;
 BX.ready(function(){
