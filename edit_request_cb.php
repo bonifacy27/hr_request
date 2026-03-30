@@ -168,6 +168,8 @@ $GROUP_MAP = [
     'VAKANSIYA_PODTVERZHDENA_C_B' => 'Мотивация',
     'PRIZNAK_PO_DOLZHNOSTI_TEKST' => 'Мотивация',
     'RUKOVODYASHCHAYA_DOLZHNOST' => 'Мотивация',
+    'STAVKA' => 'Мотивация',
+    'KOMMENTARII_C_B' => 'Мотивация',
 
     // Условия работы
     'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA' => 'Условия работы',
@@ -176,6 +178,8 @@ $GROUP_MAP = [
     'FORMAT_RABOTY_PRIVYAZKA' => 'Условия работы',
     'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA' => 'Условия работы',
     'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA' => 'Условия работы',
+    'OBORUDOVANIE_DLYA_RABOTY_TEKST' => 'Условия работы',
+    'NEOBKHODIMAYA_MEBEL' => 'Условия работы',
     'KOMANDIROVKI_TEKST' => 'Условия работы',
     'KOMANDIROVKI_PRODOLZHITELNOST' => 'Условия работы',
 
@@ -187,7 +191,7 @@ $GROUP_MAP = [
     'DATA_PEREVODA' => 'Подбор',
     'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => 'Подбор',
     'OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV' => 'Подбор',
-    'KONFIDENTSIALNYY_POISK_LST' => 'Подбор',
+    'KONFIDENTSIALNYY_POISK' => 'Подбор',
     'REKRUTER' => 'Подбор',
     'STATUS_ZAYAVKI' => 'Подбор',
     'KOMMENTARII_K_ZAYAVKE' => 'Подбор',
@@ -213,7 +217,7 @@ $FIELDS = [
     ["CODE" => "DOLZHNOST_RUKOVODITELYA", "NAME" => "Должность руководителя", "EDITABLE" => true],
 
     ["CODE" => "OBRAZOVANIE_TEKST", "NAME" => "Образование", "EDITABLE" => false],
-    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности, заполненные руководителем", "EDITABLE" => true],
+    ["CODE" => "OBYAZANNOSTI", "NAME" => "Обязанности, заполненные руководителем", "EDITABLE" => false],
     ["CODE" => "RAZNITSA_TEKSTOV", "NAME" => "Разница текстов", "EDITABLE" => false],
     ["CODE" => "DOLZHNOSTNYE_OBYAZANNOSTI_1C", "NAME" => "Обязанности из 1с", "EDITABLE" => true],
     ["CODE" => "POL_STROKA", "NAME" => "Пол", "EDITABLE" => false],
@@ -231,15 +235,15 @@ $FIELDS = [
     ["CODE" => "ISN_RUB_GROSS", "NAME" => "ИСН (руб., gross)", "EDITABLE" => true],
     ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_", "NAME" => "Доход в месяц в среднем при выполнении KPI (руб.)", "EDITABLE" => true],
     ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL", "NAME" => "Доход в месяц в среднем (руб.) после вычета НДФЛ", "EDITABLE" => true],
-    ["CODE" => "UROVEN_DOKHODA_MEDIANA", "NAME" => "Уровень дохода (медиана)", "EDITABLE" => true],
-    ["CODE" => "VAKANSIYA_PODTVERZHDENA_C_B", "NAME" => "Вакансия подтверждена C&B", "EDITABLE" => true],
 
     ["CODE" => "TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA", "NAME" => "Тип договора с сотрудником (привязка)", "EDITABLE" => true],
     ["CODE" => "OFIS_PRIVYAZKA", "NAME" => "Офис (привязка)", "EDITABLE" => true],
     ["CODE" => "GRAFIK_RABOTY_PRIVYAZKA", "NAME" => "График работы (привязка)", "EDITABLE" => true],
     ["CODE" => "FORMAT_RABOTY_PRIVYAZKA", "NAME" => "Формат работы (привязка)", "EDITABLE" => true],
     ["CODE" => "NACHALO_RABOCHEGO_DNYA_PRIVYAZKA", "NAME" => "Начало рабочего дня (привязка)", "EDITABLE" => false],
-    ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA", "NAME" => "Оборудование для работы (привязка)", "EDITABLE" => false],
+    ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA", "NAME" => "Оборудование для работы (привязка)", "EDITABLE" => true],
+    ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_TEKST", "NAME" => "Доп. требования к оборудованию", "EDITABLE" => true],
+    ["CODE" => "NEOBKHODIMAYA_MEBEL", "NAME" => "Необходимая мебель", "EDITABLE" => true],
     ["CODE" => "KOMANDIROVKI_TEKST", "NAME" => "Командировки", "EDITABLE" => true],
     ["CODE" => "KOMANDIROVKI_PRODOLZHITELNOST", "NAME" => "Командировки (продолжительность)", "EDITABLE" => true],
 
@@ -252,7 +256,9 @@ $FIELDS = [
     ["CODE" => "OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV", "NAME" => "Отделы для поиска внутренних кандидатов", "EDITABLE" => true],
     ["CODE" => "PRIZNAK_PO_DOLZHNOSTI_TEKST", "NAME" => "Признак по должности", "EDITABLE" => true],
     ["CODE" => "RUKOVODYASHCHAYA_DOLZHNOST", "NAME" => "Руководящая должность", "EDITABLE" => true],
-    ["CODE" => "KONFIDENTSIALNYY_POISK_LST", "NAME" => "Конфиденциальный поиск", "EDITABLE" => false],
+    ["CODE" => "STAVKA", "NAME" => "Ставка", "EDITABLE" => true],
+    ["CODE" => "KOMMENTARII_C_B", "NAME" => "Комментарии C&B", "EDITABLE" => true],
+    ["CODE" => "KONFIDENTSIALNYY_POISK", "NAME" => "Конфиденциальный поиск", "EDITABLE" => false],
     ["CODE" => "REKRUTER", "NAME" => "Рекрутер", "EDITABLE" => false],
     ["CODE" => "STATUS_ZAYAVKI", "NAME" => "Статус заявки", "EDITABLE" => false],
     ["CODE" => "KOMMENTARII_K_ZAYAVKE", "NAME" => "Комментарий к заявке", "EDITABLE" => false],
@@ -508,10 +514,15 @@ $success = false;
 
 if ($request->isPost() && check_bitrix_sessid()) {
     $post = $request->getPostList()->toArray();
+    $isConfirmedSave = (isset($post['confirm_save']) && (string)$post['confirm_save'] === 'Y');
+    if (!$isConfirmedSave) {
+        $errors[] = 'Сначала подтвердите сохранение изменений в окне проверки.';
+    }
 
     $updates = [];
     $historyChanged = [];
     $jsonChanged = [];
+    $hasWorkflowRelevantChanges = false;
 
     if (isset($post['employee_id']) && is_array($post['employee_id'])) {
         $post['employee_id'] = array_values(array_filter(array_map('intval', $post['employee_id'])));
@@ -522,11 +533,83 @@ if ($request->isPost() && check_bitrix_sessid()) {
     $salaryGross = parseMoneyInput($post['OKLAD'] ?? normPropValue($curProps['OKLAD'] ?? ''));
     $bonusPercent = parseMoneyInput($post['PROTSENT_PREMII_'] ?? normPropValue($curProps['PROTSENT_PREMII_'] ?? ''));
     $isnGross = parseMoneyInput($post['ISN_RUB_GROSS'] ?? normPropValue($curProps['ISN_RUB_GROSS'] ?? ''));
+    $leadPosition = mb_strtoupper(trim((string)($post['RUKOVODYASHCHAYA_DOLZHNOST'] ?? '')));
+    $bonusTypeNorm = mb_strtolower((string)$bonusTypeName);
+    $isMonthlyBonus = (mb_stripos($bonusTypeNorm, 'ежемесяч') !== false);
+    $isQuarterlyBonus = (mb_stripos($bonusTypeNorm, 'ежекварт') !== false);
+
+    if ($bonusTypeId <= 0) {
+        $errors[] = 'Поле "Предполагаемый тип премирования" обязательно для заполнения.';
+    }
+    if ($salaryGross <= 0) {
+        $errors[] = 'Поле "Оклад" обязательно для заполнения (значение должно быть больше 0).';
+    }
+    if (($isMonthlyBonus || $isQuarterlyBonus) && $bonusPercent <= 0) {
+        $errors[] = 'Поле "Процент премии" обязательно для заполнения для типов премирования "Ежемесячно" или "Ежеквартально".';
+    }
+    if (!in_array($leadPosition, ['Y', 'N'], true)) {
+        $errors[] = 'Поле "Руководящая должность" обязательно для заполнения.';
+    }
+
+    // Дополнительные обязательные поля по требованиям.
+    if (trim((string)($post['DOLZHNOST'] ?? '')) === '') {
+        $errors[] = 'Поле "Должность" обязательно для заполнения.';
+    }
+    if ((int)($post['YURIDICHESKOE_LITSO'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Юридическое лицо" обязательно для заполнения.';
+    }
+    if ((int)($post['PODRAZDELENIE_0_UROVNYA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Подразделение 0 уровня" обязательно для заполнения.';
+    }
+    // Для селектора руководителя employee_id может отсутствовать в POST, если поле не меняли.
+    // В этом случае берем текущее значение из заявки.
+    $employeeId = (int)normPropValue($curProps['NEPOSREDSTVENNYY_RUKOVODITEL'] ?? 0);
+    if (!empty($post['employee_id']) && is_array($post['employee_id']) && !empty($post['employee_id'][0])) {
+        $employeeId = (int)$post['employee_id'][0];
+    }
+    if ($employeeId <= 0) {
+        $errors[] = 'Поле "Непосредственный руководитель" обязательно для заполнения.';
+    }
+    if (trim((string)($post['DOLZHNOST_RUKOVODITELYA'] ?? '')) === '') {
+        $errors[] = 'Поле "Должность руководителя" обязательно для заполнения.';
+    }
+    if ((int)($post['TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Тип договора с сотрудником" обязательно для заполнения.';
+    }
+    if ((int)($post['OFIS_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Офис" обязательно для заполнения.';
+    }
+    if ((int)($post['GRAFIK_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "График работы" обязательно для заполнения.';
+    }
+    if ((int)($post['FORMAT_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Формат работы" обязательно для заполнения.';
+    }
+    if ((int)($post['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Оборудование для работы" обязательно для заполнения.';
+    }
+    if (trim((string)($post['NEOBKHODIMAYA_MEBEL'] ?? '')) === '') {
+        $errors[] = 'Поле "Необходимая мебель" обязательно для заполнения.';
+    }
+    if (trim((string)($post['KOMANDIROVKI_TEKST'] ?? '')) === '') {
+        $errors[] = 'Поле "Командировки" обязательно для заполнения.';
+    }
+    if (trim((string)($post['PRICHINA_OTKRYTIYA_VAKANSII_TEKST'] ?? '')) === '') {
+        $errors[] = 'Поле "Причина открытия вакансии" обязательно для заполнения.';
+    }
+    if ((float)($post['STAVKA'] ?? 0) <= 0) {
+        $errors[] = 'Поле "Ставка" обязательно для заполнения.';
+    }
 
     $calculatedIncome = calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross);
     $post['DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_'] = $calculatedIncome['kpi'];
     $post['DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL'] = $calculatedIncome['net'];
 
+    if (empty($post['PRIZNAK_PO_DOLZHNOSTI_TEKST'])) {
+        $post['PRIZNAK_PO_DOLZHNOSTI_TEKST'] = 'Массовая должность';
+    }
+
+    if (empty($errors)) {
     foreach ($FIELDS as $f) {
         if (empty($f['EDITABLE'])) continue;
 
@@ -541,6 +624,42 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
             if ($newVal > 0 && $newVal !== $oldVal) {
                 $updates[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
+            }
+            continue;
+        }
+
+        if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
+            $newVal = mb_strtoupper(trim((string)($post[$code] ?? '')));
+            if (!in_array($newVal, ['Y', 'N'], true)) $newVal = '';
+            $oldVal = mb_strtoupper(trim((string)normPropValue($curProps[$code] ?? '')));
+
+            if ($newVal !== $oldVal) {
+                $updates[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
+            }
+            continue;
+        }
+
+        if ($code === 'STAVKA') {
+            $newRaw = trim((string)($post[$code] ?? ''));
+            $oldRaw = (string)normPropValue($curProps[$code] ?? '');
+            $newNum = (float)str_replace(',', '.', $newRaw);
+            $oldNum = (float)str_replace(',', '.', $oldRaw);
+
+            if (abs($newNum - $oldNum) > 0.00001) {
+                $newVal = number_format($newNum, 1, '.', '');
+                $oldVal = number_format($oldNum, 1, '.', '');
+                $updates[$code] = $newVal;
+                $hasWorkflowRelevantChanges = true;
                 $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
                 $jsonChanged[$code] = $newVal;
             }
@@ -568,12 +687,17 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
             if ($newId !== $oldId) {
                 $updates[$code] = $newId;
-                $jsonChanged[$code] = $newId;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $jsonChanged[$code] = $newId;
+                }
 
                 $oldName = $ib ? getElementNameById($ib, $oldId) : (string)$oldId;
                 $newName = $ib ? getElementNameById($ib, $newId) : (string)$newId;
 
-                $historyChanged[] = labelWithoutPrivyazka($f['NAME']) . ': ' . $oldName . ' → ' . $newName;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $historyChanged[] = labelWithoutPrivyazka($f['NAME']) . ': ' . $oldName . ' → ' . $newName;
+                }
             }
             continue;
         }
@@ -584,8 +708,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $oldEnumId = (int)($curProps[$code]['VALUE_ENUM_ID'] ?? 0);
             if ($newEnumId !== $oldEnumId) {
                 $updates[$code] = $newEnumId;
-                $jsonChanged[$code] = $newEnumId;
-                $historyChanged[] = $f['NAME'] . ': ' . (string)($curProps[$code]['VALUE'] ?? '') . ' → ' . $newEnumId;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $jsonChanged[$code] = $newEnumId;
+                    $historyChanged[] = $f['NAME'] . ': ' . (string)($curProps[$code]['VALUE'] ?? '') . ' → ' . $newEnumId;
+                }
             }
             continue;
         }
@@ -596,8 +723,11 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $oldVal = (string)normPropValue($curProps[$code] ?? '');
             if ($newVal !== $oldVal) {
                 $updates[$code] = $newVal;
-                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
+                if ($code !== 'KOMMENTARII_C_B') {
+                    $hasWorkflowRelevantChanges = true;
+                    $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                    $jsonChanged[$code] = $newVal;
+                }
             }
             continue;
         }
@@ -607,14 +737,23 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $oldVal = (string)normPropValue($curProps[$code] ?? '');
         if ($newVal !== $oldVal) {
             $updates[$code] = $newVal;
-            $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-            $jsonChanged[$code] = $newVal;
+            if ($code !== 'KOMMENTARII_C_B') {
+                $hasWorkflowRelevantChanges = true;
+                $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
+                $jsonChanged[$code] = $newVal;
+            }
         }
     }
+    }
 
-    if (empty($updates)) {
+    if (empty($errors) && empty($updates)) {
         $errors[] = 'Нет изменений для сохранения.';
-    } else {
+    } elseif (empty($errors) && !$hasWorkflowRelevantChanges) {
+        CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
+        $success = true;
+        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        return;
+    } elseif (empty($errors)) {
         // История append
         $historyCode = 'KOMMENTARII';
         $historyOld = (string)normPropValue($curProps[$historyCode] ?? '');
@@ -641,18 +780,22 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
 
-        // Запуск БП
-        $documentId = ['iblock', 'CIBlockDocument', $elementId];
+        // Запуск БП уведомления.
+        $documentId = ['lists', 'BizprocDocument', $elementId];
         $arErrorsTmp = [];
-$bpParams = [
+        $bpParams = [
             'par_Changes' => (string)$historyBlock,
         ];
-        CBPDocument::StartWorkflow(BP_TEMPLATE_ID_EDIT_NOTIFY, $documentId, $bpParams, $arErrorsTmp);
+        $wfId = CBPDocument::StartWorkflow(BP_TEMPLATE_ID_EDIT_NOTIFY, $documentId, $bpParams, $arErrorsTmp);
         if (!empty($arErrorsTmp)) {
             $errors[] = 'Заявка сохранена, но БП не запустился: ' . print_r($arErrorsTmp, true);
+        } elseif (empty($wfId)) {
+            $errors[] = 'Заявка сохранена, но БП вернул пустой ID процесса (проверьте шаблон БП и тип документа).';
         }
 
         $success = true;
+        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        return;
 
         // перечитать свойства
         $props = [];
@@ -685,6 +828,19 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
     $codeEsc = htmlspecialcharsbx($code);
     $labelEsc = htmlspecialcharsbx($label);
     $readonlyAttr = $editable ? '' : 'disabled';
+    $requiredCodes = [
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+        'YURIDICHESKOE_LITSO',
+        'PODRAZDELENIE_0_UROVNYA',
+        'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
+        'OFIS_PRIVYAZKA',
+        'GRAFIK_RABOTY_PRIVYAZKA',
+        'FORMAT_RABOTY_PRIVYAZKA',
+        'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
+    ];
+    $isRequired = in_array($code, $requiredCodes, true);
+    $requiredAttr = $isRequired ? 'required' : '';
+    $requiredMark = $isRequired ? ' <span style="color:#d42626">*</span>' : '';
 
     $options = getIblockOptionsCached((int)$iblockId);
     $selectedId = (int)$selectedId;
@@ -699,11 +855,11 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
 
     return '
     <div class="ui-form-row">
-      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$labelEsc.'</div></div>
+      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$labelEsc.$requiredMark.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
           <div class="ui-ctl-after ui-ctl-icon-angle"></div>
-          <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.'>
+          <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.' '.$requiredAttr.'>
             '.$optionsHtml.'
           </select>
         </div>
@@ -718,6 +874,20 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $rowIdAttr = ' id="row_'.$codeEsc.'"';
     $labelNoteHtml = '';
     $labelAfterTitleHtml = '';
+    $requiredCodes = [
+        'DOLZHNOST',
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+        'OKLAD',
+        'RUKOVODYASHCHAYA_DOLZHNOST',
+        'STAVKA',
+        'DOLZHNOST_RUKOVODITELYA',
+        'NEOBKHODIMAYA_MEBEL',
+        'KOMANDIROVKI_TEKST',
+        'PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
+    ];
+    $isRequiredField = in_array($code, $requiredCodes, true);
+    $requiredAttr = $isRequiredField ? 'required' : '';
+    $requiredMark = $isRequiredField ? ' <span style="color:#d42626">*</span>' : '';
 
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
@@ -768,14 +938,39 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         $selectedN = ($val === 'N') ? 'selected' : '';
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
               <div class="ui-ctl-after ui-ctl-icon-angle"></div>
-              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.'>
+              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.' '.$requiredAttr.'>
                 <option value="">— выберите —</option>
                 <option value="Y" '.$selectedY.'>Да</option>
                 <option value="N" '.$selectedN.'>Нет</option>
+              </select>
+            </div>
+          </div>
+        </div>';
+    }
+
+    if ($code === 'STAVKA') {
+        $val = (string)normPropValue($value);
+        $numericVal = (float)str_replace(',', '.', $val);
+        if ($numericVal <= 0) $numericVal = 1.0;
+        $options = '';
+        for ($i = 1; $i <= 10; $i++) {
+            $optionVal = number_format($i / 10, 1, '.', '');
+            $selected = ((float)$optionVal === (float)$numericVal) ? 'selected' : '';
+            $options .= '<option value="'.$optionVal.'" '.$selected.'>'.$optionVal.'</option>';
+        }
+
+        return '
+        <div class="ui-form-row"'.$rowIdAttr.'>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
+              <div class="ui-ctl-after ui-ctl-icon-angle"></div>
+              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.' '.$requiredAttr.'>
+                '.$options.'
               </select>
             </div>
           </div>
@@ -809,17 +1004,38 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         return renderSelectByIblock($code, $label, $selectedId, (int)$referenceMap[$code], $editable);
     }
 
+    if ($code === 'PRIZNAK_PO_DOLZHNOSTI_TEKST') {
+        $val = trim((string)normPropValue($value));
+        if ($val === '') $val = 'Массовая должность';
+        $isMass = ($val === 'Массовая должность') ? 'selected' : '';
+        $isNonMass = ($val === 'Немассовая должность') ? 'selected' : '';
+
+        return '
+        <div class="ui-form-row"'.$rowIdAttr.'>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-after-icon ui-ctl-dropdown ui-ctl-w100">
+              <div class="ui-ctl-after ui-ctl-icon-angle"></div>
+              <select class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" '.$readonlyAttr.'>
+                <option value="Массовая должность" '.$isMass.'>Массовая должность</option>
+                <option value="Немассовая должность" '.$isNonMass.'>Немассовая должность</option>
+              </select>
+            </div>
+          </div>
+        </div>';
+    }
+
     $valStr = is_array($value) ? (string)($value['VALUE'] ?? '') : (string)normPropValue($value);
     $valEsc = htmlspecialcharsbx($valStr);
 
     // textarea?
-    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
+    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
 
     if ($isTextarea) {
-        $rows = ($code === 'OBYAZANNOSTI') ? 8 : 4;
+        $rows = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true) ? 8 : 4;
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
-          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
             <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
               <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
@@ -838,10 +1054,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     return '
     <div class="ui-form-row"'.$rowIdAttr.'>
-      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
+      <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
       <div class="ui-form-content">
         <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
-          <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.'>
+          <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" name="'.$codeEsc.'" value="'.$valEsc.'" '.$readonlyAttr.' '.$requiredAttr.'>
         </div>
       </div>
     </div>';
@@ -885,6 +1101,48 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     color:#2067b0;
     font-weight: 600;
   }
+  .req-modal{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:2000;
+  }
+  .req-modal--open{ display:block; }
+  .req-modal__backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(17,24,39,.45);
+  }
+  .req-modal__dialog{
+    position:relative;
+    max-width:800px;
+    margin:6vh auto;
+    background:#fff;
+    border-radius:10px;
+    box-shadow:0 20px 45px rgba(0,0,0,.2);
+    overflow:hidden;
+  }
+  .req-modal__head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:14px 16px;
+    border-bottom:1px solid #edf0f4;
+    font-weight:600;
+  }
+  .req-modal__close{
+    border:0;
+    background:transparent;
+    font-size:24px;
+    line-height:1;
+    color:#6b7280;
+    cursor:pointer;
+  }
+  .req-modal__body{
+    padding:16px;
+    max-height:70vh;
+    overflow:auto;
+  }
 </style>
 
 <div class="ui-alert ui-alert-primary">
@@ -905,6 +1163,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
 <form method="post" class="ui-form" style="max-width: 1100px;">
   <?= bitrix_sessid_post(); ?>
+  <input type="hidden" name="confirm_save" id="confirm_save" value="">
 
   <?php
   // раскладываем по группам
@@ -937,19 +1196,46 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   <div class="ui-form-row" style="margin-top:18px;">
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
-      <button type="submit" class="ui-btn ui-btn-success">Сохранить</button>
+      <button type="button" class="ui-btn ui-btn-success" id="open_confirm_modal">Сохранить</button>
     </div>
   </div>
 </form>
 
+<div class="req-modal" id="save_confirm_modal" aria-hidden="true">
+  <div class="req-modal__backdrop" id="save_confirm_backdrop"></div>
+  <div class="req-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="save_confirm_title">
+    <div class="req-modal__head">
+      <div id="save_confirm_title">Проверьте изменения перед сохранением</div>
+      <button type="button" class="req-modal__close" id="close_confirm_modal" aria-label="Закрыть">×</button>
+    </div>
+    <div class="req-modal__body">
+      <div id="save_changes_preview"></div>
+      <div style="margin-top:16px; display:flex; gap:10px;">
+        <button type="button" class="ui-btn ui-btn-success" id="confirm_save_changes">Сохранить изменения</button>
+        <button type="button" class="ui-btn ui-btn-light-border" id="cancel_save_changes">Отмена</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
+  const formEl = document.querySelector('form.ui-form');
+  const openConfirmModalBtn = document.getElementById('open_confirm_modal');
+  const confirmSaveInput = document.getElementById('confirm_save');
+  const saveConfirmModal = document.getElementById('save_confirm_modal');
+  const saveConfirmBackdrop = document.getElementById('save_confirm_backdrop');
+  const closeConfirmModal = document.getElementById('close_confirm_modal');
+  const cancelSaveChanges = document.getElementById('cancel_save_changes');
+  const confirmSaveChanges = document.getElementById('confirm_save_changes');
+  const saveChangesPreview = document.getElementById('save_changes_preview');
   const bonusType = document.getElementById('field_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA');
   const salary = document.getElementById('field_OKLAD');
   const bonusPercent = document.getElementById('field_PROTSENT_PREMII_');
   const isn = document.getElementById('field_ISN_RUB_GROSS');
   const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
   const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const bonusPercentRow = document.getElementById('row_PROTSENT_PREMII_');
   const managerResponsibilities = document.getElementById('field_OBYAZANNOSTI');
   const responsibilities1c = document.getElementById('field_DOLZHNOSTNYE_OBYAZANNOSTI_1C');
   const responsibilitiesDiff = document.getElementById('field_RAZNITSA_TEKSTOV');
@@ -959,6 +1245,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
   const kpiRate = document.getElementById('ndfl_rate_kpi');
   const netRate = document.getElementById('ndfl_rate_net');
+  const initialFieldValues = {};
 
   if (!bonusType || !salary || !bonusPercent || !isn || !kpiIncome || !netIncome) return;
 
@@ -1068,6 +1355,72 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
       managerEditedNote.style.display = diff ? '' : 'none';
     }
   };
+  const getFieldValueForPreview = (field) => {
+    if (!field) return '';
+    if (field.tagName === 'SELECT') {
+      return field.options[field.selectedIndex]?.textContent?.trim() || '';
+    }
+    return (field.value || '').trim();
+  };
+  const captureInitialValues = () => {
+    document.querySelectorAll('input[id^="field_"], textarea[id^="field_"], select[id^="field_"]').forEach((field) => {
+      initialFieldValues[field.id] = getFieldValueForPreview(field);
+    });
+    const employeeName = document.querySelector('input[name="employee_name"]');
+    if (employeeName) initialFieldValues.employee_name = (employeeName.value || '').trim();
+  };
+  const collectChangesForPreview = () => {
+    const changes = [];
+    document.querySelectorAll('input[id^="field_"], textarea[id^="field_"], select[id^="field_"]').forEach((field) => {
+      const oldVal = (initialFieldValues[field.id] || '').trim();
+      const newVal = getFieldValueForPreview(field);
+      if (field.id === 'field_STAVKA') {
+        const oldNum = Number(String(oldVal).replace(',', '.'));
+        const newNum = Number(String(newVal).replace(',', '.'));
+        if (Number.isFinite(oldNum) && Number.isFinite(newNum) && Math.abs(oldNum - newNum) < 0.00001) return;
+      } else if (oldVal === newVal) {
+        return;
+      }
+      const row = field.closest('.ui-form-row');
+      const labelEl = row?.querySelector('.ui-form-label .ui-ctl-label-text');
+      const label = (labelEl?.textContent || field.id).trim();
+      changes.push({ label, oldVal, newVal });
+    });
+    const employeeName = document.querySelector('input[name="employee_name"]');
+    if (employeeName) {
+      const oldVal = (initialFieldValues.employee_name || '').trim();
+      const newVal = (employeeName.value || '').trim();
+      if (oldVal !== newVal) {
+        changes.push({ label: 'Непосредственный руководитель', oldVal, newVal });
+      }
+    }
+    return changes;
+  };
+  const renderChangesPreview = (changes) => {
+    if (!saveChangesPreview) return;
+    if (!changes.length) {
+      saveChangesPreview.innerHTML = '<div>Изменений не обнаружено.</div>';
+      return;
+    }
+    const esc = (value) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    saveChangesPreview.innerHTML = `<ul>${changes.map((item) => `<li><b>${esc(item.label)}</b>: ${esc(item.oldVal)} → ${esc(item.newVal)}</li>`).join('')}</ul>`;
+  };
+  const openSaveModal = () => {
+    if (!saveConfirmModal) return;
+    const changes = collectChangesForPreview();
+    renderChangesPreview(changes);
+    saveConfirmModal.classList.add('req-modal--open');
+    saveConfirmModal.setAttribute('aria-hidden', 'false');
+  };
+  const closeSaveModal = () => {
+    if (!saveConfirmModal) return;
+    saveConfirmModal.classList.remove('req-modal--open');
+    saveConfirmModal.setAttribute('aria-hidden', 'true');
+  };
 
   // Главный пересчет: управляет видимостью полей KPI/Без премии и пересчитывает значения на лету.
   const compute = () => {
@@ -1092,6 +1445,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     if (kpiRow) kpiRow.style.display = (isMonthly || isQuarterly) ? '' : 'none';
     if (netRow) netRow.style.display = isNoBonus ? '' : 'none';
+    if (bonusPercentRow) bonusPercentRow.style.display = (isMonthly || isQuarterly) ? '' : 'none';
+    if (bonusPercent) bonusPercent.required = (isMonthly || isQuarterly);
 
     kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
     netIncome.value = (netGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
@@ -1109,9 +1464,27 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     el.addEventListener('change', updateResponsibilitiesDiff);
     el.addEventListener('input', updateResponsibilitiesDiff);
   });
+  [saveConfirmBackdrop, closeConfirmModal, cancelSaveChanges].forEach((el) => {
+    if (!el) return;
+    el.addEventListener('click', closeSaveModal);
+  });
+  if (openConfirmModalBtn) {
+    openConfirmModalBtn.addEventListener('click', () => {
+      if (!formEl || !formEl.reportValidity()) return;
+      openSaveModal();
+    });
+  }
+  if (confirmSaveChanges) {
+    confirmSaveChanges.addEventListener('click', () => {
+      if (!formEl) return;
+      if (confirmSaveInput) confirmSaveInput.value = 'Y';
+      formEl.submit();
+    });
+  }
 
   compute();
   updateResponsibilitiesDiff();
+  captureInitialValues();
 })();
 </script>
 
