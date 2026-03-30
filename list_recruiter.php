@@ -572,6 +572,7 @@ while ($ob = $res->GetNextElement()) {
     $taskIdForLink = 0;
     $taskUserForLink = 0;
     $taskIdForDelegate = 0;
+    $hasCurrentUserTask = false;
 
     if (!empty($tasks)) {
         foreach ($tasks as $t) {
@@ -579,12 +580,9 @@ while ($ob = $res->GetNextElement()) {
                 $taskIdForLink = (int)$t['ID'];
                 $taskUserForLink = (int)$t['USER_ID'];
                 $taskIdForDelegate = (int)$t['ID'];
+                $hasCurrentUserTask = true;
                 break;
             }
-        }
-        if ($taskIdForLink === 0) {
-            $taskIdForLink = (int)$tasks[0]['ID'];
-            $taskUserForLink = (int)$tasks[0]['USER_ID'];
         }
     }
 
@@ -608,6 +606,7 @@ while ($ob = $res->GetNextElement()) {
         'EDIT_URL'=>str_replace('#ID#', $id, $editElementUrlPattern),
         'COPY_URL'=>str_replace('#ID#', $id, $copyElementUrlPattern),
         'HAS_TASKS'=>!empty($tasks),
+        'HAS_CURRENT_USER_TASK'=>$hasCurrentUserTask,
         'TASK_ID_FOR_LINK'=>$taskIdForLink,
         'TASK_USER_FOR_LINK'=>$taskUserForLink,
         'TASK_ID_DELEGATE'=>$taskIdForDelegate,
@@ -914,10 +913,10 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $manager   = $userMap[(int)$row['MANAGER_ID']]   ?? null;
             $recruiter = $userMap[(int)$row['RECRUITER_ID']] ?? null;
 
-            $hasTasks = (bool)$row['HAS_TASKS'];
+            $hasCurrentUserTask = (bool)($row['HAS_CURRENT_USER_TASK'] ?? false);
 
             $taskIdForLink = (int)$row['TASK_ID_FOR_LINK'];
-            $taskUrl  = ($hasTasks && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
+            $taskUrl  = ($hasCurrentUserTask && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
 
             $delegateVisible = (bool)$row['DELEGATE_VISIBLE'];
             $taskIdForDelegate = (int)$row['TASK_ID_DELEGATE'];
