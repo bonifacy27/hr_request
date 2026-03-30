@@ -508,27 +508,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'CREATED_BY'      => is_object($USER) ? (int)$USER->GetID() : 1,
     ];
 
-    $newId = $el->Add($fields);
-    if ($newId) {
-        $createdId = (int)$newId;
-        fr_log('ADD OK', $createdId);
-
-        if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
-            $docId = ['lists','BizprocDocument',$createdId];
-            $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
-            $wfErrors = [];
-            $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
-            if (!empty($wfErrors)) {
-                fr_log('BP ERR', $wfErrors);
-            } else {
-                fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
-            }
-        }
-
-        echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+    if ($managerId <= 0) {
+        $saveMessage = ['type' => 'danger', 'text' => 'Поле "Непосредственный руководитель" обязательно для заполнения.'];
+        fr_log('VALIDATION ERR', ['employee_id' => $employeeRaw, 'employee_name' => $managerName]);
     } else {
-        fr_log('ADD ERR', $el->LAST_ERROR);
-        $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        $newId = $el->Add($fields);
+        if ($newId) {
+            $createdId = (int)$newId;
+            fr_log('ADD OK', $createdId);
+
+            if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
+                $docId = ['lists','BizprocDocument',$createdId];
+                $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
+                $wfErrors = [];
+                $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
+                if (!empty($wfErrors)) {
+                    fr_log('BP ERR', $wfErrors);
+                } else {
+                    fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
+                }
+            }
+
+            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+        } else {
+            fr_log('ADD ERR', $el->LAST_ERROR);
+            $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        }
     }
 }
 ?>
@@ -609,6 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
           </div>
           <div class="form-group col-md-6">
             <label>Непосредственный руководитель <span class="text-danger">*</span></label>
+            <input type="hidden" name="employee_required" id="employeeRequired" required>
             <?php
             $APPLICATION->IncludeComponent(
                 'bitrix:intranet.user.selector',
@@ -708,7 +714,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         <div class="form-group">
           <label>Должностные обязанности <span class="text-danger">*</span></label>
           <input type="hidden" name="duties_original" id="dutiesOriginal" value="">
-          <textarea class="form-control" name="duties" id="duties" rows="4" placeholder="Опишите ключевые обязанности..." required></textarea>
+          <textarea class="form-control" name="duties" id="duties" rows="8" placeholder="Опишите ключевые обязанности..." required></textarea>
           <small class="form-text text-muted">Если выбрана должность из списка, поле может быть предзаполнено из карточки должности.</small>
         </div>
         <div class="form-row">
@@ -976,6 +982,19 @@ BX.ready(function(){
     }
   }
 
+  function syncEmployeeRequired() {
+    var employeeIdVal = '';
+    var employeeIdInput = $('[name="employee_id"]').first();
+    if (!employeeIdInput.length) {
+      employeeIdInput = $('[name="employee_id[]"]').first();
+    }
+    if (employeeIdInput.length) {
+      employeeIdVal = (employeeIdInput.val() || '').toString().trim();
+    }
+    var employeeNameVal = ($('[name="employee_name"]').val() || '').toString().trim();
+    $('#employeeRequired').val((employeeIdVal || employeeNameVal) ? 'Y' : '');
+  }
+
   var $legal = $('select[name="legal"]');
   $legal.find('option').each(function(){
     var t = $(this).text();
@@ -1071,6 +1090,11 @@ BX.ready(function(){
   $('.furniture-input').on('change', syncFurnitureValue);
   syncFurnitureValue();
   applyPrefill();
+  syncEmployeeRequired();
+  $(document).on('change input', '[name="employee_id"], [name="employee_id[]"], [name="employee_name"]', syncEmployeeRequired);
+  $('#recruitForm').on('submit', function(){
+    syncEmployeeRequired();
+  });
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); ?>
