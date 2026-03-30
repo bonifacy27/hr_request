@@ -93,6 +93,31 @@ function fr_log($label, $data = null) {
 }
 
 /**
+ * Рекурсивно оставить только заполненные значения для JSON-копии формы.
+ * Считаем пустыми: null, пустую строку, пустой массив.
+ * Значения "0"/0/false сохраняем.
+ */
+function fr_json_filter_filled($value) {
+    if (is_array($value)) {
+        $filtered = [];
+        foreach ($value as $k => $v) {
+            $fv = fr_json_filter_filled($v);
+            $isEmptyString = is_string($fv) && trim($fv) === '';
+            $isEmptyArray = is_array($fv) && empty($fv);
+            if ($fv === null || $isEmptyString || $isEmptyArray) {
+                continue;
+            }
+            $filtered[$k] = $fv;
+        }
+        return $filtered;
+    }
+    if (is_string($value)) {
+        return trim($value);
+    }
+    return $value;
+}
+
+/**
  * Сформировать краткую "разницу" между исходным текстом обязанностей (из должности)
  * и отредактированным пользователем текстом.
  *
@@ -220,6 +245,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     // === Подготовка JSON-копии ===
     $postForJson = $post;
     unset($postForJson['action'], $postForJson['sessid']);
+    $postForJson = fr_json_filter_filled($postForJson);
     $jsonData = json_encode($postForJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($jsonData === false) {
         $jsonData = '';
@@ -242,6 +268,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                 break;
             }
         }
+    }
+
+    // Базовая серверная валидация обязательных полей:
+    // важно дублировать проверки с фронта, т.к. UI-компоненты могут обойти required.
+    if ($managerId <= 0) {
+        $saveMessage = [
+            'type' => 'danger',
+            'text' => 'Поле «Непосредственный руководитель» обязательно для заполнения.',
+        ];
     }
 
     $scheduleName  = getNameById($scheduleList, (int)($post['schedule'] ?? 0));
@@ -385,36 +420,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     $elementName = 'Заявка на подбор: ' . ($positionText ?: 'без должности');
     if (!empty($post['directorate'])) $elementName .= ' — ' . trim((string)$post['directorate']);
 
-    $el = new CIBlockElement();
-    $fields = [
-        'IBLOCK_ID'       => IBLOCK_RECRUIT,
-        'ACTIVE'          => 'Y',
-        'NAME'            => $elementName,
-        'PROPERTY_VALUES' => $props,
-        'CREATED_BY'      => is_object($USER) ? (int)$USER->GetID() : 1,
-    ];
+    if (!$saveMessage) {
+        $el = new CIBlockElement();
+        $fields = [
+            'IBLOCK_ID'       => IBLOCK_RECRUIT,
+            'ACTIVE'          => 'Y',
+            'NAME'            => $elementName,
+            'PROPERTY_VALUES' => $props,
+            'CREATED_BY'      => is_object($USER) ? (int)$USER->GetID() : 1,
+        ];
 
-    $newId = $el->Add($fields);
-    if ($newId) {
-        $createdId = (int)$newId;
-        fr_log('ADD OK', $createdId);
+        $newId = $el->Add($fields);
+        if ($newId) {
+            $createdId = (int)$newId;
+            fr_log('ADD OK', $createdId);
 
-        if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
-            $docId = ['lists','BizprocDocument',$createdId];
-            $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
-            $wfErrors = [];
-            $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
-            if (!empty($wfErrors)) {
-                fr_log('BP ERR', $wfErrors);
-            } else {
-                fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
+            if (Loader::includeModule('bizproc') && Loader::includeModule('lists')) {
+                $docId = ['lists','BizprocDocument',$createdId];
+                $wfParams = ['TargetUser' => (is_object($USER) ? 'user_'.(int)$USER->GetID() : 'user_1')];
+                $wfErrors = [];
+                $wfId = CBPDocument::StartWorkflow(1269, $docId, $wfParams, $wfErrors);
+                if (!empty($wfErrors)) {
+                    fr_log('BP ERR', $wfErrors);
+                } else {
+                    fr_log('BP STARTED', ['TEMPLATE_ID' => 1269, 'WF_ID' => $wfId]);
+                }
             }
-        }
 
-        echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+        } else {
+            fr_log('ADD ERR', $el->LAST_ERROR);
+            $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        }
     } else {
-        fr_log('ADD ERR', $el->LAST_ERROR);
-        $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
+        fr_log('VALIDATION ERR', $saveMessage['text']);
     }
 }
 ?>
