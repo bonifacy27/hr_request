@@ -625,7 +625,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         <div class="form-group">
           <label>Должностные обязанности <span class="text-danger">*</span></label>
           <input type="hidden" name="duties_original" id="dutiesOriginal" value="">
-          <textarea class="form-control" name="duties" id="duties" rows="4" placeholder="Опишите ключевые обязанности..." required></textarea>
+          <textarea class="form-control" name="duties" id="duties" rows="8" placeholder="Опишите ключевые обязанности..." required></textarea>
           <small class="form-text text-muted">Если выбрана должность из списка, поле может быть предзаполнено из карточки должности.</small>
         </div>
         <div class="form-row">
