@@ -71,7 +71,7 @@ $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после дел
 $createElementUrl      = '/forms/staff_recruitment/create_request.php';
 $editElementUrlPattern = '/forms/staff_recruitment/edit_request.php?id=#ID#';
 $copyElementUrlPattern = '/forms/staff_recruitment/create_request_copy.php?id=#ID#';
-$elementViewUrlPattern = '/bizproc/processes/201/element/0/#ID#/';
+$elementViewUrlPattern = '/forms/staff_recruitment/view_request.php?id=#ID#';
 
 $statusColorMap = [
     'Новая'               => '#2563eb',
@@ -1006,7 +1006,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <th><?= sortLink('DATE_CREATE','Дата заявки',$sort,$dir) ?></th>
             <th><?= sortLink('STATUS','Статус заявки',$sort,$dir) ?></th>
             <th>Причина</th>
-            <th>Открыть</th>
+            <th>Просмотр</th>
             <th>Действия</th>
           </tr>
         </thead>
@@ -1034,6 +1034,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $canEdit = $canEditByRole && !in_array($status, $nonEditableStatuses, true);
             $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
             $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
+            $hasAnyAction = $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
           <tr>
             <td><?= (int)$row['ID'] ?></td>
@@ -1067,27 +1068,29 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                   <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                 <?php endif; ?>
 
-                <select class="form-control form-control-sm actions-compact js-action-select"
-                        data-element-id="<?= (int)$row['ID'] ?>"
-                        data-task-id="<?= (int)$taskIdForDelegate ?>"
-                        data-from-user-id="<?= (int)$taskUserForDelegate ?>"
-                        data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
-                        data-edit-url="<?= h($row['EDIT_URL']) ?>"
-                        data-copy-url="<?= h($row['COPY_URL']) ?>">
-                  <option value="">Действия…</option>
-                  <?php if ($canDelegate): ?>
-                    <option value="delegate">Делегировать</option>
-                  <?php endif; ?>
-                  <?php if ($canCancel): ?>
-                    <option value="cancel">Отменить заявку</option>
-                  <?php endif; ?>
-                  <?php if ($canEdit): ?>
-                    <option value="edit">Редактировать</option>
-                  <?php endif; ?>
-                  <?php if ($canCopy): ?>
-                    <option value="copy">Дублировать заявку</option>
-                  <?php endif; ?>
-                </select>
+                <?php if ($hasAnyAction): ?>
+                  <select class="form-control form-control-sm actions-compact js-action-select"
+                          data-element-id="<?= (int)$row['ID'] ?>"
+                          data-task-id="<?= (int)$taskIdForDelegate ?>"
+                          data-from-user-id="<?= (int)$taskUserForDelegate ?>"
+                          data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
+                          data-edit-url="<?= h($row['EDIT_URL']) ?>"
+                          data-copy-url="<?= h($row['COPY_URL']) ?>">
+                    <option value="">Действия…</option>
+                    <?php if ($canDelegate): ?>
+                      <option value="delegate">Делегировать</option>
+                    <?php endif; ?>
+                    <?php if ($canCancel): ?>
+                      <option value="cancel">Отменить заявку</option>
+                    <?php endif; ?>
+                    <?php if ($canEdit): ?>
+                      <option value="edit">Редактировать</option>
+                    <?php endif; ?>
+                    <?php if ($canCopy): ?>
+                      <option value="copy">Дублировать заявку</option>
+                    <?php endif; ?>
+                  </select>
+                <?php endif; ?>
               </div>
             </td>
           </tr>
