@@ -54,6 +54,8 @@ function logFilter($data)
 
 // === Конфигурация ===
 $IBLOCK_ID = 201;
+const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
+const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
 // ID/коды свойств
 $PROP_DOLZHNOST   = 'PROPERTY_1011';
@@ -61,6 +63,7 @@ $PROP_STATUS      = 'PROPERTY_1042'; // enum list
 $PROP_MANAGER     = 'PROPERTY_1034';
 $PROP_REASON      = 'PROPERTY_1609';
 $PROP_RECRUITER   = 'PROPERTY_1035';
+$PROP_STAVKA      = 'PROPERTY_3100';
 $PROP_KOMMENTARII = 'PROPERTY_1043';
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
@@ -165,6 +168,48 @@ function getElementPropertyString(int $iblockId, int $elementId, int $propertyId
         }
     }
     return (string)$val;
+}
+
+function getGlobalVarUserList($varId): array
+{
+    $users = [];
+    try {
+        $conn = \Bitrix\Main\Application::getConnection();
+        $sqlVarId = $conn->getSqlHelper()->forSql((string)$varId);
+        $row = $conn->query("
+            SELECT PROPERTY_VALUE
+            FROM b_bp_global_var
+            WHERE ID = '{$sqlVarId}'
+            LIMIT 1
+        ")->fetch();
+        if ($row && !empty($row['PROPERTY_VALUE'])) {
+            $decoded = @unserialize($row['PROPERTY_VALUE'], ['allowed_classes' => false]);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    $item = trim((string)$item);
+                    if ($item !== '') $users[] = mb_strtolower($item);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        return [];
+    }
+    return array_values(array_unique($users));
+}
+
+function isElementRecruiter(int $iblockId, int $elementId, int $currentUserId): bool
+{
+    if ($elementId <= 0 || $currentUserId <= 0) return false;
+    $prop = CIBlockElement::GetProperty($iblockId, $elementId, [], ['ID' => 1035])->Fetch();
+    $recruiterRaw = trim((string)($prop['VALUE'] ?? ''));
+    if ($recruiterRaw === '') return false;
+
+    $userTag = mb_strtolower('user_' . $currentUserId);
+    $variants = [
+        mb_strtolower($recruiterRaw),
+        mb_strtolower('user_' . (int)$recruiterRaw),
+    ];
+    return in_array($userTag, $variants, true) || ((int)$recruiterRaw > 0 && (int)$recruiterRaw === $currentUserId);
 }
 
 // === Bizproc helpers ===
@@ -330,12 +375,38 @@ if (!in_array($sort, $sortable, true)) $sort = 'ID';
 if (!in_array($dir, ['ASC', 'DESC'], true)) $dir = 'DESC';
 
 $currentUserId = (int)$USER->GetID();
+$currentUserTagLower = mb_strtolower('user_' . $currentUserId);
+$isAdmin = $USER->IsAdmin();
+$cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
+$recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
+$isCbManager = in_array($currentUserTagLower, $cbUsers, true);
+$isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
+$isRecruiterByList = (bool)CIBlockElement::GetList(
+    [],
+    [
+        'IBLOCK_ID' => $IBLOCK_ID,
+        'ACTIVE' => 'Y',
+        'CHECK_PERMISSIONS' => 'Y',
+        $PROP_RECRUITER => $currentUserId,
+    ],
+    false,
+    ['nTopCount' => 1],
+    ['ID']
+)->Fetch();
+$canUseExtendedFilters = $isAdmin || $isCbManager || $isRecruitHead || $isRecruiterByList;
 
 // ===== FILTER PARAMS (AND) =====
 $fInitiator = (int)$request->get('f_initiator');
 $fRecruiter = (int)$request->get('f_recruiter');
 $fManager   = (int)$request->get('f_manager');
 $fStatus    = (int)$request->get('f_status'); // enum id
+
+if (!$canUseExtendedFilters) {
+    $fInitiator = 0;
+    $fRecruiter = 0;
+    $fManager = 0;
+    $fStatus = 0;
+}
 
 // === POST actions ===
 $flashMessage = '';
@@ -418,6 +489,14 @@ if ($request->isPost()) {
             $elementId = (int)$request->getPost('id');
             $statusEnumId = (int)$request->getPost('cancel_status_enum_id');
             $cancelComment = trim((string)$request->getPost('cancel_comment'));
+            $isRecruiterForElement = isElementRecruiter($IBLOCK_ID, $elementId, $currentUserId);
+            $canCancel = $isRecruitHead || $isRecruiterForElement;
+
+            if (!$canCancel) {
+                $flashMessage = 'Недостаточно прав для отмены заявки.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
 
             if ($elementId <= 0) {
                 $flashMessage = 'Некорректный ID заявки.';
@@ -538,6 +617,7 @@ $arSelect = [
     $PROP_REASON,
     $PROP_MANAGER,
     $PROP_RECRUITER,
+    $PROP_STAVKA,
     $PROP_KOMMENTARII,
 ];
 
@@ -597,6 +677,7 @@ while ($ob = $res->GetNextElement()) {
         'CREATED_BY'=>$creatorId,
         'MANAGER_ID'=>$managerId,
         'RECRUITER_ID'=>$recruiterId,
+        'STAVKA'=>(string)$f["{$PROP_STAVKA}_VALUE"],
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
@@ -822,36 +903,38 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
       <input type="text" name="q" value="<?= h($q) ?>" class="form-control" placeholder="Поиск по всем заявкам">
 
-      <select name="f_initiator" class="form-control">
-        <option value="0">Инициатор: все</option>
-        <?php foreach ($initiatorUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fInitiator===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+      <?php if ($canUseExtendedFilters): ?>
+        <select name="f_initiator" class="form-control">
+          <option value="0">Инициатор: все</option>
+          <?php foreach ($initiatorUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fInitiator===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_manager" class="form-control">
-        <option value="0">Руководитель: все</option>
-        <?php foreach ($managerUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fManager===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_manager" class="form-control">
+          <option value="0">Руководитель: все</option>
+          <?php foreach ($managerUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fManager===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_recruiter" class="form-control">
-        <option value="0">Рекрутер: все</option>
-        <?php foreach ($recruiterUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fRecruiter===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_recruiter" class="form-control">
+          <option value="0">Рекрутер: все</option>
+          <?php foreach ($recruiterUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fRecruiter===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_status" class="form-control">
-        <option value="0">Статус: все</option>
-        <?php foreach ($statusEnumOptions as $eid => $val): ?>
-          <option value="<?= (int)$eid ?>" <?= ($fStatus===(int)$eid ? 'selected' : '') ?>><?= h($val) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_status" class="form-control">
+          <option value="0">Статус: все</option>
+          <?php foreach ($statusEnumOptions as $eid => $val): ?>
+            <option value="<?= (int)$eid ?>" <?= ($fStatus===(int)$eid ? 'selected' : '') ?>><?= h($val) ?></option>
+          <?php endforeach; ?>
+        </select>
+      <?php endif; ?>
 
       <button type="submit" class="btn btn-primary">Найти</button>
       <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary">Сброс</a>
@@ -922,6 +1005,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $taskIdForDelegate = (int)$row['TASK_ID_DELEGATE'];
             $canDelegate = ($delegateVisible && $taskIdForDelegate > 0);
             $canEdit = !in_array($status, $nonEditableStatuses, true);
+            $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
+            $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
         ?>
           <tr>
             <td><?= (int)$row['ID'] ?></td>
@@ -965,11 +1050,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                   <?php if ($delegateVisible): ?>
                     <option value="delegate">Делегировать</option>
                   <?php endif; ?>
-                  <option value="cancel">Отменить заявку</option>
+                  <?php if ($canCancel): ?>
+                    <option value="cancel">Отменить заявку</option>
+                  <?php endif; ?>
                   <?php if ($canEdit): ?>
                     <option value="edit">Редактировать</option>
                   <?php endif; ?>
-                  <option value="copy">Дублировать заявку</option>
+                  <?php if ($canCopy): ?>
+                    <option value="copy">Дублировать заявку</option>
+                  <?php endif; ?>
                 </select>
               </div>
             </td>
