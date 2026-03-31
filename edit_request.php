@@ -1055,7 +1055,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
 
     if ($isTextarea) {
-        $rows = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true) ? 8 : 4;
+        $rows = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true) ? 15 : 4;
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
@@ -1220,6 +1220,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
       <button type="button" class="ui-btn ui-btn-success" id="open_confirm_modal">Сохранить</button>
+      <a href="/forms/staff_recruitment/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
     </div>
   </div>
 </form>
