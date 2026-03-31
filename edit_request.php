@@ -1438,6 +1438,19 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
       .replace(/"/g, '&quot;');
     saveChangesPreview.innerHTML = `<ul>${changes.map((item) => `<li><b>${esc(item.label)}</b>: ${esc(item.oldVal)} → ${esc(item.newVal)}</li>`).join('')}</ul>`;
   };
+
+  const validateBeforePreview = () => {
+    if (bonusType && !bonusType.disabled) {
+      const selectedValue = Number(bonusType.value || 0);
+      if (!Number.isFinite(selectedValue) || selectedValue <= 0) {
+        alert('Поле "Предполагаемый тип премирования" обязательно для заполнения.');
+        bonusType.focus();
+        return false;
+      }
+    }
+    return true;
+  };
+
   const openSaveModal = () => {
     if (!saveConfirmModal) return;
     const changes = collectChangesForPreview();
@@ -1500,6 +1513,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   if (openConfirmModalBtn) {
     openConfirmModalBtn.addEventListener('click', () => {
       if (!formEl || !formEl.reportValidity()) return;
+      if (!validateBeforePreview()) return;
       openSaveModal();
     });
   }
