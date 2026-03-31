@@ -563,7 +563,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
 
     $updates = [];
     $historyChanged = [];
-    $jsonChanged = [];
     $hasWorkflowRelevantChanges = false;
 
     if (isset($post['employee_id']) && is_array($post['employee_id'])) {
@@ -671,7 +670,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 if ($code !== 'KOMMENTARII_C_B') {
                     $hasWorkflowRelevantChanges = true;
                     $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                    $jsonChanged[$code] = $newVal;
                 }
             }
             continue;
@@ -687,7 +685,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 if ($code !== 'KOMMENTARII_C_B') {
                     $hasWorkflowRelevantChanges = true;
                     $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                    $jsonChanged[$code] = $newVal;
                 }
             }
             continue;
@@ -705,7 +702,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 $updates[$code] = $newVal;
                 $hasWorkflowRelevantChanges = true;
                 $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
             }
             continue;
         }
@@ -718,7 +714,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
             if ($newVal !== $oldVal) {
                 $updates[$code] = $newVal;
                 $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
             }
             continue;
         }
@@ -733,7 +728,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 $updates[$code] = $newId;
                 if ($code !== 'KOMMENTARII_C_B') {
                     $hasWorkflowRelevantChanges = true;
-                    $jsonChanged[$code] = $newId;
                 }
 
                 $oldName = $ib ? getElementNameById($ib, $oldId) : (string)$oldId;
@@ -754,7 +748,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 $updates[$code] = $newEnumId;
                 if ($code !== 'KOMMENTARII_C_B') {
                     $hasWorkflowRelevantChanges = true;
-                    $jsonChanged[$code] = $newEnumId;
                     $historyChanged[] = $f['NAME'] . ': ' . (string)($curProps[$code]['VALUE'] ?? '') . ' → ' . $newEnumId;
                 }
             }
@@ -770,7 +763,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 if ($code !== 'KOMMENTARII_C_B') {
                     $hasWorkflowRelevantChanges = true;
                     $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                    $jsonChanged[$code] = $newVal;
                 }
             }
             continue;
@@ -784,7 +776,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
             if ($code !== 'KOMMENTARII_C_B') {
                 $hasWorkflowRelevantChanges = true;
                 $historyChanged[] = $f['NAME'] . ': ' . $oldVal . ' → ' . $newVal;
-                $jsonChanged[$code] = $newVal;
             }
         }
     }
@@ -809,19 +800,6 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $historyBlock = "[{$stamp}] Изменения (" . $roleLabel . ", {$who}):\n- " . implode("\n- ", $historyChanged);
 
         $updates[$historyCode] = appendHistory($historyOld, $historyBlock);
-        $jsonChanged[$historyCode] = $updates[$historyCode];
-
-        // JSON
-        $jsonCode = 'JSON';
-        $oldJson = (string)normPropValue($curProps[$jsonCode] ?? '');
-        $jsonArr = [];
-        if ($oldJson !== '') {
-            $decoded = json_decode($oldJson, true);
-            if (is_array($decoded)) $jsonArr = $decoded;
-        }
-        foreach ($jsonChanged as $k => $v) $jsonArr[$k] = $v;
-        $updates[$jsonCode] = json_encode($jsonArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
 
         // Запуск БП уведомления.
