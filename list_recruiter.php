@@ -54,6 +54,8 @@ function logFilter($data)
 
 // === Конфигурация ===
 $IBLOCK_ID = 201;
+const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
+const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
 // ID/коды свойств
 $PROP_DOLZHNOST   = 'PROPERTY_1011';
@@ -61,6 +63,7 @@ $PROP_STATUS      = 'PROPERTY_1042'; // enum list
 $PROP_MANAGER     = 'PROPERTY_1034';
 $PROP_REASON      = 'PROPERTY_1609';
 $PROP_RECRUITER   = 'PROPERTY_1035';
+$PROP_STAVKA      = 'PROPERTY_3100';
 $PROP_KOMMENTARII = 'PROPERTY_1043';
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
@@ -68,7 +71,7 @@ $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после дел
 $createElementUrl      = '/forms/staff_recruitment/create_request.php';
 $editElementUrlPattern = '/forms/staff_recruitment/edit_request.php?id=#ID#';
 $copyElementUrlPattern = '/forms/staff_recruitment/create_request_copy.php?id=#ID#';
-$elementViewUrlPattern = '/bizproc/processes/201/element/0/#ID#/';
+$elementViewUrlPattern = '/forms/staff_recruitment/view_request.php?id=#ID#';
 
 $statusColorMap = [
     'Новая'               => '#2563eb',
@@ -165,6 +168,48 @@ function getElementPropertyString(int $iblockId, int $elementId, int $propertyId
         }
     }
     return (string)$val;
+}
+
+function getGlobalVarUserList($varId): array
+{
+    $users = [];
+    try {
+        $conn = \Bitrix\Main\Application::getConnection();
+        $sqlVarId = $conn->getSqlHelper()->forSql((string)$varId);
+        $row = $conn->query("
+            SELECT PROPERTY_VALUE
+            FROM b_bp_global_var
+            WHERE ID = '{$sqlVarId}'
+            LIMIT 1
+        ")->fetch();
+        if ($row && !empty($row['PROPERTY_VALUE'])) {
+            $decoded = @unserialize($row['PROPERTY_VALUE'], ['allowed_classes' => false]);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    $item = trim((string)$item);
+                    if ($item !== '') $users[] = mb_strtolower($item);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        return [];
+    }
+    return array_values(array_unique($users));
+}
+
+function isElementRecruiter(int $iblockId, int $elementId, int $currentUserId): bool
+{
+    if ($elementId <= 0 || $currentUserId <= 0) return false;
+    $prop = CIBlockElement::GetProperty($iblockId, $elementId, [], ['ID' => 1035])->Fetch();
+    $recruiterRaw = trim((string)($prop['VALUE'] ?? ''));
+    if ($recruiterRaw === '') return false;
+
+    $userTag = mb_strtolower('user_' . $currentUserId);
+    $variants = [
+        mb_strtolower($recruiterRaw),
+        mb_strtolower('user_' . (int)$recruiterRaw),
+    ];
+    return in_array($userTag, $variants, true) || ((int)$recruiterRaw > 0 && (int)$recruiterRaw === $currentUserId);
 }
 
 // === Bizproc helpers ===
@@ -330,12 +375,38 @@ if (!in_array($sort, $sortable, true)) $sort = 'ID';
 if (!in_array($dir, ['ASC', 'DESC'], true)) $dir = 'DESC';
 
 $currentUserId = (int)$USER->GetID();
+$currentUserTagLower = mb_strtolower('user_' . $currentUserId);
+$isAdmin = $USER->IsAdmin();
+$cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
+$recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
+$isCbManager = in_array($currentUserTagLower, $cbUsers, true);
+$isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
+$isRecruiterByList = (bool)CIBlockElement::GetList(
+    [],
+    [
+        'IBLOCK_ID' => $IBLOCK_ID,
+        'ACTIVE' => 'Y',
+        'CHECK_PERMISSIONS' => 'Y',
+        $PROP_RECRUITER => $currentUserId,
+    ],
+    false,
+    ['nTopCount' => 1],
+    ['ID']
+)->Fetch();
+$canUseExtendedFilters = $isAdmin || $isCbManager || $isRecruitHead || $isRecruiterByList;
 
 // ===== FILTER PARAMS (AND) =====
 $fInitiator = (int)$request->get('f_initiator');
 $fRecruiter = (int)$request->get('f_recruiter');
 $fManager   = (int)$request->get('f_manager');
 $fStatus    = (int)$request->get('f_status'); // enum id
+
+if (!$canUseExtendedFilters) {
+    $fInitiator = 0;
+    $fRecruiter = 0;
+    $fManager = 0;
+    $fStatus = 0;
+}
 
 // === POST actions ===
 $flashMessage = '';
@@ -353,11 +424,26 @@ if ($request->isPost()) {
         if ($action === 'delegate_task') {
             $elementId = (int)$request->getPost('element_id');
             $taskId    = (int)$request->getPost('task_id');
+            $fromUserId = (int)$request->getPost('from_user_id');
             $toUserId  = (int)$request->getPost('delegate_to_user_id');
 
-            logFilter(['action'=>'delegate_task','elementId'=>$elementId,'taskId'=>$taskId,'fromUser'=>$currentUserId,'toUser'=>$toUserId]);
+            $isRecruiterForElement = isElementRecruiter($IBLOCK_ID, $elementId, $currentUserId);
+            $canDelegateByRole = $isRecruitHead || $isRecruiterForElement;
+            if (!$canDelegateByRole) {
+                $flashMessage = 'Недостаточно прав для делегирования по этой заявке.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
 
-            $res = delegateBizprocTask($taskId, $currentUserId, $toUserId);
+            if (!$isRecruitHead && $fromUserId !== $currentUserId) {
+                $flashMessage = 'Рекрутер может делегировать только свою задачу.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
+
+            logFilter(['action'=>'delegate_task','elementId'=>$elementId,'taskId'=>$taskId,'fromUser'=>$fromUserId,'toUser'=>$toUserId,'actorUser'=>$currentUserId]);
+
+            $res = delegateBizprocTask($taskId, $fromUserId, $toUserId);
 
             if ($res['OK']) {
                 // старый рекрутер
@@ -418,6 +504,14 @@ if ($request->isPost()) {
             $elementId = (int)$request->getPost('id');
             $statusEnumId = (int)$request->getPost('cancel_status_enum_id');
             $cancelComment = trim((string)$request->getPost('cancel_comment'));
+            $isRecruiterForElement = isElementRecruiter($IBLOCK_ID, $elementId, $currentUserId);
+            $canCancel = $isRecruitHead || $isRecruiterForElement;
+
+            if (!$canCancel) {
+                $flashMessage = 'Недостаточно прав для отмены заявки.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
 
             if ($elementId <= 0) {
                 $flashMessage = 'Некорректный ID заявки.';
@@ -538,6 +632,7 @@ $arSelect = [
     $PROP_REASON,
     $PROP_MANAGER,
     $PROP_RECRUITER,
+    $PROP_STAVKA,
     $PROP_KOMMENTARII,
 ];
 
@@ -572,6 +667,7 @@ while ($ob = $res->GetNextElement()) {
     $taskIdForLink = 0;
     $taskUserForLink = 0;
     $taskIdForDelegate = 0;
+    $taskUserForDelegate = 0;
     $hasCurrentUserTask = false;
 
     if (!empty($tasks)) {
@@ -579,14 +675,21 @@ while ($ob = $res->GetNextElement()) {
             if ((int)$t['USER_ID'] === (int)$GLOBALS['USER']->GetID() && (int)$GLOBALS['USER']->GetID() > 0) {
                 $taskIdForLink = (int)$t['ID'];
                 $taskUserForLink = (int)$t['USER_ID'];
-                $taskIdForDelegate = (int)$t['ID'];
                 $hasCurrentUserTask = true;
-                break;
+            }
+
+            if ($recruiterId > 0 && (int)$t['USER_ID'] === $recruiterId && $taskIdForDelegate <= 0) {
+                $taskIdForDelegate = (int)$t['ID'];
+                $taskUserForDelegate = (int)$t['USER_ID'];
             }
         }
-    }
 
-    $delegateVisible = ($recruiterId > 0 && in_array($recruiterId, $assigneeIds, true));
+        if ($taskIdForDelegate <= 0) {
+            $firstTask = $tasks[0];
+            $taskIdForDelegate = (int)($firstTask['ID'] ?? 0);
+            $taskUserForDelegate = (int)($firstTask['USER_ID'] ?? 0);
+        }
+    }
 
     $items[] = [
         'ID'=>$id,
@@ -597,6 +700,7 @@ while ($ob = $res->GetNextElement()) {
         'CREATED_BY'=>$creatorId,
         'MANAGER_ID'=>$managerId,
         'RECRUITER_ID'=>$recruiterId,
+        'STAVKA'=>(string)$f["{$PROP_STAVKA}_VALUE"],
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
@@ -610,7 +714,7 @@ while ($ob = $res->GetNextElement()) {
         'TASK_ID_FOR_LINK'=>$taskIdForLink,
         'TASK_USER_FOR_LINK'=>$taskUserForLink,
         'TASK_ID_DELEGATE'=>$taskIdForDelegate,
-        'DELEGATE_VISIBLE'=>$delegateVisible,
+        'TASK_USER_DELEGATE'=>$taskUserForDelegate,
     ];
 
     foreach ([$creatorId,$managerId,$recruiterId] as $uid) if ($uid>0) $userIds[$uid]=true;
@@ -822,36 +926,38 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
       <input type="text" name="q" value="<?= h($q) ?>" class="form-control" placeholder="Поиск по всем заявкам">
 
-      <select name="f_initiator" class="form-control">
-        <option value="0">Инициатор: все</option>
-        <?php foreach ($initiatorUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fInitiator===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+      <?php if ($canUseExtendedFilters): ?>
+        <select name="f_initiator" class="form-control">
+          <option value="0">Инициатор: все</option>
+          <?php foreach ($initiatorUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fInitiator===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_manager" class="form-control">
-        <option value="0">Руководитель: все</option>
-        <?php foreach ($managerUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fManager===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_manager" class="form-control">
+          <option value="0">Руководитель: все</option>
+          <?php foreach ($managerUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fManager===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_recruiter" class="form-control">
-        <option value="0">Рекрутер: все</option>
-        <?php foreach ($recruiterUsers as $uid => $u): ?>
-          <?php $name = formatUserNameLastFirst($u); ?>
-          <option value="<?= (int)$uid ?>" <?= ($fRecruiter===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_recruiter" class="form-control">
+          <option value="0">Рекрутер: все</option>
+          <?php foreach ($recruiterUsers as $uid => $u): ?>
+            <?php $name = formatUserNameLastFirst($u); ?>
+            <option value="<?= (int)$uid ?>" <?= ($fRecruiter===(int)$uid ? 'selected' : '') ?>><?= h($name) ?></option>
+          <?php endforeach; ?>
+        </select>
 
-      <select name="f_status" class="form-control">
-        <option value="0">Статус: все</option>
-        <?php foreach ($statusEnumOptions as $eid => $val): ?>
-          <option value="<?= (int)$eid ?>" <?= ($fStatus===(int)$eid ? 'selected' : '') ?>><?= h($val) ?></option>
-        <?php endforeach; ?>
-      </select>
+        <select name="f_status" class="form-control">
+          <option value="0">Статус: все</option>
+          <?php foreach ($statusEnumOptions as $eid => $val): ?>
+            <option value="<?= (int)$eid ?>" <?= ($fStatus===(int)$eid ? 'selected' : '') ?>><?= h($val) ?></option>
+          <?php endforeach; ?>
+        </select>
+      <?php endif; ?>
 
       <button type="submit" class="btn btn-primary">Найти</button>
       <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary">Сброс</a>
@@ -900,7 +1006,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <th><?= sortLink('DATE_CREATE','Дата заявки',$sort,$dir) ?></th>
             <th><?= sortLink('STATUS','Статус заявки',$sort,$dir) ?></th>
             <th>Причина</th>
-            <th>Открыть</th>
+            <th>Просмотр</th>
             <th>Действия</th>
           </tr>
         </thead>
@@ -918,10 +1024,17 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $taskIdForLink = (int)$row['TASK_ID_FOR_LINK'];
             $taskUrl  = ($hasCurrentUserTask && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
 
-            $delegateVisible = (bool)$row['DELEGATE_VISIBLE'];
             $taskIdForDelegate = (int)$row['TASK_ID_DELEGATE'];
-            $canDelegate = ($delegateVisible && $taskIdForDelegate > 0);
-            $canEdit = !in_array($status, $nonEditableStatuses, true);
+            $taskUserForDelegate = (int)$row['TASK_USER_DELEGATE'];
+            $canDelegate = ($taskIdForDelegate > 0 && $taskUserForDelegate > 0) && (
+                $isRecruitHead ||
+                (((int)$row['RECRUITER_ID'] === $currentUserId) && $hasCurrentUserTask)
+            );
+            $canEditByRole = $isAdmin || $isCbManager || $isRecruitHead || (((int)$row['RECRUITER_ID'] === $currentUserId) && $hasCurrentUserTask);
+            $canEdit = $canEditByRole && !in_array($status, $nonEditableStatuses, true);
+            $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
+            $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
+            $hasAnyAction = $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
           <tr>
             <td><?= (int)$row['ID'] ?></td>
@@ -955,22 +1068,29 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                   <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                 <?php endif; ?>
 
-                <select class="form-control form-control-sm actions-compact js-action-select"
-                        data-element-id="<?= (int)$row['ID'] ?>"
-                        data-task-id="<?= (int)$taskIdForDelegate ?>"
-                        data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
-                        data-edit-url="<?= h($row['EDIT_URL']) ?>"
-                        data-copy-url="<?= h($row['COPY_URL']) ?>">
-                  <option value="">Действия…</option>
-                  <?php if ($delegateVisible): ?>
-                    <option value="delegate">Делегировать</option>
-                  <?php endif; ?>
-                  <option value="cancel">Отменить заявку</option>
-                  <?php if ($canEdit): ?>
-                    <option value="edit">Редактировать</option>
-                  <?php endif; ?>
-                  <option value="copy">Дублировать заявку</option>
-                </select>
+                <?php if ($hasAnyAction): ?>
+                  <select class="form-control form-control-sm actions-compact js-action-select"
+                          data-element-id="<?= (int)$row['ID'] ?>"
+                          data-task-id="<?= (int)$taskIdForDelegate ?>"
+                          data-from-user-id="<?= (int)$taskUserForDelegate ?>"
+                          data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
+                          data-edit-url="<?= h($row['EDIT_URL']) ?>"
+                          data-copy-url="<?= h($row['COPY_URL']) ?>">
+                    <option value="">Действия…</option>
+                    <?php if ($canDelegate): ?>
+                      <option value="delegate">Делегировать</option>
+                    <?php endif; ?>
+                    <?php if ($canCancel): ?>
+                      <option value="cancel">Отменить заявку</option>
+                    <?php endif; ?>
+                    <?php if ($canEdit): ?>
+                      <option value="edit">Редактировать</option>
+                    <?php endif; ?>
+                    <?php if ($canCopy): ?>
+                      <option value="copy">Дублировать заявку</option>
+                    <?php endif; ?>
+                  </select>
+                <?php endif; ?>
               </div>
             </td>
           </tr>
@@ -1018,13 +1138,14 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       <input type="hidden" name="action" value="delegate_task">
       <input type="hidden" name="element_id" id="delegate-element-id" value="">
       <input type="hidden" name="task_id" id="delegate-task-id" value="">
+      <input type="hidden" name="from_user_id" id="delegate-from-user-id" value="">
       <input type="hidden" name="delegate_to_user_id" id="delegate-to-user-id" value="">
       <div><b>Кому делегировать</b></div>
       <div class="popup-form-row" style="margin-top:8px;">
         <button type="button" class="btn btn-outline-primary btn-sm" id="delegate-pick-user">Выбрать сотрудника</button>
         <span class="text-muted" id="delegate-selected-user">Сотрудник не выбран</span>
       </div>
-      <div class="popup-form-hint">Делегировать можно только вашу текущую задачу рекрутера по заявке.</div>
+      <div class="popup-form-hint">Доступно рекрутеру с активной задачей по заявке и руководителю отдела подбора.</div>
     </form>
   </div>
 </div>
@@ -1157,20 +1278,22 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     return selectorDialog;
   }
 
-  function openDelegatePopup(elementId, taskId) {
+  function openDelegatePopup(elementId, taskId, fromUserId) {
     var p = ensureDelegatePopup();
     p.show();
 
     var elElementId = p.contentContainer.querySelector('#delegate-element-id');
     var elTaskId    = p.contentContainer.querySelector('#delegate-task-id');
+    var elFromUserId = p.contentContainer.querySelector('#delegate-from-user-id');
     var elToUserId  = p.contentContainer.querySelector('#delegate-to-user-id');
     var elPickBtn   = p.contentContainer.querySelector('#delegate-pick-user');
     var elSelected  = p.contentContainer.querySelector('#delegate-selected-user');
 
-    if (!elElementId || !elTaskId || !elToUserId || !elPickBtn || !elSelected) { notify('Ошибка окна делегирования.'); return; }
+    if (!elElementId || !elTaskId || !elFromUserId || !elToUserId || !elPickBtn || !elSelected) { notify('Ошибка окна делегирования.'); return; }
 
     elElementId.value = String(elementId || '');
     elTaskId.value    = String(taskId || '');
+    elFromUserId.value = String(fromUserId || '');
     elToUserId.value  = '';
     elSelected.textContent = 'Сотрудник не выбран';
     elSelected.classList.add('text-muted');
@@ -1308,6 +1431,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
       var elementId = parseInt(select.getAttribute('data-element-id') || '0', 10);
       var taskId = parseInt(select.getAttribute('data-task-id') || '0', 10);
+      var fromUserId = parseInt(select.getAttribute('data-from-user-id') || '0', 10);
       var canDelegate = (select.getAttribute('data-can-delegate') || '0') === '1';
       var editUrl = select.getAttribute('data-edit-url') || '';
       var copyUrl = select.getAttribute('data-copy-url') || '';
@@ -1319,8 +1443,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       }
 
       if (action === 'delegate') {
-        if (!canDelegate || !taskId) notify('Делегировать можно только свою текущую задачу рекрутера по заявке.');
-        else openDelegatePopup(elementId, taskId);
+        if (!canDelegate || !taskId || !fromUserId) notify('Недостаточно прав или отсутствует активная задача для делегирования.');
+        else openDelegatePopup(elementId, taskId, fromUserId);
       } else if (action === 'cancel') {
         openCancelPopup(elementId);
       } else if (action === 'edit') {
