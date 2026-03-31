@@ -350,6 +350,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     }
 
     $managerName = trim((string)($post['employee_name'] ?? ''));
+    $managerPosition = '';
+    if ($managerId > 0) {
+        $rsManager = CUser::GetByID($managerId);
+        if ($arManager = $rsManager->Fetch()) {
+            $managerPosition = trim((string)($arManager['WORK_POSITION'] ?? ''));
+        }
+    }
 
     // === Должностные обязанности: исходные (из должности) + отредактированные + разница ===
     $dutiesEdited   = trim((string)($post['duties'] ?? ''));
@@ -375,6 +382,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'PODRAZDELENIE_0_UROVNYA'                       => (int)($post['dep0'] ?? 0),
         'DIREKTSIYA'                                    => trim((string)($post['directorate'] ?? '')),
         'NEPOSREDSTVENNYY_RUKOVODITEL'                  => $managerId,
+        'DOLZHNOST_RUKOVODITELYA'                      => $managerPosition,
         'OBRAZOVANIE_TEKST'                             => trim((string)($post['education'] ?? '')),
         'PRICHINA_OTKRYTIYA_VAKANSII_TEKST'             => $reasonText,
         'PRICHINA_ZAYAVKI_NA_PODBOR'                    => $reasonDetails,
@@ -448,7 +456,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                 }
             }
 
-            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+            echo '<script>BX.ready(function(){window.location.href = "/forms/staff_recruitment/list.php";});</script>';
         } else {
             fr_log('ADD ERR', $el->LAST_ERROR);
             $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
