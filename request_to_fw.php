@@ -3,6 +3,7 @@
  * /forms/staff_recruitment/request_to_fw.php
  *
  * Интеграция заявки на подбор (ИБ 201) -> FriendWork.
+ * Версия: v1.0.0 (2026-03-27)
  *
  * Логика:
  * 1) GET id=ID_заявки: показываем данные, которые будут отправлены в FriendWork.
@@ -159,6 +160,25 @@ function normalizeText($value)
 }
 
 
+
+
+
+function normalizeEmail($email)
+{
+    $email = mb_strtolower(trim((string)$email));
+    $email = preg_replace('/\s+/', '', $email);
+    return $email;
+}
+
+function emailLocalPart($email)
+{
+    $email = normalizeEmail($email);
+    $pos = strpos($email, '@');
+    if ($pos === false) {
+        return $email;
+    }
+    return (string)substr($email, 0, $pos);
+}
 
 function buildDescription($fields)
 {
@@ -413,32 +433,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                 $debugInfo['accounts'] = [
                     'httpCode' => $accountsHttpCode,
                     'rawResponse' => $accountsRaw,
+                    'parsedResponse' => $accountsResponse,
                 ];
 
                 if (!$accountsOk) {
                     @unlink($cookieFile);
                     $errors[] = $accountsError;
                 } else {
-                    $emailLower = mb_strtolower(trim($recruiterEmail));
-                    $emailLocalPart = $emailLower;
-                    if (strpos($emailLower, '@') !== false) {
-                        $emailLocalPart = (string)substr($emailLower, 0, strpos($emailLower, '@'));
-                    }
+                    $emailLower = normalizeEmail($recruiterEmail);
+                    $emailLocalPart = emailLocalPart($recruiterEmail);
 
                     $resolvedResponsibleId = 0;
-                        $accountEmailRaw = (string)(isset($account['userName']) ? $account['userName'] : (isset($account['username']) ? $account['username'] : (isset($account['email']) ? $account['email'] : (isset($account['mail']) ? $account['mail'] : ''))));
-                        $accountId = (int)(isset($account['accountId']) ? $account['accountId'] : (isset($account['id']) ? $account['id'] : 0));
+
+                    $accountsList = $accountsResponse;
+                    $debugInfo['responsibleLookup'] = array('recruiterEmailRaw' => $recruiterEmail);
+                    if (isset($accountsResponse['items']) && is_array($accountsResponse['items'])) {
+                        $accountsList = $accountsResponse['items'];
+                    } elseif (isset($accountsResponse['data']) && is_array($accountsResponse['data'])) {
+                        $accountsList = $accountsResponse['data'];
+                    } elseif (isset($accountsResponse['accounts']) && is_array($accountsResponse['accounts'])) {
+                        $accountsList = $accountsResponse['accounts'];
+                    }
+
+                    $debugInfo['responsibleLookup']['accountsCount'] = is_array($accountsList) ? count($accountsList) : 0;
+                    foreach ($accountsList as $account) {
+                        if (!is_array($account)) {
+                            continue;
                         }
+
+                        $accountEmailRaw = (string)(
+                            isset($account['userName']) ? $account['userName'] : (
+                            isset($account['username']) ? $account['username'] : (
+                            isset($account['UserName']) ? $account['UserName'] : (
+                            isset($account['USERNAME']) ? $account['USERNAME'] : (
+                            isset($account['email']) ? $account['email'] : (
+                            isset($account['EMAIL']) ? $account['EMAIL'] : (
+                            isset($account['mail']) ? $account['mail'] : ''))))))
+                        );
+                        $accountEmail = normalizeEmail($accountEmailRaw);
+                        $accountId = (int)(
+                            isset($account['accountId']) ? $account['accountId'] : (
+                            isset($account['accountID']) ? $account['accountID'] : (
+                            isset($account['AccountId']) ? $account['AccountId'] : (
+                            isset($account['id']) ? $account['id'] : (
+                            isset($account['ID']) ? $account['ID'] : 0))))
+                        );
+
+                        $accountLocalPart = emailLocalPart($accountEmail);
+
+                        $isDirectEmailMatch = ($accountEmail !== '' && $accountEmail === $emailLower);
+                        $isLocalPartMatch = ($accountLocalPart !== '' && $accountLocalPart === $emailLocalPart);
+
                         if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0 && $resolvedResponsibleId <= 0) {
                             $resolvedResponsibleId = $accountId;
+                        }
+                    }
+
+                    $debugInfo['responsibleLookup']['recruiterEmailNormalized'] = $emailLower;
+                    $debugInfo['responsibleLookup']['recruiterLocalPart'] = $emailLocalPart;
+                    $debugInfo['responsibleLookup']['resolvedResponsibleId'] = $resolvedResponsibleId;
+
+                    if ($resolvedResponsibleId <= 0) {
                         @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
                     } else {
                         $payload['ResponsibleId'] = $resolvedResponsibleId;
 
-                        [$createOk, $createError, $fwResponse, $createHttpCode, $createRaw] = fwCreateJob($payload, $cookieFile);
-                        @unlink($cookieFile);
                         list($createOk, $createError, $fwResponse, $createHttpCode, $createRaw) = fwCreateJob($payload, $cookieFile);
+                        @unlink($cookieFile);
+                        $debugInfo['create'] = [
                             'httpCode' => $createHttpCode,
                             'rawResponse' => $createRaw,
                             'parsedResponse' => $fwResponse,
@@ -541,13 +604,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
             <div class="fw-value"><?php
                 $diagnostic = [
                     'credentials' => [
-                        'username' => $fwCredentials['username'] ?? '',
-                        'password' => $fwCredentials['password'] ?? '',
                         'username' => valueOr($fwCredentials, 'username', ''),
                         'password' => valueOr($fwCredentials, 'password', ''),
+                    ],
                     'login' => valueOr($debugInfo, 'login', null),
                     'accounts' => valueOr($debugInfo, 'accounts', null),
                     'create' => valueOr($debugInfo, 'create', null),
+                    'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
+                    'responsibleLookup' => valueOr($debugInfo, 'responsibleLookup', null),
                 ];
                 echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
             ?></div>
