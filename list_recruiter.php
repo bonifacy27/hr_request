@@ -424,11 +424,26 @@ if ($request->isPost()) {
         if ($action === 'delegate_task') {
             $elementId = (int)$request->getPost('element_id');
             $taskId    = (int)$request->getPost('task_id');
+            $fromUserId = (int)$request->getPost('from_user_id');
             $toUserId  = (int)$request->getPost('delegate_to_user_id');
 
-            logFilter(['action'=>'delegate_task','elementId'=>$elementId,'taskId'=>$taskId,'fromUser'=>$currentUserId,'toUser'=>$toUserId]);
+            $isRecruiterForElement = isElementRecruiter($IBLOCK_ID, $elementId, $currentUserId);
+            $canDelegateByRole = $isRecruitHead || $isRecruiterForElement;
+            if (!$canDelegateByRole) {
+                $flashMessage = 'Недостаточно прав для делегирования по этой заявке.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
 
-            $res = delegateBizprocTask($taskId, $currentUserId, $toUserId);
+            if (!$isRecruitHead && $fromUserId !== $currentUserId) {
+                $flashMessage = 'Рекрутер может делегировать только свою задачу.';
+                $flashType = 'danger';
+                LocalRedirect(buildUrl(['msg'=>$flashType,'text'=>$flashMessage], []));
+            }
+
+            logFilter(['action'=>'delegate_task','elementId'=>$elementId,'taskId'=>$taskId,'fromUser'=>$fromUserId,'toUser'=>$toUserId,'actorUser'=>$currentUserId]);
+
+            $res = delegateBizprocTask($taskId, $fromUserId, $toUserId);
 
             if ($res['OK']) {
                 // старый рекрутер
@@ -652,6 +667,7 @@ while ($ob = $res->GetNextElement()) {
     $taskIdForLink = 0;
     $taskUserForLink = 0;
     $taskIdForDelegate = 0;
+    $taskUserForDelegate = 0;
     $hasCurrentUserTask = false;
 
     if (!empty($tasks)) {
@@ -659,14 +675,21 @@ while ($ob = $res->GetNextElement()) {
             if ((int)$t['USER_ID'] === (int)$GLOBALS['USER']->GetID() && (int)$GLOBALS['USER']->GetID() > 0) {
                 $taskIdForLink = (int)$t['ID'];
                 $taskUserForLink = (int)$t['USER_ID'];
-                $taskIdForDelegate = (int)$t['ID'];
                 $hasCurrentUserTask = true;
-                break;
+            }
+
+            if ($recruiterId > 0 && (int)$t['USER_ID'] === $recruiterId && $taskIdForDelegate <= 0) {
+                $taskIdForDelegate = (int)$t['ID'];
+                $taskUserForDelegate = (int)$t['USER_ID'];
             }
         }
-    }
 
-    $delegateVisible = ($recruiterId > 0 && in_array($recruiterId, $assigneeIds, true));
+        if ($taskIdForDelegate <= 0) {
+            $firstTask = $tasks[0];
+            $taskIdForDelegate = (int)($firstTask['ID'] ?? 0);
+            $taskUserForDelegate = (int)($firstTask['USER_ID'] ?? 0);
+        }
+    }
 
     $items[] = [
         'ID'=>$id,
@@ -691,7 +714,7 @@ while ($ob = $res->GetNextElement()) {
         'TASK_ID_FOR_LINK'=>$taskIdForLink,
         'TASK_USER_FOR_LINK'=>$taskUserForLink,
         'TASK_ID_DELEGATE'=>$taskIdForDelegate,
-        'DELEGATE_VISIBLE'=>$delegateVisible,
+        'TASK_USER_DELEGATE'=>$taskUserForDelegate,
     ];
 
     foreach ([$creatorId,$managerId,$recruiterId] as $uid) if ($uid>0) $userIds[$uid]=true;
@@ -1001,10 +1024,14 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $taskIdForLink = (int)$row['TASK_ID_FOR_LINK'];
             $taskUrl  = ($hasCurrentUserTask && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
 
-            $delegateVisible = (bool)$row['DELEGATE_VISIBLE'];
             $taskIdForDelegate = (int)$row['TASK_ID_DELEGATE'];
-            $canDelegate = ($delegateVisible && $taskIdForDelegate > 0);
-            $canEdit = !in_array($status, $nonEditableStatuses, true);
+            $taskUserForDelegate = (int)$row['TASK_USER_DELEGATE'];
+            $canDelegate = ($taskIdForDelegate > 0 && $taskUserForDelegate > 0) && (
+                $isRecruitHead ||
+                (((int)$row['RECRUITER_ID'] === $currentUserId) && $hasCurrentUserTask)
+            );
+            $canEditByRole = $isAdmin || $isCbManager || $isRecruitHead || (((int)$row['RECRUITER_ID'] === $currentUserId) && $hasCurrentUserTask);
+            $canEdit = $canEditByRole && !in_array($status, $nonEditableStatuses, true);
             $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
             $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
         ?>
@@ -1043,11 +1070,12 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                 <select class="form-control form-control-sm actions-compact js-action-select"
                         data-element-id="<?= (int)$row['ID'] ?>"
                         data-task-id="<?= (int)$taskIdForDelegate ?>"
+                        data-from-user-id="<?= (int)$taskUserForDelegate ?>"
                         data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
                         data-edit-url="<?= h($row['EDIT_URL']) ?>"
                         data-copy-url="<?= h($row['COPY_URL']) ?>">
                   <option value="">Действия…</option>
-                  <?php if ($delegateVisible): ?>
+                  <?php if ($canDelegate): ?>
                     <option value="delegate">Делегировать</option>
                   <?php endif; ?>
                   <?php if ($canCancel): ?>
@@ -1107,13 +1135,14 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       <input type="hidden" name="action" value="delegate_task">
       <input type="hidden" name="element_id" id="delegate-element-id" value="">
       <input type="hidden" name="task_id" id="delegate-task-id" value="">
+      <input type="hidden" name="from_user_id" id="delegate-from-user-id" value="">
       <input type="hidden" name="delegate_to_user_id" id="delegate-to-user-id" value="">
       <div><b>Кому делегировать</b></div>
       <div class="popup-form-row" style="margin-top:8px;">
         <button type="button" class="btn btn-outline-primary btn-sm" id="delegate-pick-user">Выбрать сотрудника</button>
         <span class="text-muted" id="delegate-selected-user">Сотрудник не выбран</span>
       </div>
-      <div class="popup-form-hint">Делегировать можно только вашу текущую задачу рекрутера по заявке.</div>
+      <div class="popup-form-hint">Доступно рекрутеру с активной задачей по заявке и руководителю отдела подбора.</div>
     </form>
   </div>
 </div>
@@ -1246,20 +1275,22 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     return selectorDialog;
   }
 
-  function openDelegatePopup(elementId, taskId) {
+  function openDelegatePopup(elementId, taskId, fromUserId) {
     var p = ensureDelegatePopup();
     p.show();
 
     var elElementId = p.contentContainer.querySelector('#delegate-element-id');
     var elTaskId    = p.contentContainer.querySelector('#delegate-task-id');
+    var elFromUserId = p.contentContainer.querySelector('#delegate-from-user-id');
     var elToUserId  = p.contentContainer.querySelector('#delegate-to-user-id');
     var elPickBtn   = p.contentContainer.querySelector('#delegate-pick-user');
     var elSelected  = p.contentContainer.querySelector('#delegate-selected-user');
 
-    if (!elElementId || !elTaskId || !elToUserId || !elPickBtn || !elSelected) { notify('Ошибка окна делегирования.'); return; }
+    if (!elElementId || !elTaskId || !elFromUserId || !elToUserId || !elPickBtn || !elSelected) { notify('Ошибка окна делегирования.'); return; }
 
     elElementId.value = String(elementId || '');
     elTaskId.value    = String(taskId || '');
+    elFromUserId.value = String(fromUserId || '');
     elToUserId.value  = '';
     elSelected.textContent = 'Сотрудник не выбран';
     elSelected.classList.add('text-muted');
@@ -1397,6 +1428,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
       var elementId = parseInt(select.getAttribute('data-element-id') || '0', 10);
       var taskId = parseInt(select.getAttribute('data-task-id') || '0', 10);
+      var fromUserId = parseInt(select.getAttribute('data-from-user-id') || '0', 10);
       var canDelegate = (select.getAttribute('data-can-delegate') || '0') === '1';
       var editUrl = select.getAttribute('data-edit-url') || '';
       var copyUrl = select.getAttribute('data-copy-url') || '';
@@ -1408,8 +1440,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       }
 
       if (action === 'delegate') {
-        if (!canDelegate || !taskId) notify('Делегировать можно только свою текущую задачу рекрутера по заявке.');
-        else openDelegatePopup(elementId, taskId);
+        if (!canDelegate || !taskId || !fromUserId) notify('Недостаточно прав или отсутствует активная задача для делегирования.');
+        else openDelegatePopup(elementId, taskId, fromUserId);
       } else if (action === 'cancel') {
         openCancelPopup(elementId);
       } else if (action === 'edit') {
