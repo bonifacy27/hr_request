@@ -569,12 +569,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $post['employee_id'] = array_values(array_filter(array_map('intval', $post['employee_id'])));
     }
 
-    $bonusTypeId = (int)($post['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? normPropValue($curProps['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? 0));
-    if ($bonusTypeId <= 0) {
-        $errors[] = 'Поле "Предполагаемый тип премирования" обязательно для заполнения.';
-    }
-
     if ($actorType === 'cb') {
+        $bonusTypeId = (int)($post['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? normPropValue($curProps['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? 0));
         $bonusTypeName = getElementNameById(IBLOCK_BONUSTYPE, $bonusTypeId);
         $salaryGross = parseMoneyInput($post['OKLAD'] ?? normPropValue($curProps['OKLAD'] ?? ''));
         $bonusPercent = parseMoneyInput($post['PROTSENT_PREMII_'] ?? normPropValue($curProps['PROTSENT_PREMII_'] ?? ''));
@@ -584,6 +580,9 @@ if ($request->isPost() && check_bitrix_sessid()) {
         $isMonthlyBonus = (mb_stripos($bonusTypeNorm, 'ежемесяч') !== false);
         $isQuarterlyBonus = (mb_stripos($bonusTypeNorm, 'ежекварт') !== false);
 
+        if ($bonusTypeId <= 0) {
+            $errors[] = 'Поле "Предполагаемый тип премирования" обязательно для заполнения.';
+        }
         if ($salaryGross <= 0) {
             $errors[] = 'Поле "Оклад" обязательно для заполнения (значение должно быть больше 0).';
         }
@@ -1058,13 +1057,13 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     if ($isTextarea) {
         $isResponsibilitiesTextarea = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true);
         $rows = $isResponsibilitiesTextarea ? 15 : 4;
-        $textareaStyleAttr = $isResponsibilitiesTextarea ? ' style="min-height: 320px;"' : '';
+        $textareaWrapStyleAttr = $isResponsibilitiesTextarea ? ' style="height: 320px;"' : '';
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
-            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
-              <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'"'.$textareaStyleAttr.' '.$readonlyAttr.'>'.$valEsc.'</textarea>
+            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100"'.$textareaWrapStyleAttr.'>
+              <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
             </div>
           </div>
         </div>';
