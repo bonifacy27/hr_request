@@ -1,12 +1,18 @@
 <?php
 /**
  * list_recruiter.php — список "Заявок на подбор" (ИБ 201) для рекрутера
- * Версия: 2.3.5 (2026-02-03)
+ * Версия: 2.3.6 (2026-03-30)
  *
  * v2.3.5:
  * - Фильтры Инициатор/Руководитель/Рекрутер: выпадашки строятся по ВСЕМУ списку (без учёта пагинации),
  *   и показывают только реально встречающихся пользователей в соответствующем поле.
  * - Сортировка и отображение пользователей в фильтрах: "Фамилия Имя".
+ *
+ * v2.3.6:
+ * - "Действия" сделаны компактными: вынесены в выпадающий список.
+ * - Быстрое действие "Перейти в задание" оставлено отдельной кнопкой (если доступно).
+ * - Добавлены действия: "Редактировать" (для разрешённых статусов) и "Дублировать заявку".
+ * - Рядом со статусом добавлена кнопка "Инфо" с модальным окном истории заявки (PROPERTY_1043).
  *
  * v2.3.4:
  * - После делегирования: запускаем БП (шаблон 1291) по заявке.
@@ -60,6 +66,8 @@ $PROP_KOMMENTARII = 'PROPERTY_1043';
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
 
 $createElementUrl      = '/forms/staff_recruitment/create_request.php';
+$editElementUrlPattern = '/forms/staff_recruitment/edit_request.php?id=#ID#';
+$copyElementUrlPattern = '/forms/staff_recruitment/create_request_copy.php?id=#ID#';
 $elementViewUrlPattern = '/bizproc/processes/201/element/0/#ID#/';
 
 $statusColorMap = [
@@ -69,6 +77,16 @@ $statusColorMap = [
     'Проверка кандидатов' => '#16a34a',
     'Закрыта'             => '#64748b',
     'Отклонена'           => '#ef4444',
+];
+
+$nonEditableStatuses = [
+    'Новая',
+    'Проверка',
+    'Согласование руководителя',
+    'Ошибка',
+    'Отклонена',
+    'Отмена',
+    'Закрыта',
 ];
 
 // === Helpers ===
@@ -554,6 +572,7 @@ while ($ob = $res->GetNextElement()) {
     $taskIdForLink = 0;
     $taskUserForLink = 0;
     $taskIdForDelegate = 0;
+    $hasCurrentUserTask = false;
 
     if (!empty($tasks)) {
         foreach ($tasks as $t) {
@@ -561,12 +580,9 @@ while ($ob = $res->GetNextElement()) {
                 $taskIdForLink = (int)$t['ID'];
                 $taskUserForLink = (int)$t['USER_ID'];
                 $taskIdForDelegate = (int)$t['ID'];
+                $hasCurrentUserTask = true;
                 break;
             }
-        }
-        if ($taskIdForLink === 0) {
-            $taskIdForLink = (int)$tasks[0]['ID'];
-            $taskUserForLink = (int)$tasks[0]['USER_ID'];
         }
     }
 
@@ -583,8 +599,14 @@ while ($ob = $res->GetNextElement()) {
         'RECRUITER_ID'=>$recruiterId,
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
+        'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
+            ? implode("\n", array_map('strval', (array)$f["{$PROP_KOMMENTARII}_VALUE"]))
+            : (string)($f["{$PROP_KOMMENTARII}_VALUE"] ?? ''),
         'VIEW_URL'=>str_replace('#ID#', $id, $elementViewUrlPattern),
+        'EDIT_URL'=>str_replace('#ID#', $id, $editElementUrlPattern),
+        'COPY_URL'=>str_replace('#ID#', $id, $copyElementUrlPattern),
         'HAS_TASKS'=>!empty($tasks),
+        'HAS_CURRENT_USER_TASK'=>$hasCurrentUserTask,
         'TASK_ID_FOR_LINK'=>$taskIdForLink,
         'TASK_USER_FOR_LINK'=>$taskUserForLink,
         'TASK_ID_DELEGATE'=>$taskIdForDelegate,
@@ -750,6 +772,17 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   .sort-link { color: #fff; text-decoration: none; }
   .sort-link:hover { text-decoration: underline; }
   .actions-wrap { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .actions-compact { min-width: 190px; max-width: 220px; }
+  .status-wrap { display:inline-flex; align-items:center; gap:6px; }
+  .btn-info-icon {
+    width: 22px; height: 22px; border-radius: 50%;
+    display:inline-flex; align-items:center; justify-content:center;
+    padding: 0; font-size: 12px; line-height: 1;
+  }
+  .history-box {
+    max-height: 360px; overflow:auto; white-space:pre-wrap; word-break:break-word;
+    border: 1px solid #e9ecef; background:#f8f9fa; border-radius:6px; padding:10px 12px; margin-top:8px;
+  }
 
   .pagination-custom { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:12px; }
   .pagination-custom a, .pagination-custom span {
@@ -773,7 +806,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     Источник: инфоблок <?= (int)$IBLOCK_ID ?>.
     Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>.
     Пагинация: 50 / страница.
-    Версия скрипта: 2.3.4.
+    Версия скрипта: 2.3.6.
   </p>
 
   <?php if ($flashMessage !== ''): ?>
@@ -880,14 +913,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $manager   = $userMap[(int)$row['MANAGER_ID']]   ?? null;
             $recruiter = $userMap[(int)$row['RECRUITER_ID']] ?? null;
 
-            $hasTasks = (bool)$row['HAS_TASKS'];
+            $hasCurrentUserTask = (bool)($row['HAS_CURRENT_USER_TASK'] ?? false);
 
             $taskIdForLink = (int)$row['TASK_ID_FOR_LINK'];
-            $taskUrl  = ($hasTasks && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
+            $taskUrl  = ($hasCurrentUserTask && $taskIdForLink > 0) ? getBizprocTaskUrl($taskIdForLink, (int)$row['TASK_USER_FOR_LINK']) : '';
 
             $delegateVisible = (bool)$row['DELEGATE_VISIBLE'];
             $taskIdForDelegate = (int)$row['TASK_ID_DELEGATE'];
             $canDelegate = ($delegateVisible && $taskIdForDelegate > 0);
+            $canEdit = !in_array($status, $nonEditableStatuses, true);
         ?>
           <tr>
             <td><?= (int)$row['ID'] ?></td>
@@ -897,7 +931,18 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <td><?= renderUserPlain($recruiter) ?></td>
             <td><?= renderUserListPlain((array)$row['ASSIGNEES'], $userMap) ?></td>
             <td><span class="text-muted"><?= h($row['DATE_CREATE']) ?></span></td>
-            <td><span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span></td>
+            <td>
+              <span class="status-wrap">
+                <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
+                <button type="button"
+                        class="btn btn-sm btn-outline-secondary btn-info-icon js-history-btn"
+                        data-element-id="<?= (int)$row['ID'] ?>"
+                        data-comments="<?= h((string)$row['KOMMENTARII']) ?>"
+                        title="История заявки">
+                  i
+                </button>
+              </span>
+            </td>
             <td style="max-width:420px; white-space:normal; word-break:break-word;">
               <?= $row['REASON'] !== '' ? nl2br(h($row['REASON'])) : '<span class="text-muted">—</span>' ?>
             </td>
@@ -905,31 +950,28 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
               <a class="btn btn-sm btn-outline-primary" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Открыть</a>
             </td>
             <td>
-              <?php if ($hasTasks): ?>
-                <div class="actions-wrap">
-                  <?php if ($taskUrl !== ''): ?>
-                    <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
-                  <?php else: ?>
-                    <span class="text-muted small">Задание не найдено</span>
-                  <?php endif; ?>
+              <div class="actions-wrap">
+                <?php if ($taskUrl !== ''): ?>
+                  <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
+                <?php endif; ?>
 
+                <select class="form-control form-control-sm actions-compact js-action-select"
+                        data-element-id="<?= (int)$row['ID'] ?>"
+                        data-task-id="<?= (int)$taskIdForDelegate ?>"
+                        data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
+                        data-edit-url="<?= h($row['EDIT_URL']) ?>"
+                        data-copy-url="<?= h($row['COPY_URL']) ?>">
+                  <option value="">Действия…</option>
                   <?php if ($delegateVisible): ?>
-                    <button type="button"
-                            class="btn btn-sm btn-warning js-delegate-btn"
-                            data-element-id="<?= (int)$row['ID'] ?>"
-                            data-task-id="<?= (int)$taskIdForDelegate ?>"
-                            <?= $canDelegate ? '' : 'disabled title="Делегировать можно только свою текущую задачу (рекрутера)"' ?>>
-                      Делегировать
-                    </button>
+                    <option value="delegate">Делегировать</option>
                   <?php endif; ?>
-
-                  <button type="button" class="btn btn-sm btn-danger js-cancel-btn" data-element-id="<?= (int)$row['ID'] ?>">
-                    Отменить заявку
-                  </button>
-                </div>
-              <?php else: ?>
-                <span class="text-muted">—</span>
-              <?php endif; ?>
+                  <option value="cancel">Отменить заявку</option>
+                  <?php if ($canEdit): ?>
+                    <option value="edit">Редактировать</option>
+                  <?php endif; ?>
+                  <option value="copy">Дублировать заявку</option>
+                </select>
+              </div>
             </td>
           </tr>
         <?php endforeach; ?>
@@ -984,6 +1026,13 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       </div>
       <div class="popup-form-hint">Делегировать можно только вашу текущую задачу рекрутера по заявке.</div>
     </form>
+  </div>
+</div>
+
+<div id="history-popup-template" style="display:none;">
+  <div class="popup-form-wrap">
+    <div class="popup-form-title">История заявки #<span id="history-element-id"></span></div>
+    <div id="history-content" class="history-box"></div>
   </div>
 </div>
 
@@ -1142,6 +1191,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   }
 
   var cancelPopup = null;
+  var historyPopup = null;
 
   function ensureCancelPopup() {
     if (cancelPopup) return cancelPopup;
@@ -1215,21 +1265,80 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     elCommHid.value = '';
   }
 
-  document.querySelectorAll('.js-delegate-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      if (btn.disabled) { notify('Делегировать можно только свою текущую задачу рекрутера по заявке.'); return; }
-      var elementId = parseInt(btn.getAttribute('data-element-id') || '0', 10);
-      var taskId    = parseInt(btn.getAttribute('data-task-id') || '0', 10);
-      if (!elementId || !taskId) { notify('Не удалось определить задачу для делегирования.'); return; }
-      openDelegatePopup(elementId, taskId);
+  function ensureHistoryPopup() {
+    if (historyPopup) return historyPopup;
+    var tpl = document.getElementById('history-popup-template');
+    var content = tpl ? tpl.innerHTML : '<div style="padding:12px">Ошибка шаблона</div>';
+    historyPopup = BX.PopupWindowManager.create('history_bp_popup', null, {
+      content: content,
+      closeIcon: { right: '12px', top: '10px' },
+      autoHide: true,
+      overlay: { opacity: 30 },
+      draggable: true,
+      closeByEsc: true,
+      titleBar: 'История заявки',
+      zIndex: 20000,
+      buttons: [
+        new BX.PopupWindowButton({
+          text: 'Закрыть',
+          className: 'popup-window-button-link-cancel',
+          events: { click: function(){ historyPopup.close(); } }
+        })
+      ]
+    });
+    return historyPopup;
+  }
+
+  function openHistoryPopup(elementId, comments) {
+    var p = ensureHistoryPopup();
+    p.show();
+    var idNode = p.contentContainer.querySelector('#history-element-id');
+    var contentNode = p.contentContainer.querySelector('#history-content');
+    if (idNode) idNode.textContent = String(elementId || '');
+    if (contentNode) {
+      var txt = (comments || '').trim();
+      contentNode.textContent = txt !== '' ? txt : 'История отсутствует.';
+    }
+  }
+
+  document.querySelectorAll('.js-action-select').forEach(function(select) {
+    select.addEventListener('change', function() {
+      var action = select.value || '';
+      if (!action) return;
+
+      var elementId = parseInt(select.getAttribute('data-element-id') || '0', 10);
+      var taskId = parseInt(select.getAttribute('data-task-id') || '0', 10);
+      var canDelegate = (select.getAttribute('data-can-delegate') || '0') === '1';
+      var editUrl = select.getAttribute('data-edit-url') || '';
+      var copyUrl = select.getAttribute('data-copy-url') || '';
+
+      if (!elementId) {
+        notify('Не удалось определить ID заявки.');
+        select.value = '';
+        return;
+      }
+
+      if (action === 'delegate') {
+        if (!canDelegate || !taskId) notify('Делегировать можно только свою текущую задачу рекрутера по заявке.');
+        else openDelegatePopup(elementId, taskId);
+      } else if (action === 'cancel') {
+        openCancelPopup(elementId);
+      } else if (action === 'edit') {
+        if (editUrl) window.open(editUrl, '_blank', 'noopener');
+      } else if (action === 'copy') {
+        if (copyUrl) window.open(copyUrl, '_blank', 'noopener');
+      }
+
+      select.value = '';
     });
   });
 
-  document.querySelectorAll('.js-cancel-btn').forEach(function(btn) {
+  document.querySelectorAll('.js-history-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var elementId = parseInt(btn.getAttribute('data-element-id') || '0', 10);
+      var comments = btn.getAttribute('data-comments') || '';
       if (!elementId) { notify('Не удалось определить ID заявки.'); return; }
-      openCancelPopup(elementId);
+      openHistoryPopup(elementId, comments);
     });
   });
 })();
