@@ -80,6 +80,52 @@ function cl_get_prop_value(int $iblockId, int $elementId, int $propertyId): stri
     return '';
 }
 
+function cl_get_prop_values(int $iblockId, int $elementId, int $propertyId): array
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+    while ($row = $rs->Fetch()) {
+        $id = cl_normalize_id($row['VALUE'] ?? '');
+        if ($id > 0) {
+            $values[] = $id;
+        }
+    }
+    return cl_unique_sorted($values);
+}
+
+function cl_update_request_links(int $requestId, array $candIds, array $offerIds, array $empIds): array
+{
+    $candIds = cl_unique_sorted($candIds);
+    $offerIds = cl_unique_sorted($offerIds);
+    $empIds = cl_unique_sorted($empIds);
+
+    // Для SetPropertyValuesEx используем ID свойств (число),
+    // т.к. в ИБ поля множественные, тип "Число".
+    CIBlockElement::SetPropertyValuesEx(
+        $requestId,
+        CL_IBLOCK_REQUEST,
+        [
+            CL_PROP_REQ_CAND_MULTI => $candIds,
+            CL_PROP_REQ_OFFER_MULTI => $offerIds,
+            CL_PROP_REQ_EMP_MULTI => $empIds,
+        ]
+    );
+
+    // Явно проверяем, что значения реально записались.
+    $savedCand = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_CAND_MULTI);
+    $savedOffer = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_OFFER_MULTI);
+    $savedEmp = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_EMP_MULTI);
+
+    $ok = ($savedCand === $candIds) && ($savedOffer === $offerIds) && ($savedEmp === $empIds);
+
+    return [
+        'ok' => $ok,
+        'saved_cand' => $savedCand,
+        'saved_offer' => $savedOffer,
+        'saved_emp' => $savedEmp,
+    ];
+}
+
 function cl_collect_entities(int $iblockId, int $propReqId, ?int $propCandId = null, ?int $propOfferId = null): array
 {
     $byReq = [];
@@ -219,17 +265,8 @@ foreach ($requestIds as $reqId) {
     }
 
     if ($apply && isset($selectedReqMap[$reqId])) {
-        $ok = CIBlockElement::SetPropertyValuesEx(
-            $reqId,
-            CL_IBLOCK_REQUEST,
-            [
-                'PROPERTY_' . CL_PROP_REQ_CAND_MULTI => $candIds,
-                'PROPERTY_' . CL_PROP_REQ_OFFER_MULTI => $offerIds,
-                'PROPERTY_' . CL_PROP_REQ_EMP_MULTI => $empIds,
-            ]
-        );
-
-        if ($ok === false) {
+        $updateResult = cl_update_request_links($reqId, $candIds, $offerIds, $empIds);
+        if (!$updateResult['ok']) {
             $errors++;
             $errorItems[] = $reqId;
         } else {
