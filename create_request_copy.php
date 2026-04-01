@@ -905,7 +905,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     </div>
     <div class="text-right">
       <button type="submit" class="btn btn-primary" name="action" value="save" id="saveBtn">Отправить заявку</button>
-      <a href="/bizproc/processes/201/view/0/?list_section_id=" class="btn btn-link">К списку заявок</a>
+      <a href="/forms/staff_recruitment/list.php" class="btn btn-link">К списку заявок</a>
     </div>
   </form>
 </div>
