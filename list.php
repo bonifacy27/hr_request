@@ -70,6 +70,9 @@ $PROP_RECRUITER   = 'PROPERTY_1035';
 $PROP_STAVKA      = 'PROPERTY_3100';
 $PROP_JSON        = 'PROPERTY_JSON';
 $PROP_KOMMENTARII = 'PROPERTY_1043';
+$PROP_CANDIDATE_FORMS = 3127;
+$PROP_OFFERS          = 3128;
+$PROP_EMPLOYEE_CARDS  = 3129;
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
 
@@ -124,6 +127,12 @@ function renderUserPlain(?array $u): string {
     return $name !== '' ? h($name) : '<span class="text-muted">—</span>';
 }
 
+function getUserDisplayName(?array $u): string {
+    if (!$u) return '—';
+    $name = trim(formatUserName($u));
+    return $name !== '' ? $name : '—';
+}
+
 function renderUserListPlain(array $ids, array $userMap): string {
     if (empty($ids)) return '<span class="text-muted">—</span>';
     $names = [];
@@ -132,6 +141,56 @@ function renderUserListPlain(array $ids, array $userMap): string {
         if ($u) $names[] = formatUserName($u);
     }
     return $names ? h(implode(', ', $names)) : '<span class="text-muted">—</span>';
+}
+
+function getElementPropertyIntValues(int $iblockId, int $elementId, int $propertyId): array
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+    while ($p = $rs->Fetch()) {
+        $v = (int)($p['VALUE'] ?? 0);
+        if ($v > 0) $values[$v] = true;
+    }
+    return array_map('intval', array_keys($values));
+}
+
+function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds): string
+{
+    $buildLinks = static function(array $ids, string $prefix, string $label): string {
+        if (!$ids) return '';
+        $parts = [];
+        foreach ($ids as $id) {
+            $url = $prefix . (int)$id;
+            $parts[] = '<a href="' . h($url) . '" target="_blank" rel="noopener">' . h($label . ' #' . (int)$id) . '</a>';
+        }
+        return implode(', ', $parts);
+    };
+
+    $chunks = [];
+
+    $candidateLinks = $buildLinks(
+        $candidateFormIds,
+        '/services/lists/207/element/0/?list_id=207&element_id=',
+        'Анкета'
+    );
+    if ($candidateLinks !== '') $chunks[] = '<div><strong>Анкеты:</strong> ' . $candidateLinks . '</div>';
+
+    $offerLinks = $buildLinks(
+        $offerIds,
+        '/services/lists/218/element/0/?list_id=218&element_id=',
+        'Оффер'
+    );
+    if ($offerLinks !== '') $chunks[] = '<div><strong>Офферы:</strong> ' . $offerLinks . '</div>';
+
+    $cardLinks = $buildLinks(
+        $employeeCardIds,
+        '/services/lists/196/element/0/?list_id=196&element_id=',
+        'Карточка'
+    );
+    if ($cardLinks !== '') $chunks[] = '<div><strong>Карточки:</strong> ' . $cardLinks . '</div>';
+
+    if (!$chunks) return '<span class="text-muted">—</span>';
+    return implode('', $chunks);
 }
 
 function buildUrl(array $paramsToSet = [], array $paramsToUnset = []) {
@@ -398,6 +457,7 @@ $isRecruiterByList = (bool)CIBlockElement::GetList(
     ['nTopCount' => 1],
     ['ID']
 )->Fetch();
+$canSeeRelationsColumn = $isCbManager || $isRecruitHead || $isRecruiterByList;
 $canUseExtendedFilters = $isAdmin || $isCbManager || $isRecruitHead || $isRecruiterByList;
 
 // ===== FILTER PARAMS (AND) =====
@@ -661,6 +721,9 @@ while ($ob = $res->GetNextElement()) {
     $creatorId   = (int)$f['CREATED_BY'];
     $managerId   = (int)$f["{$PROP_MANAGER}_VALUE"];
     $recruiterId = (int)$f["{$PROP_RECRUITER}_VALUE"];
+    $candidateFormIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_CANDIDATE_FORMS);
+    $offerIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_OFFERS);
+    $employeeCardIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_EMPLOYEE_CARDS);
 
     $tasks = getRunningTasks($id, $IBLOCK_ID);
 
@@ -725,6 +788,9 @@ while ($ob = $res->GetNextElement()) {
         'TASK_USER_FOR_LINK'=>$taskUserForLink,
         'TASK_ID_DELEGATE'=>$taskIdForDelegate,
         'TASK_USER_DELEGATE'=>$taskUserForDelegate,
+        'CANDIDATE_FORM_IDS'=>$candidateFormIds,
+        'OFFER_IDS'=>$offerIds,
+        'EMPLOYEE_CARD_IDS'=>$employeeCardIds,
     ];
 
     foreach ([$creatorId,$managerId,$recruiterId] as $uid) if ($uid>0) $userIds[$uid]=true;
@@ -1009,12 +1075,14 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
           <tr>
             <th><?= sortLink('ID','ID',$sort,$dir) ?></th>
             <th><?= sortLink('DOLZHNOST','Должность',$sort,$dir) ?></th>
-            <th>Инициатор</th>
-            <th>Руководитель</th>
+            <th>Инициатор / Руководитель</th>
             <th>Рекрутер</th>
             <th>Текущие исполнители</th>
             <th><?= sortLink('DATE_CREATE','Дата заявки',$sort,$dir) ?></th>
             <th><?= sortLink('STATUS','Статус заявки',$sort,$dir) ?></th>
+            <?php if ($canSeeRelationsColumn): ?>
+              <th>Связи</th>
+            <?php endif; ?>
             <th>Причина</th>
             <th>Действия</th>
           </tr>
@@ -1027,6 +1095,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $creator   = $userMap[(int)$row['CREATED_BY']]   ?? null;
             $manager   = $userMap[(int)$row['MANAGER_ID']]   ?? null;
             $recruiter = $userMap[(int)$row['RECRUITER_ID']] ?? null;
+            $creatorName = getUserDisplayName($creator);
+            $managerName = getUserDisplayName($manager);
+            if ($creatorName === '—' && $managerName !== '—') {
+                $initiatorManager = renderUserPlain($manager);
+            } elseif ($managerName === '—' || $creatorName === $managerName) {
+                $initiatorManager = renderUserPlain($creator);
+            } else {
+                $initiatorManager = renderUserPlain($creator) . ' / ' . renderUserPlain($manager);
+            }
 
             $hasCurrentUserTask = (bool)($row['HAS_CURRENT_USER_TASK'] ?? false);
 
@@ -1049,8 +1126,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
           <tr>
             <td><?= (int)$row['ID'] ?></td>
             <td><?= $row['DOLZHNOST'] !== '' ? h($row['DOLZHNOST']) : '<span class="text-muted">—</span>' ?></td>
-            <td><?= renderUserPlain($creator) ?></td>
-            <td><?= renderUserPlain($manager) ?></td>
+            <td><?= $initiatorManager ?></td>
             <td><?= renderUserPlain($recruiter) ?></td>
             <td><?= renderUserListPlain((array)$row['ASSIGNEES'], $userMap) ?></td>
             <td><span class="text-muted"><?= h($row['DATE_CREATE']) ?></span></td>
@@ -1066,6 +1142,11 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                 </button>
               </span>
             </td>
+            <?php if ($canSeeRelationsColumn): ?>
+              <td style="min-width:260px; white-space:normal; word-break:break-word;">
+                <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS']) ?>
+              </td>
+            <?php endif; ?>
             <td style="max-width:420px; white-space:normal; word-break:break-word;">
               <?= $row['REASON'] !== '' ? nl2br(h($row['REASON'])) : '<span class="text-muted">—</span>' ?>
             </td>
