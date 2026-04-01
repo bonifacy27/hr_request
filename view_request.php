@@ -490,7 +490,6 @@ $metaMap = getPropMetaMap(IBLOCK_RECRUIT);
 
 $codes = [];
 foreach ($FIELDS as $f) $codes[] = (string)$f['CODE'];
-$codes[] = 'JSON';
 $codes = array_values(array_unique($codes));
 
 $props = [];
@@ -578,20 +577,8 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
     $codeEsc = htmlspecialcharsbx($code);
     $labelEsc = htmlspecialcharsbx($label);
     $readonlyAttr = $editable ? '' : 'disabled';
-    $requiredCodes = [
-        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
-        'YURIDICHESKOE_LITSO',
-        'PODRAZDELENIE_0_UROVNYA',
-        'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
-        'OFIS_PRIVYAZKA',
-        'GRAFIK_RABOTY_PRIVYAZKA',
-        'FORMAT_RABOTY_PRIVYAZKA',
-        'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
-    ];
-    $isRequired = in_array($code, $requiredCodes, true);
-    $isHtmlRequired = $editable && $isRequired && $code !== 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA';
-    $requiredAttr = $isHtmlRequired ? 'required' : '';
-    $requiredMark = $isRequired ? ' <span style="color:#d42626">*</span>' : '';
+    $requiredAttr = '';
+    $requiredMark = '';
 
     $options = getIblockOptionsCached((int)$iblockId);
     $selectedId = (int)$selectedId;
@@ -625,21 +612,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $rowIdAttr = ' id="row_'.$codeEsc.'"';
     $labelNoteHtml = '';
     $labelAfterTitleHtml = '';
-    $requiredCodes = [
-        'DOLZHNOST',
-        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
-        'OKLAD',
-        'RUKOVODYASHCHAYA_DOLZHNOST',
-        'STAVKA',
-        'DOLZHNOST_RUKOVODITELYA',
-        'NEOBKHODIMAYA_MEBEL',
-        'KOMANDIROVKI_TEKST',
-        'PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
-    ];
-    $isRequiredField = in_array($code, $requiredCodes, true);
-    $isHtmlRequired = $editable && $isRequiredField && $code !== 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA';
-    $requiredAttr = $isHtmlRequired ? 'required' : '';
-    $requiredMark = $isRequiredField ? ' <span style="color:#d42626">*</span>' : '';
+    $requiredAttr = '';
+    $requiredMark = '';
 
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
@@ -758,7 +732,6 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
     if ($code === 'PRIZNAK_PO_DOLZHNOSTI_TEKST') {
         $val = trim((string)normPropValue($value));
-        if ($val === '') $val = 'Массовая должность';
         $isMass = ($val === 'Массовая должность') ? 'selected' : '';
         $isNonMass = ($val === 'Немассовая должность') ? 'selected' : '';
 
@@ -818,6 +791,26 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     </div>';
 }
 
+function hasDisplayValue($code, $value, $referenceMap, $curProps) {
+    if ($code === 'RAZNITSA_TEKSTOV') {
+        $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
+        $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
+        return trim(buildResponsibilitiesDiffText($managerText, $from1cText)) !== '';
+    }
+
+    if (isset($referenceMap[$code])) {
+        return ((int)normPropValue($value) > 0);
+    }
+
+    if ($code === 'NEPOSREDSTVENNYY_RUKOVODITEL') {
+        $v = trim((string)normPropValue($value));
+        return ($v !== '' && $v !== '0');
+    }
+
+    $v = trim((string)normPropValue($value));
+    return $v !== '';
+}
+
 ?>
 <style>
   .req-group{
@@ -838,6 +831,13 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   }
   .req-group__body .ui-form-row{
     margin-top: 8px;
+  }
+  .ui-ctl-element[disabled],
+  .ui-ctl-element[readonly]{
+    color:#000 !important;
+    background:#fff !important;
+    -webkit-text-fill-color:#000 !important;
+    opacity:1 !important;
   }
   .req-ndfl-note{
     margin-top: 2px;
@@ -926,6 +926,9 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
           $code = (string)$f['CODE'];
           $meta = $metaMap[$code] ?? null;
           $val  = $curProps[$code] ?? '';
+          if (!hasDisplayValue($code, $val, $REFERENCE_IBLOCK_BY_CODE, $curProps)) {
+              continue;
+          }
           echo renderInput($code, (string)$f['NAME'], false, $meta, $val, $REFERENCE_IBLOCK_BY_CODE);
       }
 
