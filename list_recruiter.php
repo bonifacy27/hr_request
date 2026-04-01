@@ -1,7 +1,7 @@
 <?php
 /**
  * list_recruiter.php — список "Заявок на подбор" (ИБ 201) для рекрутера
- * Версия: 2.3.6 (2026-03-30)
+ * Версия: 2.3.7 (2026-04-01)
  *
  * v2.3.5:
  * - Фильтры Инициатор/Руководитель/Рекрутер: выпадашки строятся по ВСЕМУ списку (без учёта пагинации),
@@ -13,6 +13,10 @@
  * - Быстрое действие "Перейти в задание" оставлено отдельной кнопкой (если доступно).
  * - Добавлены действия: "Редактировать" (для разрешённых статусов) и "Дублировать заявку".
  * - Рядом со статусом добавлена кнопка "Инфо" с модальным окном истории заявки (PROPERTY_1043).
+ *
+ * v2.3.7:
+ * - Удалены столбец "Просмотр" и кнопка "Открыть".
+ * - В меню "Действия" добавлено действие "Посмотреть заявку" (если есть доступ на просмотр).
  *
  * v2.3.4:
  * - После делегирования: запускаем БП (шаблон 1291) по заявке.
@@ -910,7 +914,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     Источник: инфоблок <?= (int)$IBLOCK_ID ?>.
     Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>.
     Пагинация: 50 / страница.
-    Версия скрипта: 2.3.6.
+    Версия скрипта: 2.3.7.
   </p>
 
   <?php if ($flashMessage !== ''): ?>
@@ -1006,7 +1010,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <th><?= sortLink('DATE_CREATE','Дата заявки',$sort,$dir) ?></th>
             <th><?= sortLink('STATUS','Статус заявки',$sort,$dir) ?></th>
             <th>Причина</th>
-            <th>Просмотр</th>
             <th>Действия</th>
           </tr>
         </thead>
@@ -1034,7 +1037,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $canEdit = $canEditByRole && !in_array($status, $nonEditableStatuses, true);
             $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
             $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
-            $hasAnyAction = $canDelegate || $canCancel || $canEdit || $canCopy;
+            $canView = !empty($row['VIEW_URL']);
+            $hasAnyAction = $canView || $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
           <tr>
             <td><?= (int)$row['ID'] ?></td>
@@ -1060,9 +1064,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
               <?= $row['REASON'] !== '' ? nl2br(h($row['REASON'])) : '<span class="text-muted">—</span>' ?>
             </td>
             <td>
-              <a class="btn btn-sm btn-outline-primary" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Открыть</a>
-            </td>
-            <td>
               <div class="actions-wrap">
                 <?php if ($taskUrl !== ''): ?>
                   <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
@@ -1074,9 +1075,13 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                           data-task-id="<?= (int)$taskIdForDelegate ?>"
                           data-from-user-id="<?= (int)$taskUserForDelegate ?>"
                           data-can-delegate="<?= $canDelegate ? '1' : '0' ?>"
+                          data-view-url="<?= h($row['VIEW_URL']) ?>"
                           data-edit-url="<?= h($row['EDIT_URL']) ?>"
                           data-copy-url="<?= h($row['COPY_URL']) ?>">
                     <option value="">Действия…</option>
+                    <?php if ($canView): ?>
+                      <option value="view">Посмотреть заявку</option>
+                    <?php endif; ?>
                     <?php if ($canDelegate): ?>
                       <option value="delegate">Делегировать</option>
                     <?php endif; ?>
@@ -1433,6 +1438,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       var taskId = parseInt(select.getAttribute('data-task-id') || '0', 10);
       var fromUserId = parseInt(select.getAttribute('data-from-user-id') || '0', 10);
       var canDelegate = (select.getAttribute('data-can-delegate') || '0') === '1';
+      var viewUrl = select.getAttribute('data-view-url') || '';
       var editUrl = select.getAttribute('data-edit-url') || '';
       var copyUrl = select.getAttribute('data-copy-url') || '';
 
@@ -1442,7 +1448,9 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
         return;
       }
 
-      if (action === 'delegate') {
+      if (action === 'view') {
+        if (viewUrl) window.open(viewUrl, '_blank', 'noopener');
+      } else if (action === 'delegate') {
         if (!canDelegate || !taskId || !fromUserId) notify('Недостаточно прав или отсутствует активная задача для делегирования.');
         else openDelegatePopup(elementId, taskId, fromUserId);
       } else if (action === 'cancel') {
