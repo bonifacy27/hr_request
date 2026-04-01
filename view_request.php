@@ -703,27 +703,6 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         </div>';
     }
 
-    if ($code === 'RAZNITSA_TEKSTOV') {
-        global $curProps;
-        $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
-        $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
-        $diffText = buildResponsibilitiesDiffText($managerText, $from1cText);
-        $displayStyle = ($diffText === '') ? ' style="display:none;"' : '';
-
-        return '
-        <div class="ui-form-row"'.$rowIdAttr.$displayStyle.'>
-          <div class="ui-form-label"></div>
-          <div class="ui-form-content">
-            <details class="req-diff-details" id="diff_details" open>
-              <summary>Разница текстов</summary>
-              <div class="ui-ctl ui-ctl-textarea ui-ctl-w100" style="margin-top:8px;">
-                <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
-              </div>
-            </details>
-          </div>
-        </div>';
-    }
-
     if (isset($referenceMap[$code])) {
         $label = labelWithoutPrivyazka($name);
         $selectedId = (int)normPropValue($value);
@@ -754,11 +733,12 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $valEsc = htmlspecialcharsbx($valStr);
 
     // textarea?
-    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
+    $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII','ZHELAEMAYA_SPETSIALNOST','OPYT_RABOTY','ZNANIE_SPETSIALNYKH_PROGRAMM'], true);
 
     if ($isTextarea) {
         $isResponsibilitiesTextarea = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true);
-        $rows = $isResponsibilitiesTextarea ? 15 : 4;
+        $isThreeRowsTextarea = in_array($code, ['ZHELAEMAYA_SPETSIALNOST','OPYT_RABOTY','ZNANIE_SPETSIALNYKH_PROGRAMM'], true);
+        $rows = $isResponsibilitiesTextarea ? 15 : ($isThreeRowsTextarea ? 3 : 4);
         $textareaWrapStyleAttr = $isResponsibilitiesTextarea ? ' style="height: 320px;"' : '';
         $textareaStyleAttr = $isResponsibilitiesTextarea ? ' style="height: 320px !important; min-height: 320px;"' : '';
         return '
@@ -792,12 +772,6 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 }
 
 function hasDisplayValue($code, $value, $referenceMap, $curProps) {
-    if ($code === 'RAZNITSA_TEKSTOV') {
-        $managerText = (string)normPropValue($curProps['OBYAZANNOSTI'] ?? '');
-        $from1cText = (string)normPropValue($curProps['DOLZHNOSTNYE_OBYAZANNOSTI_1C'] ?? '');
-        return trim(buildResponsibilitiesDiffText($managerText, $from1cText)) !== '';
-    }
-
     if (isset($referenceMap[$code])) {
         return ((int)normPropValue($value) > 0);
     }
@@ -924,6 +898,9 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
 
       foreach ($byGroup[$groupTitle] as $f) {
           $code = (string)$f['CODE'];
+          if ($code === 'RAZNITSA_TEKSTOV') {
+              continue;
+          }
           $meta = $metaMap[$code] ?? null;
           $val  = $curProps[$code] ?? '';
           if (!hasDisplayValue($code, $val, $REFERENCE_IBLOCK_BY_CODE, $curProps)) {
