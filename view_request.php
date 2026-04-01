@@ -24,10 +24,6 @@ global $APPLICATION, $USER;
  * 1) CONFIG
  * =======================================================*/
 const IBLOCK_RECRUIT = 201;
-const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
-const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
-const ROLE_LABEL_CB = 'Менеджер C&B';
-const ROLE_LABEL_RECRUITER = 'Рекрутер/руководитель отдела подбора';
 
 // Справочники (как в create_request.php)
 const IBLOCK_LEGAL      = 308;
@@ -219,16 +215,6 @@ $FIELDS = [
     ["CODE" => "KOMMENTARII", "NAME" => "История", "EDITABLE" => false],
 ];
 
-$RECRUITER_ALLOWED_CODES = [
-    'GRAFIK_RABOTY_PRIVYAZKA',
-    'FORMAT_RABOTY_PRIVYAZKA',
-    'OFIS_PRIVYAZKA',
-    'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
-    'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
-    'OBORUDOVANIE_DLYA_RABOTY_TEKST',
-    'NEOBKHODIMAYA_MEBEL',
-];
-
 /**
  * Карта справочников (селекты по названиям)
  */
@@ -298,33 +284,6 @@ function labelWithoutPrivyazka($name) {
 }
 function getGroupByCode($code, $groupMap) {
     return $groupMap[$code] ?? 'Подбор';
-}
-function getGlobalVarUserList($varId) {
-    $users = [];
-    try {
-        $conn = \Bitrix\Main\Application::getConnection();
-        $sqlVarId = $conn->getSqlHelper()->forSql((string)$varId);
-        $row = $conn->query("
-            SELECT PROPERTY_VALUE
-            FROM b_bp_global_var
-            WHERE ID = '{$sqlVarId}'
-            LIMIT 1
-        ")->fetch();
-        if ($row && !empty($row['PROPERTY_VALUE'])) {
-            $decoded = @unserialize($row['PROPERTY_VALUE'], ['allowed_classes' => false]);
-            if (is_array($decoded)) {
-                foreach ($decoded as $item) {
-                    $item = trim((string)$item);
-                    if ($item !== '') {
-                        $users[] = mb_strtolower($item);
-                    }
-                }
-            }
-        }
-    } catch (\Throwable $e) {
-        return [];
-    }
-    return array_values(array_unique($users));
 }
 function getUserFullNameByRaw($rawValue) {
     $raw = trim((string)$rawValue);
@@ -518,55 +477,6 @@ $codes = array_values(array_unique($codes));
 $props = [];
 CIBlockElement::GetPropertyValuesArray($props, IBLOCK_RECRUIT, ['ID' => $elementId], ['CODE' => $codes]);
 $curProps = $props[$elementId] ?? [];
-
-/* =========================================================
- * 3A) ACCESS CHECK (C&B / recruiter / recruiting heads / admins)
- * =======================================================*/
-$currentUserId = (int)$USER->GetID();
-$currentUserTag = 'user_' . $currentUserId;
-$currentUserTagLower = mb_strtolower($currentUserTag);
-
-$isAdmin = $USER->IsAdmin();
-$cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
-$recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
-
-$isCbManager = in_array($currentUserTagLower, $cbUsers, true);
-$isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
-
-$recruiterRaw = normPropValue($curProps['REKRUTER'] ?? '');
-$recruiterRaw = trim((string)$recruiterRaw);
-$isRecruiter = false;
-if ($recruiterRaw !== '') {
-    $recruiterVariants = [
-        mb_strtolower($recruiterRaw),
-        mb_strtolower('user_' . (int)$recruiterRaw),
-    ];
-    $isRecruiter = in_array($currentUserTagLower, $recruiterVariants, true) || ((int)$recruiterRaw > 0 && (int)$recruiterRaw === $currentUserId);
-}
-
-$actorType = null;
-$roleLabel = '';
-if ($isAdmin || $isCbManager) {
-    $actorType = 'cb';
-    $roleLabel = ROLE_LABEL_CB;
-} elseif ($isRecruiter || $isRecruitHead) {
-    $actorType = 'recruiter';
-    $roleLabel = ROLE_LABEL_RECRUITER;
-}
-
-if ($actorType === null) {
-    ShowError('У вас нет прав на запуск этого скрипта');
-    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
-    die();
-}
-
-foreach ($FIELDS as &$fieldItem) {
-    if ($actorType === 'cb') {
-        continue;
-    }
-    $fieldItem['EDITABLE'] = in_array((string)$fieldItem['CODE'], $RECRUITER_ALLOWED_CODES, true);
-}
-unset($fieldItem);
 
 /* =========================================================
  * 4) VIEW MODE
