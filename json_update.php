@@ -9,6 +9,7 @@
  * - просмотр: открыть страницу без параметра run=Y
  * - выполнение: ?run=Y
  * - ограничение: ?run=Y&limit=100
+ * - точечное обновление: ?run=Y&id=3265690
  */
 
 use Bitrix\Main\Loader;
@@ -181,6 +182,7 @@ function jr_build_json_from_props(array $props)
 
 $run = (string)($_GET['run'] ?? '') === 'Y';
 $limit = (int)($_GET['limit'] ?? 0);
+$singleId = (int)($_GET['id'] ?? 0);
 if ($limit < 0) {
     $limit = 0;
 }
@@ -193,9 +195,14 @@ $stats = [
     'items' => [],
 ];
 
+$filter = ['IBLOCK_ID' => JR_IBLOCK_RECRUIT, 'ACTIVE' => 'Y'];
+if ($singleId > 0) {
+    $filter['ID'] = $singleId;
+}
+
 $rs = CIBlockElement::GetList(
     ['ID' => 'ASC'],
-    ['IBLOCK_ID' => JR_IBLOCK_RECRUIT, 'ACTIVE' => 'Y'],
+    $filter,
     false,
     $limit > 0 ? ['nTopCount' => $limit] : false,
     ['ID', 'IBLOCK_ID', 'NAME', 'PROPERTY_JSON', 'PROPERTY_3036']
@@ -255,6 +262,7 @@ while ($item = $rs->GetNext()) {
         Статус: <b><?= $run ? 'выполнение (run=Y)' : 'предпросмотр (без записи)' ?></b><br>
         Для запуска обновления используйте параметр <code>?run=Y</code>.
         <?= $limit > 0 ? '<br>Ограничение выборки: <code>' . (int)$limit . '</code>' : '' ?>
+        <?= $singleId > 0 ? '<br>Точечный запуск по ID: <code>' . (int)$singleId . '</code>' : '' ?>
     </p>
 
     <ul>
