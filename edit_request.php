@@ -862,7 +862,8 @@ function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) 
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
     ];
     $isRequired = in_array($code, $requiredCodes, true);
-    $requiredAttr = $isRequired ? 'required' : '';
+    $isHtmlRequired = $editable && $isRequired && $code !== 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA';
+    $requiredAttr = $isHtmlRequired ? 'required' : '';
     $requiredMark = $isRequired ? ' <span style="color:#d42626">*</span>' : '';
 
     $options = getIblockOptionsCached((int)$iblockId);
@@ -909,7 +910,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
         'PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
     ];
     $isRequiredField = in_array($code, $requiredCodes, true);
-    $requiredAttr = $isRequiredField ? 'required' : '';
+    $isHtmlRequired = $editable && $isRequiredField && $code !== 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA';
+    $requiredAttr = $isHtmlRequired ? 'required' : '';
     $requiredMark = $isRequiredField ? ' <span style="color:#d42626">*</span>' : '';
 
     if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
@@ -1055,13 +1057,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $isTextarea = in_array($code, ['OBYAZANNOSTI','DOLZHNOSTNYE_OBYAZANNOSTI_1C','OBORUDOVANIE_DLYA_RABOTY_TEKST','KOMMENTARII_C_B','DELOVYE_KACHESTVA','DOPOLNITELNYE_TREBOVANIYA','PRICHINA_ZAYAVKI_NA_PODBOR','KOMMENTARII'], true);
 
     if ($isTextarea) {
-        $rows = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true) ? 8 : 4;
+        $isResponsibilitiesTextarea = in_array($code, ['OBYAZANNOSTI', 'DOLZHNOSTNYE_OBYAZANNOSTI_1C'], true);
+        $rows = $isResponsibilitiesTextarea ? 15 : 4;
+        $textareaWrapStyleAttr = $isResponsibilitiesTextarea ? ' style="height: 320px;"' : '';
+        $textareaStyleAttr = $isResponsibilitiesTextarea ? ' style="height: 320px !important; min-height: 320px;"' : '';
         return '
         <div class="ui-form-row"'.$rowIdAttr.'>
           <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.$requiredMark.$labelAfterTitleHtml.$labelNoteHtml.'</div></div>
           <div class="ui-form-content">
-            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100">
-              <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'" '.$readonlyAttr.'>'.$valEsc.'</textarea>
+            <div class="ui-ctl ui-ctl-textarea ui-ctl-w100"'.$textareaWrapStyleAttr.'>
+              <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" name="'.$codeEsc.'" rows="'.$rows.'"'.$textareaStyleAttr.' '.$readonlyAttr.'>'.$valEsc.'</textarea>
             </div>
           </div>
         </div>';
@@ -1220,6 +1225,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
       <button type="button" class="ui-btn ui-btn-success" id="open_confirm_modal">Сохранить</button>
+      <a href="/forms/staff_recruitment/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
     </div>
   </div>
 </form>
@@ -1432,6 +1438,19 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
       .replace(/"/g, '&quot;');
     saveChangesPreview.innerHTML = `<ul>${changes.map((item) => `<li><b>${esc(item.label)}</b>: ${esc(item.oldVal)} → ${esc(item.newVal)}</li>`).join('')}</ul>`;
   };
+
+  const validateBeforePreview = () => {
+    if (bonusType && !bonusType.disabled) {
+      const selectedValue = Number(bonusType.value || 0);
+      if (!Number.isFinite(selectedValue) || selectedValue <= 0) {
+        alert('Поле "Предполагаемый тип премирования" обязательно для заполнения.');
+        bonusType.focus();
+        return false;
+      }
+    }
+    return true;
+  };
+
   const openSaveModal = () => {
     if (!saveConfirmModal) return;
     const changes = collectChangesForPreview();
@@ -1494,6 +1513,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   if (openConfirmModalBtn) {
     openConfirmModalBtn.addEventListener('click', () => {
       if (!formEl || !formEl.reportValidity()) return;
+      if (!validateBeforePreview()) return;
       openSaveModal();
     });
   }
