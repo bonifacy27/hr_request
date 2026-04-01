@@ -160,7 +160,7 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
         if (!$ids) return '';
         $parts = [];
         foreach ($ids as $id) {
-            $url = $prefix . (int)$id;
+            $url = $prefix . (int)$id . '/';
             $parts[] = '<a href="' . h($url) . '" target="_blank" rel="noopener">' . h($label . ' #' . (int)$id) . '</a>';
         }
         return implode(', ', $parts);
@@ -170,21 +170,21 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
 
     $candidateLinks = $buildLinks(
         $candidateFormIds,
-        '/services/lists/207/element/0/?list_id=207&element_id=',
+        'https://ourtricolortv.nsc.ru/services/lists/207/element/0/',
         'Анкета'
     );
     if ($candidateLinks !== '') $chunks[] = '<div><strong>Анкеты:</strong> ' . $candidateLinks . '</div>';
 
     $offerLinks = $buildLinks(
         $offerIds,
-        '/services/lists/218/element/0/?list_id=218&element_id=',
+        'https://ourtricolortv.nsc.ru/services/lists/218/element/0/',
         'Оффер'
     );
     if ($offerLinks !== '') $chunks[] = '<div><strong>Офферы:</strong> ' . $offerLinks . '</div>';
 
     $cardLinks = $buildLinks(
         $employeeCardIds,
-        '/services/lists/196/element/0/?list_id=196&element_id=',
+        'https://ourtricolortv.nsc.ru/services/lists/196/element/0/',
         'Карточка'
     );
     if ($cardLinks !== '') $chunks[] = '<div><strong>Карточки:</strong> ' . $cardLinks . '</div>';
