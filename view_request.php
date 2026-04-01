@@ -326,6 +326,29 @@ function getGlobalVarUserList($varId) {
     }
     return array_values(array_unique($users));
 }
+function getUserFullNameByRaw($rawValue) {
+    $raw = trim((string)$rawValue);
+    if ($raw === '') return '';
+
+    $userId = 0;
+    if (preg_match('/^user_(\d+)$/i', $raw, $m)) {
+        $userId = (int)$m[1];
+    } elseif (ctype_digit($raw)) {
+        $userId = (int)$raw;
+    }
+    if ($userId <= 0) return $raw;
+
+    $rsUser = CUser::GetByID($userId);
+    $user = $rsUser ? $rsUser->Fetch() : false;
+    if (!$user) return (string)$userId;
+
+    $fullName = trim((string)CUser::FormatName('#LAST_NAME# #NAME# #SECOND_NAME#', $user, false, false));
+    if ($fullName === '') {
+        $fullName = trim((string)($user['NAME'] ?? '') . ' ' . (string)($user['LAST_NAME'] ?? ''));
+    }
+    if ($fullName === '') $fullName = (string)($user['LOGIN'] ?? $userId);
+    return $fullName;
+}
 function parseMoneyInput($value) {
     $v = trim((string)$value);
     if ($v === '') return 0.0;
@@ -652,10 +675,24 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
                 ]
             );
         } else {
-            echo '<div class="ui-ctl ui-ctl-textbox ui-ctl-w100"><input type="text" class="ui-ctl-element" value="'.htmlspecialcharsbx((string)normPropValue($value)).'" disabled></div>';
+            $supervisorName = getUserFullNameByRaw((string)normPropValue($value));
+            echo '<div class="ui-ctl ui-ctl-textbox ui-ctl-w100"><input type="text" class="ui-ctl-element" value="'.htmlspecialcharsbx($supervisorName).'" disabled></div>';
         }
         echo '</div></div>';
         return ob_get_clean();
+    }
+
+    if ($code === 'REKRUTER') {
+        $recruiterName = getUserFullNameByRaw((string)normPropValue($value));
+        return '
+        <div class="ui-form-row"'.$rowIdAttr.'>
+          <div class="ui-form-label"><div class="ui-ctl-label-text">'.$nameEsc.'</div></div>
+          <div class="ui-form-content">
+            <div class="ui-ctl ui-ctl-textbox ui-ctl-w100">
+              <input class="ui-ctl-element" id="field_'.$codeEsc.'" type="text" value="'.htmlspecialcharsbx($recruiterName).'" disabled>
+            </div>
+          </div>
+        </div>';
     }
 
     if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
