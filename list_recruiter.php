@@ -68,6 +68,7 @@ $PROP_MANAGER     = 'PROPERTY_1034';
 $PROP_REASON      = 'PROPERTY_1609';
 $PROP_RECRUITER   = 'PROPERTY_1035';
 $PROP_STAVKA      = 'PROPERTY_3100';
+$PROP_JSON        = 'PROPERTY_JSON';
 $PROP_KOMMENTARII = 'PROPERTY_1043';
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
@@ -637,6 +638,8 @@ $arSelect = [
     $PROP_MANAGER,
     $PROP_RECRUITER,
     $PROP_STAVKA,
+    $PROP_JSON,
+    'PROPERTY_3036',
     $PROP_KOMMENTARII,
 ];
 
@@ -705,6 +708,9 @@ while ($ob = $res->GetNextElement()) {
         'MANAGER_ID'=>$managerId,
         'RECRUITER_ID'=>$recruiterId,
         'STAVKA'=>(string)$f["{$PROP_STAVKA}_VALUE"],
+        'JSON_RAW'=>trim((string)($f["{$PROP_JSON}_VALUE"] ?? '')) !== ''
+            ? (string)$f["{$PROP_JSON}_VALUE"]
+            : (string)($f['PROPERTY_3036_VALUE'] ?? ''),
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
@@ -1036,7 +1042,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $canEditByRole = $isAdmin || $isCbManager || $isRecruitHead || (((int)$row['RECRUITER_ID'] === $currentUserId) && $hasCurrentUserTask);
             $canEdit = $canEditByRole && !in_array($status, $nonEditableStatuses, true);
             $canCancel = $isRecruitHead || ((int)$row['RECRUITER_ID'] === $currentUserId);
-            $canCopy = trim((string)($row['STAVKA'] ?? '')) !== '';
+            $canCopy = trim((string)($row['JSON_RAW'] ?? '')) !== '';
             $canView = !empty($row['VIEW_URL']);
             $hasAnyAction = $canView || $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
