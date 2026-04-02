@@ -76,10 +76,10 @@ $PROP_EMPLOYEE_CARDS  = 3129;
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
 
-$createElementUrl      = '/forms/staff_recruitment/create_request.php';
-$editElementUrlPattern = '/forms/staff_recruitment/edit_request.php?id=#ID#';
-$copyElementUrlPattern = '/forms/staff_recruitment/create_request_copy.php?id=#ID#';
-$elementViewUrlPattern = '/forms/staff_recruitment/view_request.php?id=#ID#';
+$createElementUrl      = '/forms/staff_recruitment/staffing/create_request.php';
+$editElementUrlPattern = '/forms/staff_recruitment/staffing/edit_request.php?id=#ID#';
+$copyElementUrlPattern = '/forms/staff_recruitment/staffing/create_request_copy.php?id=#ID#';
+$elementViewUrlPattern = '/forms/staff_recruitment/staffing/view_request.php?id=#ID#';
 
 $statusColorMap = [
     'Новая'               => '#2563eb',
