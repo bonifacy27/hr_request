@@ -173,13 +173,14 @@ function findUserRunningTaskForDocument(int $iblockId, int $elementId, int $user
                 ['DOCUMENT_ID' => $docId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
                 false,
                 false,
-                ['ID','NAME','WORKFLOW_ID','USER_ID']
+                ['ID','NAME','WORKFLOW_ID','USER_ID','ACTIVITY','ACTIVITY_NAME']
             );
             if ($task = $rs->GetNext()) {
                 return [
                     'ID' => (int)$task['ID'],
                     'NAME' => (string)$task['NAME'],
                     'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+                    'ACTIVITY_NAME' => (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? ''),
                     'DOCUMENT_ID' => $docId,
                 ];
             }
@@ -188,6 +189,71 @@ function findUserRunningTaskForDocument(int $iblockId, int $elementId, int $user
     }
 
     return null;
+}
+
+function taskIsRunning(int $taskId): bool
+{
+    if ($taskId <= 0) {
+        return false;
+    }
+    try {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID']
+        );
+        return (bool)$rs->GetNext();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+function getRunningTaskByIdForUser(int $taskId, int $userId): ?array
+{
+    if ($taskId <= 0 || $userId <= 0) {
+        return null;
+    }
+    try {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
+            false,
+            false,
+            ['ID','NAME','WORKFLOW_ID','USER_ID','ACTIVITY','ACTIVITY_NAME']
+        );
+        $task = $rs->GetNext();
+        if (!$task) {
+            return null;
+        }
+        return [
+            'ID' => (int)$task['ID'],
+            'NAME' => (string)$task['NAME'],
+            'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+            'ACTIVITY_NAME' => (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? ''),
+        ];
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+function flattenBizprocErrors(array $errors): string
+{
+    $parts = [];
+    foreach ($errors as $e) {
+        if (is_array($e)) {
+            $msg = trim((string)($e['message'] ?? $e['MESSAGE'] ?? ''));
+            $code = trim((string)($e['code'] ?? $e['CODE'] ?? ''));
+            if ($msg !== '' && $code !== '') $parts[] = $code . ': ' . $msg;
+            elseif ($msg !== '') $parts[] = $msg;
+            elseif ($code !== '') $parts[] = $code;
+        } else {
+            $s = trim((string)$e);
+            if ($s !== '') $parts[] = $s;
+        }
+    }
+    return implode('; ', array_values(array_unique($parts)));
 }
 
 function appendOfferToRequest(int $requestId, int $offerId): void
@@ -206,18 +272,42 @@ function appendOfferToRequest(int $requestId, int $offerId): void
     ]);
 }
 
-function completeBizprocTask(int $taskId, int $userId, string $comment = ''): array
+function completeBizprocTask(array $task, int $userId, string $action = 'approve', string $comment = ''): array
 {
-    $errors = [];
+    $taskId = (int)($task['ID'] ?? 0);
+    if ($taskId <= 0) {
+        return ['OK' => false, 'ERROR' => 'Некорректный ID задачи БП.'];
+    }
 
+    $errors = [];
+    $aliases = [
+        'yes' => 'approve',
+        'ok' => 'approve',
+        'no' => 'nonapprove',
+        'cancel' => 'nonapprove',
+        'reject' => 'nonapprove',
+        'decline' => 'nonapprove',
+    ];
+    $code = strtolower(trim((string)$action));
+    if ($code === '') $code = 'approve';
+    if (isset($aliases[$code])) $code = $aliases[$code];
+
+    // Попытка 1: ACTION + именованный флаг
     try {
         if (method_exists('CBPDocument', 'PostTaskForm')) {
-            $taskRequest = [
-                'approve' => 'Y',
-                'comment' => $comment,
+            $fields1 = [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                'COMMENT' => $comment,
+                'ACTION' => $code,
+                $code => 'Y',
             ];
-            $ok = CBPDocument::PostTaskForm($taskId, $userId, $taskRequest, $errors);
-            if ($ok) {
+            $tmpErr = [];
+            CBPDocument::PostTaskForm($taskId, $userId, $fields1, $tmpErr);
+            if (!empty($tmpErr)) {
+                $errors = array_merge($errors, $tmpErr);
+            }
+            if (!taskIsRunning($taskId)) {
                 return ['OK' => true, 'ERROR' => ''];
             }
         }
@@ -225,32 +315,80 @@ function completeBizprocTask(int $taskId, int $userId, string $comment = ''): ar
         $errors[] = ['message' => $e->getMessage()];
     }
 
+    // Попытка 2: только именованный флаг
     try {
-        if (method_exists('CBPTaskService', 'DoTask')) {
-            CBPTaskService::DoTask($taskId, $userId, [
-                'approve' => 'Y',
-                'comment' => $comment,
-            ]);
-            return ['OK' => true, 'ERROR' => ''];
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $fields2 = [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                'COMMENT' => $comment,
+                $code => 'Y',
+            ];
+            $tmpErr2 = [];
+            CBPDocument::PostTaskForm($taskId, $userId, $fields2, $tmpErr2);
+            if (!empty($tmpErr2)) {
+                $errors = array_merge($errors, $tmpErr2);
+            }
+            if (!taskIsRunning($taskId)) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
         }
     } catch (\Throwable $e) {
         $errors[] = ['message' => $e->getMessage()];
     }
 
-    $flatErrors = [];
-    foreach ((array)$errors as $e) {
-        if (is_array($e) && !empty($e['message'])) {
-            $flatErrors[] = (string)$e['message'];
-        } elseif (is_string($e) && $e !== '') {
-            $flatErrors[] = $e;
+    // Попытка 3: внешний эвент (APPROVE / RESULT)
+    try {
+        $workflowId = (string)($task['WORKFLOW_ID'] ?? '');
+        $activity = (string)($task['ACTIVITY_NAME'] ?? $task['NAME'] ?? '');
+        if ($workflowId !== '' && $activity !== '' && method_exists('CBPDocument', 'SendExternalEvent')) {
+            $isYes = in_array($code, ['approve','accepted','accept','ok','yes','y','agree'], true);
+            $isNo  = in_array($code, ['cancel','rejected','reject','no','n','disagree','decline','deny','refuse','nonapprove'], true);
+            $payloads = [];
+            if ($isYes || $isNo) {
+                $appr = $isYes ? 'Y' : 'N';
+                $payloads[] = ['APPROVE' => $appr, 'COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+                $payloads[] = ['RESULT' => $appr, 'COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+            } else {
+                $payloads[] = ['COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+            }
+
+            foreach ($payloads as $payload) {
+                $extErr = [];
+                CBPDocument::SendExternalEvent($workflowId, $activity, $payload, $extErr);
+                if (!empty($extErr)) {
+                    $errors = array_merge($errors, $extErr);
+                }
+                if (!taskIsRunning($taskId)) {
+                    return ['OK' => true, 'ERROR' => ''];
+                }
+            }
         }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
     }
 
-    if (empty($flatErrors)) {
-        $flatErrors[] = 'Не удалось автоматически завершить задачу БП: подходящий API не сработал.';
+    // Последний fallback: старый DoTask
+    try {
+        if (method_exists('CBPTaskService', 'DoTask')) {
+            CBPTaskService::DoTask($taskId, $userId, [
+                'ACTION' => $code,
+                $code => 'Y',
+                'COMMENT' => $comment,
+            ]);
+            if (!taskIsRunning($taskId)) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
     }
 
-    return ['OK' => false, 'ERROR' => implode('; ', $flatErrors)];
+    $flat = flattenBizprocErrors($errors);
+    if ($flat === '') {
+        $flat = 'Задание осталось активным после всех попыток завершения.';
+    }
+    return ['OK' => false, 'ERROR' => $flat];
 }
 
 function buildOfferPropertyMap(array $candidate, array $request): array
@@ -379,11 +517,16 @@ if ($request->isPost() && check_bitrix_sessid()) {
         if ($taskId <= 0) {
             $errors[] = 'Не передан ID задачи БП для завершения.';
         } else {
-            $done = completeBizprocTask($taskId, $currentUserId, 'Создан черновик оффера #' . $offerIdCreated);
-            if ($done['OK']) {
-                $success = 'Задание бизнес-процесса успешно завершено.';
+            $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
+            if (!$actualTask) {
+                $errors[] = 'Задача БП не найдена среди активных задач текущего пользователя (возможно уже завершена).';
             } else {
-                $errors[] = $done['ERROR'];
+                $done = completeBizprocTask($actualTask, $currentUserId, 'approve', 'Создан черновик оффера #' . $offerIdCreated);
+                if ($done['OK']) {
+                    $success = 'Задание бизнес-процесса успешно завершено.';
+                } else {
+                    $errors[] = $done['ERROR'];
+                }
             }
         }
     }
