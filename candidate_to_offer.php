@@ -176,7 +176,7 @@ function getRequestById(int $requestId): ?array
         'CHIEF_POSITION_DISPLAY' => $disp($p, 'DOLZHNOST_RUKOVODITELYA'),
         'PROFIT_DISPLAY' => $disp($p, 'OKLAD'),
         'ISN_DISPLAY' => $disp($p, 'ISN_RUB_GROSS'),
-        'BONUS_TYPE_DISPLAY' => $disp($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'),
+        'BONUS_TYPE_DISPLAY' => $resolveElementName($disp($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA')),
         'BONUS_PERCENT_DISPLAY' => $disp($p, 'PROTSENT_PREMII_'),
         'WORK_FORMAT_LINK_DISPLAY' => $resolveElementName($disp($p, 'FORMAT_RABOTY_PRIVYAZKA')),
         'OFFICE_LINK_DISPLAY' => $resolveElementName($disp($p, 'OFIS_PRIVYAZKA')),
@@ -528,10 +528,10 @@ if ($request->isPost() && check_bitrix_sessid()) {
     $action = (string)$request->getPost('action');
 
     if ($action === 'create_offer' && empty($errors) && $candidate && $requestItem) {
+        $offerCreatedNow = false;
         $existingOfferId = findOfferByCandidateId((int)$candidate['ID']);
         if ($existingOfferId > 0) {
             $offerIdCreated = $existingOfferId;
-            appendOfferToRequest((int)$candidate['REQUEST_ID'], $offerIdCreated);
             $warnings[] = 'По этой анкете уже существует оффер #' . $offerIdCreated . '. Повторное создание не выполнено.';
         }
 
@@ -565,13 +565,14 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 $offerIdCreated = (int)$offerId;
                 appendOfferToRequest((int)$candidate['REQUEST_ID'], $offerIdCreated);
                 $success = 'Черновик оффера успешно создан (ID: ' . $offerIdCreated . ').';
+                $offerCreatedNow = true;
             } else {
                 $errors[] = 'Не удалось создать оффер: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
             }
         }
 
-        // Автоматически завершаем задачу БП после успешного создания/нахождения оффера
-        if (empty($errors) && $offerIdCreated > 0) {
+        // Автоматически завершаем задачу БП только если оффер был СОЗДАН сейчас
+        if (empty($errors) && $offerCreatedNow && $offerIdCreated > 0) {
             $taskId = (int)($task['ID'] ?? 0);
             if ($taskId <= 0) {
                 $warnings[] = 'Оффер создан, но не удалось определить ID задачи БП для автозавершения.';
@@ -588,6 +589,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
                     }
                 }
             }
+        } elseif (empty($errors) && !$offerCreatedNow && $offerIdCreated > 0) {
+            $warnings[] = 'Задание БП не завершено: оффер не создавался (обнаружен дубль).';
         }
     }
 }
