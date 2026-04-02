@@ -1,0 +1,459 @@
+<?php
+/**
+ * candidate_to_offer.php
+ * Создание черновика оффера из анкеты кандидата и заявки на подбор
+ */
+
+define('BX_COMPOSITE_DO_NOT_CACHE', true);
+
+use Bitrix\Main\Loader;
+use Bitrix\Main\Context;
+
+require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
+$APPLICATION->SetTitle('Создание черновика оффера');
+
+if (!Loader::includeModule('main'))   { ShowError('Модуль main не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+if (!Loader::includeModule('iblock')) { ShowError('Модуль iblock не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+if (!Loader::includeModule('bizproc')){ ShowError('Модуль bizproc не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+if (!Loader::includeModule('lists'))  { ShowError('Модуль lists не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+
+const IBL_CANDIDATES = 207;
+const IBL_REQUESTS   = 201;
+const IBL_OFFERS     = 218;
+const PROP_REQ_OFFERS_MULTI = 3128; // ID_OFFERA, множественное число
+
+function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+
+function userIdFromValue($raw): int
+{
+    $value = trim((string)$raw);
+    if ($value === '') {
+        return 0;
+    }
+    if (stripos($value, 'user_') === 0) {
+        return (int)substr($value, 5);
+    }
+    return (int)$value;
+}
+
+function getCandidateById(int $candidateId): ?array
+{
+    $select = [
+        'ID',
+        'NAME',
+        'PROPERTY_1083', // FAMILIYA
+        'PROPERTY_1084', // IMYA
+        'PROPERTY_1085', // OTCHESTVO
+        'PROPERTY_1089', // E_MAIL
+        'PROPERTY_1596', // ID_ZAYAVKI_NA_PODBOR
+        'PROPERTY_1594', // ID_KANDIDATA_FRIENDWORK
+        'PROPERTY_1323', // REKRUTER
+    ];
+
+    $rs = CIBlockElement::GetList([], [
+        'IBLOCK_ID' => IBL_CANDIDATES,
+        'ACTIVE' => 'Y',
+        'ID' => $candidateId,
+        'CHECK_PERMISSIONS' => 'Y',
+    ], false, ['nTopCount' => 1], $select);
+
+    if (!($row = $rs->GetNext())) {
+        return null;
+    }
+
+    $lastName = trim((string)($row['PROPERTY_1083_VALUE'] ?? ''));
+    $firstName = trim((string)($row['PROPERTY_1084_VALUE'] ?? ''));
+    $middleName = trim((string)($row['PROPERTY_1085_VALUE'] ?? ''));
+
+    return [
+        'ID' => (int)$row['ID'],
+        'FIO' => trim($lastName . ' ' . $firstName . ' ' . $middleName),
+        'LAST_NAME' => $lastName,
+        'FIRST_NAME' => $firstName,
+        'MIDDLE_NAME' => $middleName,
+        'EMAIL' => trim((string)($row['PROPERTY_1089_VALUE'] ?? '')),
+        'REQUEST_ID' => (int)($row['PROPERTY_1596_VALUE'] ?? 0),
+        'FW_CANDIDATE_ID' => trim((string)($row['PROPERTY_1594_VALUE'] ?? '')),
+        'RECRUITER_RAW' => (string)($row['PROPERTY_1323_VALUE'] ?? ''),
+        'RECRUITER_ID' => userIdFromValue($row['PROPERTY_1323_VALUE'] ?? ''),
+    ];
+}
+
+function getRequestById(int $requestId): ?array
+{
+    $select = [
+        'ID',
+        'NAME',
+        'PROPERTY_1010', // РУКОВОДЯЩАЯ ДОЛЖНОСТЬ
+        'PROPERTY_1011', // ДОЛЖНОСТЬ
+        'PROPERTY_1012', // ДИРЕКЦИЯ
+        'PROPERTY_1013', // ПОДРАЗДЕЛЕНИЕ
+        'PROPERTY_1014', // НЕПОСРЕДСТВЕННЫЙ РУКОВОДИТЕЛЬ
+        'PROPERTY_1015', // ДОЛЖНОСТЬ РУКОВОДИТЕЛЯ
+        'PROPERTY_1016', // ОКЛАД
+        'PROPERTY_1030', // ИСН
+        'PROPERTY_1017', // ТИП ПРЕМИИ
+        'PROPERTY_1018', // ПРОЦЕНТ ПРЕМИИ
+        'PROPERTY_1075', // ФОРМАТ РАБОТЫ
+        'PROPERTY_1074', // ОФИС
+        'PROPERTY_1076', // ГРАФИК РАБОТЫ
+        'PROPERTY_1077', // НАЧАЛО РАБОЧЕГО ДНЯ (справочник)
+        'PROPERTY_1078', // НАЧАЛО РАБОЧЕГО ДНЯ (текст)
+        'PROPERTY_1640', // ТИП ДОГОВОРА
+        'PROPERTY_1641', // ОБОРУДОВАНИЕ
+        'PROPERTY_1595', // ЮР. ЛИЦО
+    ];
+
+    $rs = CIBlockElement::GetList([], [
+        'IBLOCK_ID' => IBL_REQUESTS,
+        'ACTIVE' => 'Y',
+        'ID' => $requestId,
+        'CHECK_PERMISSIONS' => 'Y',
+    ], false, ['nTopCount' => 1], $select);
+
+    if (!($row = $rs->GetNext())) {
+        return null;
+    }
+
+    return [
+        'ID' => (int)$row['ID'],
+        'CHIEF_POSITION_FLAG' => (string)($row['PROPERTY_1010_VALUE'] ?? ''),
+        'WORK_POSITION' => (string)($row['PROPERTY_1011_VALUE'] ?? ''),
+        'DIRECTION' => (string)($row['PROPERTY_1012_VALUE'] ?? ''),
+        'DEPARTMENT' => (string)($row['PROPERTY_1013_VALUE'] ?? ''),
+        'CHIEF' => (string)($row['PROPERTY_1014_VALUE'] ?? ''),
+        'CHIEF_POSITION' => (string)($row['PROPERTY_1015_VALUE'] ?? ''),
+        'PROFIT' => (string)($row['PROPERTY_1016_VALUE'] ?? ''),
+        'ISN' => (string)($row['PROPERTY_1030_VALUE'] ?? ''),
+        'BONUS_TYPE' => (string)($row['PROPERTY_1017_VALUE'] ?? ''),
+        'BONUS_PERCENT' => (string)($row['PROPERTY_1018_VALUE'] ?? ''),
+        'WORK_FORMAT_LINK' => (string)($row['PROPERTY_1075_VALUE'] ?? ''),
+        'OFFICE_LINK' => (string)($row['PROPERTY_1074_VALUE'] ?? ''),
+        'WORK_SCHEDULE_LINK' => (string)($row['PROPERTY_1076_VALUE'] ?? ''),
+        'WORK_BEGIN_HOUR_LINK' => (string)($row['PROPERTY_1077_VALUE'] ?? ''),
+        'WORK_BEGIN_HOUR_TEXT' => (string)($row['PROPERTY_1078_VALUE'] ?? ''),
+        'DOGOVOR_TYPE_LINK' => (string)($row['PROPERTY_1640_VALUE'] ?? ''),
+        'EQUIPMENT_LINK' => (string)($row['PROPERTY_1641_VALUE'] ?? ''),
+        'ORGANISATION' => (string)($row['PROPERTY_1595_VALUE'] ?? ''),
+    ];
+}
+
+function normalizeChiefPosition(string $flag): int
+{
+    if ($flag === 'Y') return 1159;
+    if ($flag === 'N') return 1160;
+    return 1160;
+}
+
+function findUserRunningTaskForDocument(int $iblockId, int $elementId, int $userId): ?array
+{
+    $candidates = [
+        ['lists',  'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
+        ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
+        ['lists',  'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
+    ];
+
+    foreach ($candidates as $docId) {
+        try {
+            $rs = CBPTaskService::GetList(
+                ['ID' => 'ASC'],
+                ['DOCUMENT_ID' => $docId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
+                false,
+                false,
+                ['ID','NAME','WORKFLOW_ID','USER_ID']
+            );
+            if ($task = $rs->GetNext()) {
+                return [
+                    'ID' => (int)$task['ID'],
+                    'NAME' => (string)$task['NAME'],
+                    'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+                    'DOCUMENT_ID' => $docId,
+                ];
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+
+    return null;
+}
+
+function appendOfferToRequest(int $requestId, int $offerId): void
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty(IBL_REQUESTS, $requestId, ['sort' => 'asc'], ['ID' => PROP_REQ_OFFERS_MULTI]);
+    while ($p = $rs->Fetch()) {
+        $v = (int)($p['VALUE'] ?? 0);
+        if ($v > 0) $values[] = $v;
+    }
+    $values[] = $offerId;
+    $values = array_values(array_unique(array_map('intval', $values)));
+
+    CIBlockElement::SetPropertyValuesEx($requestId, IBL_REQUESTS, [
+        PROP_REQ_OFFERS_MULTI => $values,
+    ]);
+}
+
+function completeBizprocTask(int $taskId, int $userId, string $comment = ''): array
+{
+    $errors = [];
+
+    try {
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $taskRequest = [
+                'approve' => 'Y',
+                'comment' => $comment,
+            ];
+            $ok = CBPDocument::PostTaskForm($taskId, $userId, $taskRequest, $errors);
+            if ($ok) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    try {
+        if (method_exists('CBPTaskService', 'DoTask')) {
+            CBPTaskService::DoTask($taskId, $userId, [
+                'approve' => 'Y',
+                'comment' => $comment,
+            ]);
+            return ['OK' => true, 'ERROR' => ''];
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    $flatErrors = [];
+    foreach ((array)$errors as $e) {
+        if (is_array($e) && !empty($e['message'])) {
+            $flatErrors[] = (string)$e['message'];
+        } elseif (is_string($e) && $e !== '') {
+            $flatErrors[] = $e;
+        }
+    }
+
+    if (empty($flatErrors)) {
+        $flatErrors[] = 'Не удалось автоматически завершить задачу БП: подходящий API не сработал.';
+    }
+
+    return ['OK' => false, 'ERROR' => implode('; ', $flatErrors)];
+}
+
+function buildOfferPropertyMap(array $candidate, array $request): array
+{
+    $isChiefPosition = normalizeChiefPosition((string)$request['CHIEF_POSITION_FLAG']);
+
+    $equipment = (string)$request['EQUIPMENT_LINK'];
+    if ($equipment === '') $equipment = '3263612';
+
+    $dogovorType = (string)$request['DOGOVOR_TYPE_LINK'];
+    if ($dogovorType === '') $dogovorType = '3263600';
+
+    $organisation = (string)$request['ORGANISATION'];
+    if ($organisation === '') $organisation = '3197820';
+
+    return [
+        1157 => (string)$candidate['FIO'],
+        1618 => $isChiefPosition,
+        1161 => (string)$request['WORK_POSITION'],
+        1996 => (string)$request['DIRECTION'],
+        1163 => (string)$request['DEPARTMENT'],
+        1164 => (string)$request['CHIEF'],
+        1169 => (string)$request['CHIEF_POSITION'],
+        1165 => (string)$request['PROFIT'],
+        1184 => (string)$request['ISN'],
+        1998 => (string)$request['BONUS_TYPE'],
+        1186 => (string)$request['BONUS_PERCENT'],
+        1177 => 'ДМС по истечению испытательного срока',
+        1327 => (string)$request['WORK_FORMAT_LINK'],
+        1326 => (string)$request['OFFICE_LINK'],
+        1328 => (string)$request['WORK_SCHEDULE_LINK'],
+        1329 => (string)$request['WORK_BEGIN_HOUR_LINK'],
+        2070 => $equipment,
+        2002 => $dogovorType,
+        2753 => $organisation,
+        1190 => (int)$candidate['RECRUITER_ID'],
+        1601 => (int)$candidate['REQUEST_ID'],
+        1603 => (int)$candidate['ID'],
+        1602 => (string)$candidate['FW_CANDIDATE_ID'],
+        2857 => 'Из анкеты кандидата ' . (int)$candidate['ID'],
+    ];
+}
+
+$request = Context::getCurrent()->getRequest();
+$currentUserId = (int)$USER->GetID();
+$candidateId = (int)$request->get('id');
+
+$errors = [];
+$warnings = [];
+$success = '';
+$offerIdCreated = 0;
+
+if ($candidateId <= 0) {
+    $errors[] = 'Не передан корректный id анкеты кандидата.';
+}
+
+$candidate = $candidateId > 0 ? getCandidateById($candidateId) : null;
+if ($candidateId > 0 && !$candidate) {
+    $errors[] = 'Анкета кандидата не найдена или недоступна.';
+}
+
+$requestItem = null;
+if ($candidate) {
+    if ((int)$candidate['REQUEST_ID'] <= 0) {
+        $errors[] = 'В анкете кандидата не заполнен ID заявки на подбор (PROPERTY_1596).';
+    } else {
+        $requestItem = getRequestById((int)$candidate['REQUEST_ID']);
+        if (!$requestItem) {
+            $errors[] = 'Заявка на подбор из анкеты не найдена или недоступна.';
+        }
+    }
+}
+
+$task = null;
+if ($candidateId > 0 && $currentUserId > 0) {
+    $task = findUserRunningTaskForDocument(IBL_CANDIDATES, $candidateId, $currentUserId);
+    if (!$task) {
+        $warnings[] = 'Не найдена активная задача БП по этой анкете для текущего пользователя. Автозавершение может быть недоступно.';
+    }
+}
+
+if ($request->isPost() && check_bitrix_sessid()) {
+    $action = (string)$request->getPost('action');
+
+    if ($action === 'create_offer' && empty($errors) && $candidate && $requestItem) {
+        if ($candidate['FIO'] === '') {
+            $errors[] = 'Не заполнено ФИО кандидата (PROPERTY_1083/1084/1085).';
+        }
+        if ((string)$requestItem['WORK_POSITION'] === '') {
+            $warnings[] = 'В заявке не заполнена должность.';
+        }
+        if ((string)$requestItem['DEPARTMENT'] === '') {
+            $warnings[] = 'В заявке не заполнено подразделение.';
+        }
+        if ((string)$requestItem['CHIEF'] === '') {
+            $warnings[] = 'В заявке не заполнен непосредственный руководитель.';
+        }
+        if ((string)$requestItem['PROFIT'] === '') {
+            $warnings[] = 'В заявке не заполнен оклад.';
+        }
+
+        if (empty($errors)) {
+            $offerProps = buildOfferPropertyMap($candidate, $requestItem);
+            $el = new CIBlockElement();
+            $offerId = $el->Add([
+                'IBLOCK_ID' => IBL_OFFERS,
+                'PROPERTY_VALUES' => $offerProps,
+                'NAME' => 'Заявка на оффер после проверки СБ',
+                'ACTIVE' => 'Y',
+            ]);
+
+            if ($offerId) {
+                $offerIdCreated = (int)$offerId;
+                appendOfferToRequest((int)$candidate['REQUEST_ID'], $offerIdCreated);
+                $success = 'Черновик оффера успешно создан (ID: ' . $offerIdCreated . ').';
+            } else {
+                $errors[] = 'Не удалось создать оффер: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
+            }
+        }
+    }
+
+    if ($action === 'complete_task') {
+        $taskId = (int)$request->getPost('task_id');
+        $offerIdCreated = (int)$request->getPost('offer_id');
+
+        if ($taskId <= 0) {
+            $errors[] = 'Не передан ID задачи БП для завершения.';
+        } else {
+            $done = completeBizprocTask($taskId, $currentUserId, 'Создан черновик оффера #' . $offerIdCreated);
+            if ($done['OK']) {
+                $success = 'Задание бизнес-процесса успешно завершено.';
+            } else {
+                $errors[] = $done['ERROR'];
+            }
+        }
+    }
+}
+
+?>
+<div class="ui-ctl-wrapper" style="max-width: 1024px;">
+    <h2 style="margin-bottom:16px;">Создание черновика оффера из анкеты кандидата</h2>
+
+    <?php if (!empty($success)): ?>
+        <div class="ui-alert ui-alert-success" style="margin-bottom:16px;"><?=h($success)?></div>
+    <?php endif; ?>
+
+    <?php foreach ($errors as $e): ?>
+        <div class="ui-alert ui-alert-danger" style="margin-bottom:8px;"><?=h($e)?></div>
+    <?php endforeach; ?>
+
+    <?php foreach ($warnings as $w): ?>
+        <div class="ui-alert ui-alert-warning" style="margin-bottom:8px;"><?=h($w)?></div>
+    <?php endforeach; ?>
+
+    <?php if ($candidate): ?>
+        <h3>Данные анкеты кандидата</h3>
+        <table class="ui-table" style="width:100%; margin-bottom:18px;">
+            <tbody>
+            <tr><td><b>ID анкеты</b></td><td><?=h($candidate['ID'])?></td></tr>
+            <tr><td><b>ФИО</b></td><td><?=h($candidate['FIO'])?></td></tr>
+            <tr><td><b>E-mail</b></td><td><?=h($candidate['EMAIL'])?></td></tr>
+            <tr><td><b>ID заявки на подбор</b></td><td><?=h($candidate['REQUEST_ID'])?></td></tr>
+            <tr><td><b>ID кандидата Friendwork</b></td><td><?=h($candidate['FW_CANDIDATE_ID'])?></td></tr>
+            <tr><td><b>Рекрутер (user ID)</b></td><td><?=h($candidate['RECRUITER_ID'])?></td></tr>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if ($requestItem): ?>
+        <h3>Данные заявки на подбор (для оффера)</h3>
+        <table class="ui-table" style="width:100%; margin-bottom:18px;">
+            <tbody>
+            <tr><td><b>ID заявки</b></td><td><?=h($requestItem['ID'])?></td></tr>
+            <tr><td><b>Должность</b></td><td><?=h($requestItem['WORK_POSITION'])?></td></tr>
+            <tr><td><b>Дирекция</b></td><td><?=h($requestItem['DIRECTION'])?></td></tr>
+            <tr><td><b>Подразделение</b></td><td><?=h($requestItem['DEPARTMENT'])?></td></tr>
+            <tr><td><b>Руководитель</b></td><td><?=h($requestItem['CHIEF'])?></td></tr>
+            <tr><td><b>Должность руководителя</b></td><td><?=h($requestItem['CHIEF_POSITION'])?></td></tr>
+            <tr><td><b>Оклад</b></td><td><?=h($requestItem['PROFIT'])?></td></tr>
+            <tr><td><b>ИСН</b></td><td><?=h($requestItem['ISN'])?></td></tr>
+            <tr><td><b>Тип премии</b></td><td><?=h($requestItem['BONUS_TYPE'])?></td></tr>
+            <tr><td><b>Процент премии</b></td><td><?=h($requestItem['BONUS_PERCENT'])?></td></tr>
+            <tr><td><b>Формат работы</b></td><td><?=h($requestItem['WORK_FORMAT_LINK'])?></td></tr>
+            <tr><td><b>Офис</b></td><td><?=h($requestItem['OFFICE_LINK'])?></td></tr>
+            <tr><td><b>График работы</b></td><td><?=h($requestItem['WORK_SCHEDULE_LINK'])?></td></tr>
+            <tr><td><b>Начало рабочего дня (справочник)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_LINK'])?></td></tr>
+            <tr><td><b>Начало рабочего дня (текст)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_TEXT'])?></td></tr>
+            <tr><td><b>Тип договора</b></td><td><?=h($requestItem['DOGOVOR_TYPE_LINK'])?></td></tr>
+            <tr><td><b>Оборудование</b></td><td><?=h($requestItem['EQUIPMENT_LINK'])?></td></tr>
+            <tr><td><b>Юридическое лицо</b></td><td><?=h($requestItem['ORGANISATION'])?></td></tr>
+            </tbody>
+        </table>
+    <?php endif; ?>
+
+    <?php if (empty($errors) && $candidate && $requestItem): ?>
+        <form method="post" style="display:inline-block; margin-right:10px;">
+            <?=bitrix_sessid_post()?>
+            <input type="hidden" name="action" value="create_offer">
+            <button type="submit" class="ui-btn ui-btn-success">Создать черновик оффера</button>
+        </form>
+    <?php endif; ?>
+
+    <?php if ($offerIdCreated > 0): ?>
+        <form method="post" style="display:inline-block;">
+            <?=bitrix_sessid_post()?>
+            <input type="hidden" name="action" value="complete_task">
+            <input type="hidden" name="task_id" value="<?=h($task['ID'] ?? 0)?>">
+            <input type="hidden" name="offer_id" value="<?=h($offerIdCreated)?>">
+            <button type="submit" class="ui-btn ui-btn-primary">Завершить</button>
+        </form>
+    <?php endif; ?>
+
+    <?php if (!empty($task)): ?>
+        <div style="margin-top:14px;color:#6b7280;">
+            Найдена активная задача БП: #<?=h($task['ID'])?> (<?=h($task['NAME'])?>)
+        </div>
+    <?php endif; ?>
+</div>
+<?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
