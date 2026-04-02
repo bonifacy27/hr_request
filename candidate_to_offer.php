@@ -81,60 +81,73 @@ function getCandidateById(int $candidateId): ?array
 
 function getRequestById(int $requestId): ?array
 {
-    $select = [
-        'ID',
-        'NAME',
-        'PROPERTY_1010', // РУКОВОДЯЩАЯ ДОЛЖНОСТЬ
-        'PROPERTY_1011', // ДОЛЖНОСТЬ
-        'PROPERTY_1012', // ДИРЕКЦИЯ
-        'PROPERTY_1013', // ПОДРАЗДЕЛЕНИЕ
-        'PROPERTY_1014', // НЕПОСРЕДСТВЕННЫЙ РУКОВОДИТЕЛЬ
-        'PROPERTY_1015', // ДОЛЖНОСТЬ РУКОВОДИТЕЛЯ
-        'PROPERTY_1016', // ОКЛАД
-        'PROPERTY_1030', // ИСН
-        'PROPERTY_1017', // ТИП ПРЕМИИ
-        'PROPERTY_1018', // ПРОЦЕНТ ПРЕМИИ
-        'PROPERTY_1075', // ФОРМАТ РАБОТЫ
-        'PROPERTY_1074', // ОФИС
-        'PROPERTY_1076', // ГРАФИК РАБОТЫ
-        'PROPERTY_1077', // НАЧАЛО РАБОЧЕГО ДНЯ (справочник)
-        'PROPERTY_1078', // НАЧАЛО РАБОЧЕГО ДНЯ (текст)
-        'PROPERTY_1640', // ТИП ДОГОВОРА
-        'PROPERTY_1641', // ОБОРУДОВАНИЕ
-        'PROPERTY_1595', // ЮР. ЛИЦО
-    ];
-
-    $rs = CIBlockElement::GetList([], [
+    $row = CIBlockElement::GetList([], [
         'IBLOCK_ID' => IBL_REQUESTS,
         'ACTIVE' => 'Y',
         'ID' => $requestId,
         'CHECK_PERMISSIONS' => 'Y',
-    ], false, ['nTopCount' => 1], $select);
-
-    if (!($row = $rs->GetNext())) {
+    ], false, ['nTopCount' => 1], ['ID', 'IBLOCK_ID', 'NAME'])->GetNext();
+    if (!$row) {
         return null;
     }
 
+    $propCodes = [
+        'RUKOVODYASHCHAYA_DOLZHNOST',
+        'DOLZHNOST',
+        'DIREKTSIYA',
+        'PODRAZDELENIE',
+        'NEPOSREDSTVENNYY_RUKOVODITEL',
+        'DOLZHNOST_RUKOVODITELYA',
+        'OKLAD',
+        'ISN_RUB_GROSS',
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+        'PROTSENT_PREMII_',
+        'FORMAT_RABOTY_PRIVYAZKA',
+        'OFIS_PRIVYAZKA',
+        'GRAFIK_RABOTY_PRIVYAZKA',
+        'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
+        'NACHALO_RABOCHEGO_DNYA_TEKST',
+        'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
+        'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
+        'YURIDICHESKOE_LITSO',
+    ];
+    $props = [];
+    CIBlockElement::GetPropertyValuesArray($props, IBL_REQUESTS, ['ID' => (int)$row['ID']], ['CODE' => $propCodes]);
+    $p = $props[(int)$row['ID']] ?? [];
+
+    $getValue = static function(array $allProps, string $code): string {
+        $v = $allProps[$code]['VALUE'] ?? '';
+        if (is_array($v)) {
+            $v = reset($v);
+        }
+        if ($v === '' || $v === null) {
+            $ve = $allProps[$code]['VALUE_ENUM'] ?? '';
+            if (is_array($ve)) $ve = reset($ve);
+            $v = $ve;
+        }
+        return trim((string)$v);
+    };
+
     return [
         'ID' => (int)$row['ID'],
-        'CHIEF_POSITION_FLAG' => (string)($row['PROPERTY_1010_VALUE'] ?? ''),
-        'WORK_POSITION' => (string)($row['PROPERTY_1011_VALUE'] ?? ''),
-        'DIRECTION' => (string)($row['PROPERTY_1012_VALUE'] ?? ''),
-        'DEPARTMENT' => (string)($row['PROPERTY_1013_VALUE'] ?? ''),
-        'CHIEF' => (string)($row['PROPERTY_1014_VALUE'] ?? ''),
-        'CHIEF_POSITION' => (string)($row['PROPERTY_1015_VALUE'] ?? ''),
-        'PROFIT' => (string)($row['PROPERTY_1016_VALUE'] ?? ''),
-        'ISN' => (string)($row['PROPERTY_1030_VALUE'] ?? ''),
-        'BONUS_TYPE' => (string)($row['PROPERTY_1017_VALUE'] ?? ''),
-        'BONUS_PERCENT' => (string)($row['PROPERTY_1018_VALUE'] ?? ''),
-        'WORK_FORMAT_LINK' => (string)($row['PROPERTY_1075_VALUE'] ?? ''),
-        'OFFICE_LINK' => (string)($row['PROPERTY_1074_VALUE'] ?? ''),
-        'WORK_SCHEDULE_LINK' => (string)($row['PROPERTY_1076_VALUE'] ?? ''),
-        'WORK_BEGIN_HOUR_LINK' => (string)($row['PROPERTY_1077_VALUE'] ?? ''),
-        'WORK_BEGIN_HOUR_TEXT' => (string)($row['PROPERTY_1078_VALUE'] ?? ''),
-        'DOGOVOR_TYPE_LINK' => (string)($row['PROPERTY_1640_VALUE'] ?? ''),
-        'EQUIPMENT_LINK' => (string)($row['PROPERTY_1641_VALUE'] ?? ''),
-        'ORGANISATION' => (string)($row['PROPERTY_1595_VALUE'] ?? ''),
+        'CHIEF_POSITION_FLAG' => $getValue($p, 'RUKOVODYASHCHAYA_DOLZHNOST'),
+        'WORK_POSITION' => $getValue($p, 'DOLZHNOST'),
+        'DIRECTION' => $getValue($p, 'DIREKTSIYA'),
+        'DEPARTMENT' => $getValue($p, 'PODRAZDELENIE'),
+        'CHIEF' => $getValue($p, 'NEPOSREDSTVENNYY_RUKOVODITEL'),
+        'CHIEF_POSITION' => $getValue($p, 'DOLZHNOST_RUKOVODITELYA'),
+        'PROFIT' => $getValue($p, 'OKLAD'),
+        'ISN' => $getValue($p, 'ISN_RUB_GROSS'),
+        'BONUS_TYPE' => $getValue($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'),
+        'BONUS_PERCENT' => $getValue($p, 'PROTSENT_PREMII_'),
+        'WORK_FORMAT_LINK' => $getValue($p, 'FORMAT_RABOTY_PRIVYAZKA'),
+        'OFFICE_LINK' => $getValue($p, 'OFIS_PRIVYAZKA'),
+        'WORK_SCHEDULE_LINK' => $getValue($p, 'GRAFIK_RABOTY_PRIVYAZKA'),
+        'WORK_BEGIN_HOUR_LINK' => $getValue($p, 'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'),
+        'WORK_BEGIN_HOUR_TEXT' => $getValue($p, 'NACHALO_RABOCHEGO_DNYA_TEKST'),
+        'DOGOVOR_TYPE_LINK' => $getValue($p, 'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'),
+        'EQUIPMENT_LINK' => $getValue($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'),
+        'ORGANISATION' => $getValue($p, 'YURIDICHESKOE_LITSO'),
     ];
 }
 
