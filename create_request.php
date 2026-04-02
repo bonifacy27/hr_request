@@ -456,7 +456,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                 }
             }
 
-            echo '<script>BX.ready(function(){window.location.href = "/forms/staff_recruitment/list.php";});</script>';
+            echo '<script>BX.ready(function(){window.location.href = "/forms/staff_recruitment/staffing/list.php";});</script>';
         } else {
             fr_log('ADD ERR', $el->LAST_ERROR);
             $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];

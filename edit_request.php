@@ -1,6 +1,6 @@
 <?php
 /**
- * /forms/staff_recruitment/edit_request.php
+ * /forms/staff_recruitment/staffing/edit_request.php
  *
  * Редактирование заявки на подбор (ИБ 201) — роли: C&B, рекрутер, руководитель подбора
  * Версия: v1.0.6 (2026-03-30)
@@ -786,7 +786,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
     } elseif (empty($errors) && !$hasWorkflowRelevantChanges) {
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
         $success = true;
-        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        LocalRedirect('/forms/staff_recruitment/staffing/list_recruiter.php');
         return;
     } elseif (empty($errors)) {
         // История append
@@ -817,7 +817,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
         }
 
         $success = true;
-        LocalRedirect('/forms/staff_recruitment/list_recruiter.php');
+        LocalRedirect('/forms/staff_recruitment/staffing/list_recruiter.php');
         return;
 
         // перечитать свойства
@@ -1225,7 +1225,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
       <button type="button" class="ui-btn ui-btn-success" id="open_confirm_modal">Сохранить</button>
-      <a href="/forms/staff_recruitment/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
+      <a href="/forms/staff_recruitment/staffing/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
     </div>
   </div>
 </form>

@@ -1,6 +1,6 @@
 <?php
 /**
- * /forms/staff_recruitment/view_request.php
+ * /forms/staff_recruitment/staffing/view_request.php
  *
  * Просмотр заявки на подбор (ИБ 201) — роли: C&B, рекрутер, руководитель подбора
  * Версия: v1.0.0 (2026-04-01)
@@ -863,7 +863,7 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
   <div class="ui-form-row" style="margin-top:18px;">
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
-      <a href="/forms/staff_recruitment/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
+      <a href="/forms/staff_recruitment/staffing/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
     </div>
   </div>
 </div>

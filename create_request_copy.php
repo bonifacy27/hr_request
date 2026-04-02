@@ -1,6 +1,6 @@
 <?php
 /**
- * Скрипт: /forms/staff_recruitment/create_request_copy.php
+ * Скрипт: /forms/staff_recruitment/staffing/create_request_copy.php
  * Назначение: Создание копии заявки на подбор персонала по id исходной заявки
  * Версия: v0.7.0 (2026-03-30)
  * Автор: ChatGPT
@@ -529,7 +529,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
                 }
             }
 
-            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/list.php"; }, 4500);});</script>';
+            echo '<script>BX.ready(function(){BX.UI.Notification.Center.notify({content: "Заявка на подбор #'.$createdId.' создана и отправлена на согласование", autoHideDelay: 4000}); setTimeout(function(){ window.location.href = "/forms/staff_recruitment/staffing/list.php"; }, 4500);});</script>';
         } else {
             fr_log('ADD ERR', $el->LAST_ERROR);
             $saveMessage = ['type' => 'danger', 'text' => 'Ошибка создания: ' . htmlspecialcharsbx($el->LAST_ERROR)];
@@ -905,7 +905,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     </div>
     <div class="text-right">
       <button type="submit" class="btn btn-primary" name="action" value="save" id="saveBtn">Отправить заявку</button>
-      <a href="/forms/staff_recruitment/list.php" class="btn btn-link">К списку заявок</a>
+      <a href="/forms/staff_recruitment/staffing/list.php" class="btn btn-link">К списку заявок</a>
     </div>
   </form>
 </div>

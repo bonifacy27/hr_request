@@ -1,6 +1,6 @@
 <?php
 /**
- * /forms/staff_recruitment/request_to_fw.php
+ * /forms/staff_recruitment/staffing/request_to_fw.php
  *
  * Интеграция заявки на подбор (ИБ 201) -> FriendWork.
  * Версия: v1.0.0 (2026-03-27)
