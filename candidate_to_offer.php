@@ -21,6 +21,7 @@ const IBL_CANDIDATES = 207;
 const IBL_REQUESTS   = 201;
 const IBL_OFFERS     = 218;
 const PROP_REQ_OFFERS_MULTI = 3128; // ID_OFFERA, множественное число
+const PROP_OFFER_CANDIDATE_ID = 1603; // ссылка на анкету кандидата в оффере
 
 function h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
@@ -115,39 +116,76 @@ function getRequestById(int $requestId): ?array
     CIBlockElement::GetPropertyValuesArray($props, IBL_REQUESTS, ['ID' => (int)$row['ID']], ['CODE' => $propCodes]);
     $p = $props[(int)$row['ID']] ?? [];
 
-    $getValue = static function(array $allProps, string $code): string {
+    $raw = static function(array $allProps, string $code): string {
         $v = $allProps[$code]['VALUE'] ?? '';
-        if (is_array($v)) {
-            $v = reset($v);
-        }
-        if ($v === '' || $v === null) {
-            $ve = $allProps[$code]['VALUE_ENUM'] ?? '';
-            if (is_array($ve)) $ve = reset($ve);
-            $v = $ve;
-        }
+        if (is_array($v)) $v = reset($v);
         return trim((string)$v);
+    };
+    $enum = static function(array $allProps, string $code): string {
+        $v = $allProps[$code]['VALUE_ENUM'] ?? '';
+        if (is_array($v)) $v = reset($v);
+        return trim((string)$v);
+    };
+    $disp = static function(array $allProps, string $code) use ($raw, $enum): string {
+        $e = $enum($allProps, $code);
+        if ($e !== '') return $e;
+        return $raw($allProps, $code);
+    };
+    $resolveElementName = static function(string $value): string {
+        $id = (int)$value;
+        if ($id <= 0) return $value;
+        $row = CIBlockElement::GetByID($id)->GetNext();
+        if ($row && !empty($row['NAME'])) return (string)$row['NAME'];
+        return $value;
+    };
+    $resolveUserName = static function(string $value): string {
+        $id = (int)$value;
+        if ($id <= 0) return $value;
+        $u = CUser::GetByID($id)->Fetch();
+        if (!$u) return $value;
+        $name = trim((string)CUser::FormatName(CSite::GetNameFormat(false), $u, true, false));
+        return $name !== '' ? $name : $value;
     };
 
     return [
         'ID' => (int)$row['ID'],
-        'CHIEF_POSITION_FLAG' => $getValue($p, 'RUKOVODYASHCHAYA_DOLZHNOST'),
-        'WORK_POSITION' => $getValue($p, 'DOLZHNOST'),
-        'DIRECTION' => $getValue($p, 'DIREKTSIYA'),
-        'DEPARTMENT' => $getValue($p, 'PODRAZDELENIE'),
-        'CHIEF' => $getValue($p, 'NEPOSREDSTVENNYY_RUKOVODITEL'),
-        'CHIEF_POSITION' => $getValue($p, 'DOLZHNOST_RUKOVODITELYA'),
-        'PROFIT' => $getValue($p, 'OKLAD'),
-        'ISN' => $getValue($p, 'ISN_RUB_GROSS'),
-        'BONUS_TYPE' => $getValue($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'),
-        'BONUS_PERCENT' => $getValue($p, 'PROTSENT_PREMII_'),
-        'WORK_FORMAT_LINK' => $getValue($p, 'FORMAT_RABOTY_PRIVYAZKA'),
-        'OFFICE_LINK' => $getValue($p, 'OFIS_PRIVYAZKA'),
-        'WORK_SCHEDULE_LINK' => $getValue($p, 'GRAFIK_RABOTY_PRIVYAZKA'),
-        'WORK_BEGIN_HOUR_LINK' => $getValue($p, 'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'),
-        'WORK_BEGIN_HOUR_TEXT' => $getValue($p, 'NACHALO_RABOCHEGO_DNYA_TEKST'),
-        'DOGOVOR_TYPE_LINK' => $getValue($p, 'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'),
-        'EQUIPMENT_LINK' => $getValue($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'),
-        'ORGANISATION' => $getValue($p, 'YURIDICHESKOE_LITSO'),
+        // RAW значения для заполнения оффера
+        'CHIEF_POSITION_FLAG' => $raw($p, 'RUKOVODYASHCHAYA_DOLZHNOST'),
+        'WORK_POSITION' => $raw($p, 'DOLZHNOST'),
+        'DIRECTION' => $raw($p, 'DIREKTSIYA'),
+        'DEPARTMENT' => $raw($p, 'PODRAZDELENIE'),
+        'CHIEF' => $raw($p, 'NEPOSREDSTVENNYY_RUKOVODITEL'),
+        'CHIEF_POSITION' => $raw($p, 'DOLZHNOST_RUKOVODITELYA'),
+        'PROFIT' => $raw($p, 'OKLAD'),
+        'ISN' => $raw($p, 'ISN_RUB_GROSS'),
+        'BONUS_TYPE' => $raw($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'),
+        'BONUS_PERCENT' => $raw($p, 'PROTSENT_PREMII_'),
+        'WORK_FORMAT_LINK' => $raw($p, 'FORMAT_RABOTY_PRIVYAZKA'),
+        'OFFICE_LINK' => $raw($p, 'OFIS_PRIVYAZKA'),
+        'WORK_SCHEDULE_LINK' => $raw($p, 'GRAFIK_RABOTY_PRIVYAZKA'),
+        'WORK_BEGIN_HOUR_LINK' => $raw($p, 'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'),
+        'WORK_BEGIN_HOUR_TEXT' => $raw($p, 'NACHALO_RABOCHEGO_DNYA_TEKST'),
+        'DOGOVOR_TYPE_LINK' => $raw($p, 'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'),
+        'EQUIPMENT_LINK' => $raw($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'),
+        'ORGANISATION' => $raw($p, 'YURIDICHESKOE_LITSO'),
+        // DISPLAY значения для предпросмотра
+        'WORK_POSITION_DISPLAY' => $disp($p, 'DOLZHNOST'),
+        'DIRECTION_DISPLAY' => $disp($p, 'DIREKTSIYA'),
+        'DEPARTMENT_DISPLAY' => $disp($p, 'PODRAZDELENIE'),
+        'CHIEF_DISPLAY' => $resolveUserName($disp($p, 'NEPOSREDSTVENNYY_RUKOVODITEL')),
+        'CHIEF_POSITION_DISPLAY' => $disp($p, 'DOLZHNOST_RUKOVODITELYA'),
+        'PROFIT_DISPLAY' => $disp($p, 'OKLAD'),
+        'ISN_DISPLAY' => $disp($p, 'ISN_RUB_GROSS'),
+        'BONUS_TYPE_DISPLAY' => $disp($p, 'PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'),
+        'BONUS_PERCENT_DISPLAY' => $disp($p, 'PROTSENT_PREMII_'),
+        'WORK_FORMAT_LINK_DISPLAY' => $resolveElementName($disp($p, 'FORMAT_RABOTY_PRIVYAZKA')),
+        'OFFICE_LINK_DISPLAY' => $resolveElementName($disp($p, 'OFIS_PRIVYAZKA')),
+        'WORK_SCHEDULE_LINK_DISPLAY' => $resolveElementName($disp($p, 'GRAFIK_RABOTY_PRIVYAZKA')),
+        'WORK_BEGIN_HOUR_LINK_DISPLAY' => $resolveElementName($disp($p, 'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA')),
+        'WORK_BEGIN_HOUR_TEXT_DISPLAY' => $disp($p, 'NACHALO_RABOCHEGO_DNYA_TEKST'),
+        'DOGOVOR_TYPE_LINK_DISPLAY' => $resolveElementName($disp($p, 'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA')),
+        'EQUIPMENT_LINK_DISPLAY' => $resolveElementName($disp($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA')),
+        'ORGANISATION_DISPLAY' => $resolveElementName($disp($p, 'YURIDICHESKOE_LITSO')),
     ];
 }
 
@@ -270,6 +308,19 @@ function appendOfferToRequest(int $requestId, int $offerId): void
     CIBlockElement::SetPropertyValuesEx($requestId, IBL_REQUESTS, [
         PROP_REQ_OFFERS_MULTI => $values,
     ]);
+}
+
+function findOfferByCandidateId(int $candidateId): int
+{
+    if ($candidateId <= 0) {
+        return 0;
+    }
+    $row = CIBlockElement::GetList([], [
+        'IBLOCK_ID' => IBL_OFFERS,
+        'PROPERTY_' . PROP_OFFER_CANDIDATE_ID => $candidateId,
+        'CHECK_PERMISSIONS' => 'Y',
+    ], false, ['nTopCount' => 1], ['ID'])->Fetch();
+    return (int)($row['ID'] ?? 0);
 }
 
 function completeBizprocTask(array $task, int $userId, string $action = 'approve', string $comment = ''): array
@@ -440,6 +491,7 @@ $errors = [];
 $warnings = [];
 $success = '';
 $offerIdCreated = 0;
+$taskUrl = '';
 
 if ($candidateId <= 0) {
     $errors[] = 'Не передан корректный id анкеты кандидата.';
@@ -467,6 +519,8 @@ if ($candidateId > 0 && $currentUserId > 0) {
     $task = findUserRunningTaskForDocument(IBL_CANDIDATES, $candidateId, $currentUserId);
     if (!$task) {
         $warnings[] = 'Не найдена активная задача БП по этой анкете для текущего пользователя. Автозавершение может быть недоступно.';
+    } else {
+        $taskUrl = '/company/personal/bizproc/' . (int)$task['ID'] . '/';
     }
 }
 
@@ -474,6 +528,13 @@ if ($request->isPost() && check_bitrix_sessid()) {
     $action = (string)$request->getPost('action');
 
     if ($action === 'create_offer' && empty($errors) && $candidate && $requestItem) {
+        $existingOfferId = findOfferByCandidateId((int)$candidate['ID']);
+        if ($existingOfferId > 0) {
+            $offerIdCreated = $existingOfferId;
+            appendOfferToRequest((int)$candidate['REQUEST_ID'], $offerIdCreated);
+            $warnings[] = 'По этой анкете уже существует оффер #' . $offerIdCreated . '. Повторное создание не выполнено.';
+        }
+
         if ($candidate['FIO'] === '') {
             $errors[] = 'Не заполнено ФИО кандидата (PROPERTY_1083/1084/1085).';
         }
@@ -490,7 +551,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $warnings[] = 'В заявке не заполнен оклад.';
         }
 
-        if (empty($errors)) {
+        if (empty($errors) && $offerIdCreated <= 0) {
             $offerProps = buildOfferPropertyMap($candidate, $requestItem);
             $el = new CIBlockElement();
             $offerId = $el->Add([
@@ -508,24 +569,23 @@ if ($request->isPost() && check_bitrix_sessid()) {
                 $errors[] = 'Не удалось создать оффер: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
             }
         }
-    }
 
-    if ($action === 'complete_task') {
-        $taskId = (int)$request->getPost('task_id');
-        $offerIdCreated = (int)$request->getPost('offer_id');
-
-        if ($taskId <= 0) {
-            $errors[] = 'Не передан ID задачи БП для завершения.';
-        } else {
-            $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
-            if (!$actualTask) {
-                $errors[] = 'Задача БП не найдена среди активных задач текущего пользователя (возможно уже завершена).';
+        // Автоматически завершаем задачу БП после успешного создания/нахождения оффера
+        if (empty($errors) && $offerIdCreated > 0) {
+            $taskId = (int)($task['ID'] ?? 0);
+            if ($taskId <= 0) {
+                $warnings[] = 'Оффер создан, но не удалось определить ID задачи БП для автозавершения.';
             } else {
-                $done = completeBizprocTask($actualTask, $currentUserId, 'approve', 'Создан черновик оффера #' . $offerIdCreated);
-                if ($done['OK']) {
-                    $success = 'Задание бизнес-процесса успешно завершено.';
+                $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
+                if (!$actualTask) {
+                    $warnings[] = 'Оффер создан, но задача БП не найдена среди активных задач текущего пользователя.';
                 } else {
-                    $errors[] = $done['ERROR'];
+                    $done = completeBizprocTask($actualTask, $currentUserId, 'approve', 'Создан черновик оффера #' . $offerIdCreated);
+                    if ($done['OK']) {
+                        $success = 'Черновик оффера создан (ID: ' . $offerIdCreated . '), задание БП успешно завершено.';
+                    } else {
+                        $warnings[] = 'Оффер создан (ID: ' . $offerIdCreated . '), но задачу БП завершить не удалось: ' . $done['ERROR'];
+                    }
                 }
             }
         }
@@ -567,23 +627,23 @@ if ($request->isPost() && check_bitrix_sessid()) {
         <table class="ui-table" style="width:100%; margin-bottom:18px;">
             <tbody>
             <tr><td><b>ID заявки</b></td><td><?=h($requestItem['ID'])?></td></tr>
-            <tr><td><b>Должность</b></td><td><?=h($requestItem['WORK_POSITION'])?></td></tr>
-            <tr><td><b>Дирекция</b></td><td><?=h($requestItem['DIRECTION'])?></td></tr>
-            <tr><td><b>Подразделение</b></td><td><?=h($requestItem['DEPARTMENT'])?></td></tr>
-            <tr><td><b>Руководитель</b></td><td><?=h($requestItem['CHIEF'])?></td></tr>
-            <tr><td><b>Должность руководителя</b></td><td><?=h($requestItem['CHIEF_POSITION'])?></td></tr>
-            <tr><td><b>Оклад</b></td><td><?=h($requestItem['PROFIT'])?></td></tr>
-            <tr><td><b>ИСН</b></td><td><?=h($requestItem['ISN'])?></td></tr>
-            <tr><td><b>Тип премии</b></td><td><?=h($requestItem['BONUS_TYPE'])?></td></tr>
-            <tr><td><b>Процент премии</b></td><td><?=h($requestItem['BONUS_PERCENT'])?></td></tr>
-            <tr><td><b>Формат работы</b></td><td><?=h($requestItem['WORK_FORMAT_LINK'])?></td></tr>
-            <tr><td><b>Офис</b></td><td><?=h($requestItem['OFFICE_LINK'])?></td></tr>
-            <tr><td><b>График работы</b></td><td><?=h($requestItem['WORK_SCHEDULE_LINK'])?></td></tr>
-            <tr><td><b>Начало рабочего дня (справочник)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_LINK'])?></td></tr>
-            <tr><td><b>Начало рабочего дня (текст)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_TEXT'])?></td></tr>
-            <tr><td><b>Тип договора</b></td><td><?=h($requestItem['DOGOVOR_TYPE_LINK'])?></td></tr>
-            <tr><td><b>Оборудование</b></td><td><?=h($requestItem['EQUIPMENT_LINK'])?></td></tr>
-            <tr><td><b>Юридическое лицо</b></td><td><?=h($requestItem['ORGANISATION'])?></td></tr>
+            <tr><td><b>Должность</b></td><td><?=h($requestItem['WORK_POSITION_DISPLAY'])?></td></tr>
+            <tr><td><b>Дирекция</b></td><td><?=h($requestItem['DIRECTION_DISPLAY'])?></td></tr>
+            <tr><td><b>Подразделение</b></td><td><?=h($requestItem['DEPARTMENT_DISPLAY'])?></td></tr>
+            <tr><td><b>Руководитель</b></td><td><?=h($requestItem['CHIEF_DISPLAY'])?></td></tr>
+            <tr><td><b>Должность руководителя</b></td><td><?=h($requestItem['CHIEF_POSITION_DISPLAY'])?></td></tr>
+            <tr><td><b>Оклад</b></td><td><?=h($requestItem['PROFIT_DISPLAY'])?></td></tr>
+            <tr><td><b>ИСН</b></td><td><?=h($requestItem['ISN_DISPLAY'])?></td></tr>
+            <tr><td><b>Тип премии</b></td><td><?=h($requestItem['BONUS_TYPE_DISPLAY'])?></td></tr>
+            <tr><td><b>Процент премии</b></td><td><?=h($requestItem['BONUS_PERCENT_DISPLAY'])?></td></tr>
+            <tr><td><b>Формат работы</b></td><td><?=h($requestItem['WORK_FORMAT_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>Офис</b></td><td><?=h($requestItem['OFFICE_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>График работы</b></td><td><?=h($requestItem['WORK_SCHEDULE_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>Начало рабочего дня (справочник)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>Начало рабочего дня (текст)</b></td><td><?=h($requestItem['WORK_BEGIN_HOUR_TEXT_DISPLAY'])?></td></tr>
+            <tr><td><b>Тип договора</b></td><td><?=h($requestItem['DOGOVOR_TYPE_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>Оборудование</b></td><td><?=h($requestItem['EQUIPMENT_LINK_DISPLAY'])?></td></tr>
+            <tr><td><b>Юридическое лицо</b></td><td><?=h($requestItem['ORGANISATION_DISPLAY'])?></td></tr>
             </tbody>
         </table>
     <?php endif; ?>
@@ -596,14 +656,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
         </form>
     <?php endif; ?>
 
-    <?php if ($offerIdCreated > 0): ?>
-        <form method="post" style="display:inline-block;">
-            <?=bitrix_sessid_post()?>
-            <input type="hidden" name="action" value="complete_task">
-            <input type="hidden" name="task_id" value="<?=h($task['ID'] ?? 0)?>">
-            <input type="hidden" name="offer_id" value="<?=h($offerIdCreated)?>">
-            <button type="submit" class="ui-btn ui-btn-primary">Завершить</button>
-        </form>
+    <?php if ($taskUrl !== ''): ?>
+        <a href="<?=h($taskUrl)?>" class="ui-btn ui-btn-light-border">Отмена</a>
     <?php endif; ?>
 
     <?php if (!empty($task)): ?>
