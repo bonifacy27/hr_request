@@ -49,6 +49,7 @@ const OFFER_PROP_CONTRACT_TYPE = 2002;
 const OFFER_PROP_ORGANIZATION = 2753;
 const OFFER_PROP_HOUSING_COMPENSATION = 2755;
 const OFFER_PROP_REGION_LOCATION = 1767;
+const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
 const OFFER_PROP_RECRUITER = 1190;
 const OFFER_PROP_REQUEST_ID = 1601;
 const OFFER_PROP_CANDIDATE_ID = 1603;
@@ -271,6 +272,7 @@ $formData = [
     'contract_type' => DEFAULT_CONTRACT,
     'organization' => DEFAULT_ORGANIZATION,
     'housing_compensation' => '',
+    'personal_allowance' => '1',
     'recruiter' => '',
     'request_id' => '',
     'candidate_id' => '',
@@ -361,6 +363,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_ORGANIZATION => ($formData['organization'] !== '' ? $formData['organization'] : DEFAULT_ORGANIZATION),
             OFFER_PROP_HOUSING_COMPENSATION => $formData['housing_compensation'],
             OFFER_PROP_REGION_LOCATION => $formData['region_location'],
+            OFFER_PROP_PERSONAL_ALLOWANCE => $formData['personal_allowance'],
             OFFER_PROP_RECRUITER => (int)$formData['recruiter'],
             OFFER_PROP_REQUEST_ID => (int)$formData['request_id'],
             OFFER_PROP_CANDIDATE_ID => (int)$formData['candidate_id'],
@@ -540,8 +543,9 @@ $bonusTypeList = getIblockOptions(327);
                     </div>
                     <div class="form-group col-md-4">
                         <label>Регион-локация кандидата</label>
+                        <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
                         <select class="form-control" name="region_location">
-                            <option value="">— Выберите —</option>
+                            <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>Нет в списке</option>
                             <?php foreach ($regionLocationList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
@@ -636,6 +640,10 @@ $bonusTypeList = getIblockOptions(327);
                     <label>Компенсация аренды жилья</label>
                     <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
                 </div>
+                <div class="form-group">
+                    <label>Северная надбавка %%</label>
+                    <input type="number" step="1" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
+                </div>
             </div>
         </div>
 
@@ -670,5 +678,27 @@ $bonusTypeList = getIblockOptions(327);
         </div>
     </form>
 </div>
+<script>
+BX.ready(function () {
+    var searchInput = document.getElementById('regionLocationSearch');
+    var regionSelect = document.querySelector('select[name=\"region_location\"]');
+    if (!searchInput || !regionSelect) {
+        return;
+    }
+
+    searchInput.addEventListener('input', function () {
+        var needle = (searchInput.value || '').toLowerCase();
+        var options = regionSelect.querySelectorAll('option');
+        options.forEach(function (option, index) {
+            if (index === 0) {
+                option.hidden = false;
+                return;
+            }
+            var text = (option.textContent || '').toLowerCase();
+            option.hidden = (needle !== '' && text.indexOf(needle) === -1);
+        });
+    });
+});
+</script>
 
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
