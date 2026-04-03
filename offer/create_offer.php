@@ -50,6 +50,7 @@ const OFFER_PROP_ORGANIZATION = 2753;
 const OFFER_PROP_HOUSING_COMPENSATION = 2755;
 const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
+const OFFER_PROP_RAYON_COEFFICIENT = 1235;
 const OFFER_PROP_RECRUITER = 1190;
 const OFFER_PROP_REQUEST_ID = 1601;
 const OFFER_PROP_CANDIDATE_ID = 1603;
@@ -77,21 +78,26 @@ function userIdFromValue($raw): int
     return (int)$value;
 }
 
-function getIblockOptions(int $iblockId): array
+function getIblockOptions(int $iblockId, array $selectFields = []): array
 {
     $res = [];
+    $select = array_merge(['ID', 'NAME'], $selectFields);
     $rs = CIBlockElement::GetList(
         ['SORT' => 'ASC', 'NAME' => 'ASC'],
         ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
         false,
         false,
-        ['ID', 'NAME']
+        $select
     );
     while ($row = $rs->GetNext()) {
-        $res[] = [
+        $prepared = [
             'ID' => (string)$row['ID'],
             'NAME' => (string)$row['NAME'],
         ];
+        foreach ($selectFields as $field) {
+            $prepared[$field] = (string)($row[$field . '_VALUE'] ?? $row[$field] ?? '');
+        }
+        $res[] = $prepared;
     }
     return $res;
 }
@@ -262,6 +268,7 @@ $formData = [
     'trial_period' => '',
     'planned_start_date' => '',
     'region_location' => '',
+    'rayon_coefficient' => '',
     'benefits' => 'ДМС по истечению испытательного срока',
     'work_format' => '',
     'office' => '',
@@ -340,6 +347,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             $errors[] = 'Поле «Северная надбавка %%» должно быть в диапазоне от 0 до 100.';
         }
     }
+    if ($formData['region_location'] === '0') {
+        $formData['region_location'] = '';
+    }
+    if ($formData['region_location'] !== '' && isset($regionCalcById[$formData['region_location']])) {
+        $formData['rayon_coefficient'] = (string)$regionCalcById[$formData['region_location']]['rayon_coefficient'];
+        $formData['personal_allowance'] = (string)$regionCalcById[$formData['region_location']]['personal_allowance'];
+    }
 
     if (empty($errors)) {
         $props = [
@@ -370,6 +384,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_HOUSING_COMPENSATION => $formData['housing_compensation'],
             OFFER_PROP_REGION_LOCATION => $formData['region_location'],
             OFFER_PROP_PERSONAL_ALLOWANCE => $formData['personal_allowance'],
+            OFFER_PROP_RAYON_COEFFICIENT => $formData['rayon_coefficient'],
             OFFER_PROP_RECRUITER => (int)$formData['recruiter'],
             OFFER_PROP_REQUEST_ID => (int)$formData['request_id'],
             OFFER_PROP_CANDIDATE_ID => (int)$formData['candidate_id'],
@@ -409,8 +424,16 @@ $equipmentList = getIblockOptions(326);
 $contractList = getIblockOptions(325);
 $organizationList = getIblockOptions(308);
 $trialPeriodList = getIblockOptions(324);
-$regionLocationList = getIblockOptions(293);
+$regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
 $bonusTypeList = getIblockOptions(327);
+$regionCalcById = [];
+foreach ($regionLocationList as $regionRow) {
+    $rid = (string)$regionRow['ID'];
+    $regionCalcById[$rid] = [
+        'rayon_coefficient' => (string)$regionRow['PROPERTY_1765'],
+        'personal_allowance' => (string)$regionRow['PROPERTY_1832'],
+    ];
+}
 
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
@@ -551,7 +574,8 @@ $bonusTypeList = getIblockOptions(327);
                         <label>Регион-локация кандидата</label>
                         <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
                         <select class="form-control" name="region_location">
-                            <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>Нет в списке</option>
+                            <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>— Выберите —</option>
+                            <option value="0" <?=$formData['region_location'] === '0' ? 'selected' : ''?>>Нет в списке</option>
                             <?php foreach ($regionLocationList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
@@ -647,8 +671,12 @@ $bonusTypeList = getIblockOptions(327);
                     <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
                 </div>
                 <div class="form-group">
+                    <label>Районный коэффициент</label>
+                    <input type="number" step="0.01" class="form-control" name="rayon_coefficient" value="<?=h($formData['rayon_coefficient'])?>" readonly>
+                </div>
+                <div class="form-group">
                     <label>Северная надбавка %%</label>
-                    <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
+                    <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>" readonly>
                 </div>
             </div>
         </div>
@@ -688,6 +716,9 @@ $bonusTypeList = getIblockOptions(327);
 BX.ready(function () {
     var searchInput = document.getElementById('regionLocationSearch');
     var regionSelect = document.querySelector('select[name=\"region_location\"]');
+    var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
+    var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
+    var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     if (!searchInput || !regionSelect) {
         return;
     }
@@ -704,6 +735,19 @@ BX.ready(function () {
             option.hidden = (needle !== '' && text.indexOf(needle) === -1);
         });
     });
+
+    regionSelect.addEventListener('change', function () {
+        var value = regionSelect.value || '';
+        if (value === '' || value === '0' || !regionCalc[value]) {
+            if (rayonInput) rayonInput.value = '';
+            if (allowanceInput) allowanceInput.value = '0';
+            return;
+        }
+        if (rayonInput) rayonInput.value = regionCalc[value].rayon_coefficient || '';
+        if (allowanceInput) allowanceInput.value = regionCalc[value].personal_allowance || '0';
+    });
+
+    regionSelect.dispatchEvent(new Event('change'));
 });
 </script>
 
