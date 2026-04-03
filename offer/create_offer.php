@@ -32,6 +32,8 @@ const OFFER_PROP_DIRECTION = 1996;
 const OFFER_PROP_DEPARTMENT = 1163;
 const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
 const OFFER_PROP_CHIEF_POSITION = 1169;
+const OFFER_PROP_BONUS_RUB_GROSS = 1170;
+const OFFER_PROP_MONTH_INCOME_AVG_GROSS = 1172;
 const OFFER_PROP_SALARY = 1165;
 const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
@@ -222,6 +224,15 @@ function parseUserSelectorId($value): int
     return userIdFromValue($value);
 }
 
+function parseNumericInput($value): float
+{
+    $normalized = str_replace([' ', ','], ['', '.'], trim((string)$value));
+    if ($normalized === '') {
+        return 0.0;
+    }
+    return (float)$normalized;
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -265,6 +276,8 @@ $formData = [
     'isn' => '',
     'bonus_type' => '',
     'bonus_percent' => '',
+    'bonus_rub_gross' => '',
+    'month_income_avg_gross' => '',
     'trial_period' => '',
     'planned_start_date' => '',
     'region_location' => '',
@@ -355,6 +368,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $formData['personal_allowance'] = (string)$regionCalcById[$formData['region_location']]['personal_allowance'];
     }
 
+    $salaryNum = parseNumericInput($formData['salary']);
+    $bonusPercentNum = parseNumericInput($formData['bonus_percent']);
+    $isnNum = parseNumericInput($formData['isn']);
+    $rayonNum = parseNumericInput($formData['rayon_coefficient']);
+    $northPercentNum = parseNumericInput($formData['personal_allowance']);
+    $bonusRubGross = round($salaryNum * $bonusPercentNum / 100);
+    $baseIncome = $salaryNum + $bonusRubGross + $isnNum;
+    $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
+    $formData['bonus_rub_gross'] = (string)$bonusRubGross;
+    $formData['month_income_avg_gross'] = (string)$monthIncomeAvg;
+
     if (empty($errors)) {
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
@@ -366,6 +390,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_DEPARTMENT => $formData['department'],
             OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
+            OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
+            OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
             OFFER_PROP_SALARY => $formData['salary'],
             OFFER_PROP_ISN => $formData['isn'],
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
@@ -557,6 +583,16 @@ foreach ($regionLocationList as $regionRow) {
                     </div>
                 </div>
                 <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Премиальная часть, руб. Гросс</label>
+                        <input type="number" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Доход в месяц в среднем, руб. Гросс</label>
+                        <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>Испытательный срок</label>
                         <select class="form-control" name="trial_period">
@@ -718,6 +754,11 @@ BX.ready(function () {
     var regionSelect = document.querySelector('select[name=\"region_location\"]');
     var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
     var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
+    var salaryInput = document.querySelector('input[name=\"salary\"]');
+    var bonusPercentInput = document.querySelector('input[name=\"bonus_percent\"]');
+    var isnInput = document.querySelector('input[name=\"isn\"]');
+    var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
+    var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     if (!searchInput || !regionSelect) {
         return;
@@ -741,13 +782,42 @@ BX.ready(function () {
         if (value === '' || value === '0' || !regionCalc[value]) {
             if (rayonInput) rayonInput.value = '';
             if (allowanceInput) allowanceInput.value = '0';
+            recalcIncomeFields();
             return;
         }
         if (rayonInput) rayonInput.value = regionCalc[value].rayon_coefficient || '';
         if (allowanceInput) allowanceInput.value = regionCalc[value].personal_allowance || '0';
+        recalcIncomeFields();
+    });
+
+    function toNum(value) {
+        var normalized = String(value || '').replace(/\s+/g, '').replace(',', '.');
+        var num = parseFloat(normalized);
+        return isNaN(num) ? 0 : num;
+    }
+
+    function recalcIncomeFields() {
+        var salary = toNum(salaryInput && salaryInput.value);
+        var bonusPercent = toNum(bonusPercentInput && bonusPercentInput.value);
+        var isn = toNum(isnInput && isnInput.value);
+        var rayon = toNum(rayonInput && rayonInput.value);
+        var northPercent = toNum(allowanceInput && allowanceInput.value);
+
+        var bonusRub = Math.round(salary * bonusPercent / 100);
+        var baseIncome = salary + bonusRub + isn;
+        var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
+
+        if (bonusRubGrossInput) bonusRubGrossInput.value = bonusRub;
+        if (monthIncomeAvgInput) monthIncomeAvgInput.value = monthIncome;
+    }
+
+    [salaryInput, bonusPercentInput, isnInput].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener('input', recalcIncomeFields);
     });
 
     regionSelect.dispatchEvent(new Event('change'));
+    recalcIncomeFields();
 });
 </script>
 
