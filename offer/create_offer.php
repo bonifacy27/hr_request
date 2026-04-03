@@ -24,24 +24,31 @@ const IBL_OFFERS = 218;
 const PROP_REQ_OFFERS_MULTI = 3128;
 
 const OFFER_PROP_CANDIDATE_FIO = 1157;
+const OFFER_PROP_CANDIDATE_PHONE = 1158;
+const OFFER_PROP_PLANNED_SEND_DATE = 1159;
 const OFFER_PROP_IS_CHIEF_POSITION = 1618;
 const OFFER_PROP_POSITION = 1161;
 const OFFER_PROP_DIRECTION = 1996;
 const OFFER_PROP_DEPARTMENT = 1163;
-const OFFER_PROP_CHIEF = 1164;
+const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
 const OFFER_PROP_CHIEF_POSITION = 1169;
 const OFFER_PROP_SALARY = 1165;
 const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
 const OFFER_PROP_BONUS_PERCENT = 1186;
+const OFFER_PROP_TRIAL_PERIOD = 2001;
+const OFFER_PROP_PLANNED_START_DATE = 1174;
 const OFFER_PROP_BENEFITS = 1177;
 const OFFER_PROP_WORK_FORMAT = 1327;
 const OFFER_PROP_OFFICE = 1326;
 const OFFER_PROP_WORK_SCHEDULE = 1328;
 const OFFER_PROP_WORK_START = 1329;
 const OFFER_PROP_EQUIPMENT = 2070;
+const OFFER_PROP_EQUIPMENT_TEXT = 3130;
 const OFFER_PROP_CONTRACT_TYPE = 2002;
 const OFFER_PROP_ORGANIZATION = 2753;
+const OFFER_PROP_HOUSING_COMPENSATION = 2755;
+const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_RECRUITER = 1190;
 const OFFER_PROP_REQUEST_ID = 1601;
 const OFFER_PROP_CANDIDATE_ID = 1603;
@@ -95,6 +102,7 @@ function getCandidateById(int $candidateId): ?array
         'PROPERTY_1083',
         'PROPERTY_1084',
         'PROPERTY_1085',
+        'PROPERTY_1088',
         'PROPERTY_1596',
         'PROPERTY_1594',
         'PROPERTY_1323',
@@ -118,6 +126,7 @@ function getCandidateById(int $candidateId): ?array
     return [
         'ID' => (int)$row['ID'],
         'FIO' => trim($lastName . ' ' . $firstName . ' ' . $middleName),
+        'PHONE' => trim((string)($row['PROPERTY_1088_VALUE'] ?? '')),
         'REQUEST_ID' => (int)($row['PROPERTY_1596_VALUE'] ?? 0),
         'FW_CANDIDATE_ID' => trim((string)($row['PROPERTY_1594_VALUE'] ?? '')),
         'RECRUITER_ID' => userIdFromValue($row['PROPERTY_1323_VALUE'] ?? ''),
@@ -198,6 +207,14 @@ function normalizeChiefPosition(string $flag): string
     return '1160';
 }
 
+function parseUserSelectorId($value): int
+{
+    if (is_array($value)) {
+        $value = reset($value);
+    }
+    return userIdFromValue($value);
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -229,6 +246,8 @@ $saveMessage = null;
 
 $formData = [
     'candidate_fio' => '',
+    'candidate_phone' => '',
+    'planned_send_date' => '',
     'is_chief_position' => '1160',
     'position' => '',
     'direction' => '',
@@ -239,14 +258,19 @@ $formData = [
     'isn' => '',
     'bonus_type' => '',
     'bonus_percent' => '',
+    'trial_period' => '',
+    'planned_start_date' => '',
+    'region_location' => '',
     'benefits' => 'ДМС по истечению испытательного срока',
     'work_format' => '',
     'office' => '',
     'work_schedule' => '',
     'work_start' => '',
     'equipment' => DEFAULT_EQUIPMENT,
+    'equipment_text' => '',
     'contract_type' => DEFAULT_CONTRACT,
     'organization' => DEFAULT_ORGANIZATION,
+    'housing_compensation' => '',
     'recruiter' => '',
     'request_id' => '',
     'candidate_id' => '',
@@ -260,6 +284,7 @@ if ($candidateId > 0) {
         $errors[] = 'Анкета кандидата не найдена.';
     } else {
         $formData['candidate_fio'] = $candidate['FIO'];
+        $formData['candidate_phone'] = $candidate['PHONE'];
         $formData['recruiter'] = (string)$candidate['RECRUITER_ID'];
         $formData['request_id'] = (string)$candidate['REQUEST_ID'];
         $formData['candidate_id'] = (string)$candidate['ID'];
@@ -284,6 +309,7 @@ if ($candidateId > 0) {
                 $formData['work_schedule'] = (string)$requestItem['WORK_SCHEDULE'];
                 $formData['work_start'] = (string)$requestItem['WORK_START'];
                 $formData['equipment'] = (string)($requestItem['EQUIPMENT'] ?: DEFAULT_EQUIPMENT);
+                $formData['equipment_text'] = (string)($requestItem['EQUIPMENT'] ?: '');
                 $formData['contract_type'] = (string)($requestItem['CONTRACT_TYPE'] ?: DEFAULT_CONTRACT);
                 $formData['organization'] = (string)($requestItem['ORGANIZATION'] ?: DEFAULT_ORGANIZATION);
             }
@@ -295,6 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
+    $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
 
     if ($formData['candidate_fio'] === '') {
         $errors[] = 'Заполните поле «ФИО кандидата».';
@@ -302,28 +329,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     if ($formData['position'] === '') {
         $errors[] = 'Заполните поле «Должность».';
     }
+    if ($formData['candidate_phone'] !== '' && !preg_match('/^\+7[0-9\\s\\-\\(\\)]{10,20}$/', $formData['candidate_phone'])) {
+        $errors[] = 'Поле «Контактный телефон кандидата» должно быть в формате +7....';
+    }
 
     if (empty($errors)) {
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
+            OFFER_PROP_CANDIDATE_PHONE => $formData['candidate_phone'],
+            OFFER_PROP_PLANNED_SEND_DATE => $formData['planned_send_date'],
             OFFER_PROP_IS_CHIEF_POSITION => $formData['is_chief_position'],
             OFFER_PROP_POSITION => $formData['position'],
             OFFER_PROP_DIRECTION => $formData['direction'],
             OFFER_PROP_DEPARTMENT => $formData['department'],
-            OFFER_PROP_CHIEF => $formData['chief'],
+            OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
             OFFER_PROP_SALARY => $formData['salary'],
             OFFER_PROP_ISN => $formData['isn'],
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
+            OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
+            OFFER_PROP_PLANNED_START_DATE => $formData['planned_start_date'],
             OFFER_PROP_BENEFITS => $formData['benefits'],
             OFFER_PROP_WORK_FORMAT => $formData['work_format'],
             OFFER_PROP_OFFICE => $formData['office'],
             OFFER_PROP_WORK_SCHEDULE => $formData['work_schedule'],
             OFFER_PROP_WORK_START => $formData['work_start'],
             OFFER_PROP_EQUIPMENT => ($formData['equipment'] !== '' ? $formData['equipment'] : DEFAULT_EQUIPMENT),
+            OFFER_PROP_EQUIPMENT_TEXT => $formData['equipment_text'],
             OFFER_PROP_CONTRACT_TYPE => ($formData['contract_type'] !== '' ? $formData['contract_type'] : DEFAULT_CONTRACT),
             OFFER_PROP_ORGANIZATION => ($formData['organization'] !== '' ? $formData['organization'] : DEFAULT_ORGANIZATION),
+            OFFER_PROP_HOUSING_COMPENSATION => $formData['housing_compensation'],
+            OFFER_PROP_REGION_LOCATION => $formData['region_location'],
             OFFER_PROP_RECRUITER => (int)$formData['recruiter'],
             OFFER_PROP_REQUEST_ID => (int)$formData['request_id'],
             OFFER_PROP_CANDIDATE_ID => (int)$formData['candidate_id'],
@@ -362,6 +399,9 @@ $startTimeList = getIblockOptions(237);
 $equipmentList = getIblockOptions(326);
 $contractList = getIblockOptions(325);
 $organizationList = getIblockOptions(308);
+$trialPeriodList = getIblockOptions(324);
+$regionLocationList = getIblockOptions(293);
+$bonusTypeList = getIblockOptions(327);
 
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
@@ -391,6 +431,16 @@ $organizationList = getIblockOptions(308);
                         <label>ФИО кандидата <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="candidate_fio" value="<?=h($formData['candidate_fio'])?>" required>
                     </div>
+                    <div class="form-group col-md-4">
+                        <label>Контактный телефон кандидата (+7...)</label>
+                        <input type="text" class="form-control" name="candidate_phone" value="<?=h($formData['candidate_phone'])?>" placeholder="+7 ...">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Планируемая дата отправки оффера кандидату</label>
+                        <input type="date" class="form-control" name="planned_send_date" value="<?=h($formData['planned_send_date'])?>">
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>Кандидат на руководящую должность</label>
                         <select name="is_chief_position" class="form-control">
@@ -425,8 +475,25 @@ $organizationList = getIblockOptions(308);
             <div class="card-body">
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>Непосредственный руководитель (ID пользователя)</label>
-                        <input type="number" class="form-control" name="chief" value="<?=h($formData['chief'])?>">
+                        <label>ФИО руководителя (из списка)</label>
+                        <?php
+                        $APPLICATION->IncludeComponent(
+                            'bitrix:intranet.user.selector',
+                            '',
+                            [
+                                'INPUT_NAME' => 'chief',
+                                'INPUT_NAME_STRING' => 'chief_name',
+                                'INPUT_VALUE' => ($formData['chief'] !== '' ? [(int)$formData['chief']] : []),
+                                'MULTIPLE' => 'N',
+                                'NAME_TEMPLATE' => '#LAST_NAME# #NAME# #SECOND_NAME#',
+                                'SHOW_EXTRANET_USERS' => 'NONE',
+                                'EXTERNAL' => 'A',
+                                'POPUP' => 'Y',
+                            ],
+                            false,
+                            ['HIDE_ICONS' => 'Y']
+                        );
+                        ?>
                     </div>
                     <div class="form-group col-md-4">
                         <label>Должность руководителя</label>
@@ -445,11 +512,40 @@ $organizationList = getIblockOptions(308);
                     </div>
                     <div class="form-group col-md-4">
                         <label>Тип премирования</label>
-                        <input type="text" class="form-control" name="bonus_type" value="<?=h($formData['bonus_type'])?>">
+                        <select class="form-control" name="bonus_type">
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($bonusTypeList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="form-group col-md-4">
                         <label>Процент премии</label>
                         <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>Испытательный срок</label>
+                        <select class="form-control" name="trial_period">
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($trialPeriodList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['trial_period'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Планируемая дата выхода на работу</label>
+                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Регион-локация кандидата</label>
+                        <select class="form-control" name="region_location">
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($regionLocationList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
 
@@ -504,6 +600,7 @@ $organizationList = getIblockOptions(308);
                     <div class="form-group col-md-6">
                         <label>Оборудование</label>
                         <select class="form-control" name="equipment">
+                            <option value="">— Выберите —</option>
                             <?php foreach ($equipmentList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['equipment'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
@@ -512,6 +609,7 @@ $organizationList = getIblockOptions(308);
                     <div class="form-group col-md-6">
                         <label>Тип трудового договора</label>
                         <select class="form-control" name="contract_type">
+                            <option value="">— Выберите —</option>
                             <?php foreach ($contractList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['contract_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
@@ -520,12 +618,23 @@ $organizationList = getIblockOptions(308);
                 </div>
 
                 <div class="form-group">
+                    <label>Оборудование для работы (текст)</label>
+                    <textarea class="form-control" name="equipment_text" rows="2"><?=h($formData['equipment_text'])?></textarea>
+                </div>
+
+                <div class="form-group">
                     <label>Юридическое лицо</label>
                     <select class="form-control" name="organization">
+                        <option value="">— Выберите —</option>
                         <?php foreach ($organizationList as $o): ?>
                             <option value="<?=h($o['ID'])?>" <?=$formData['organization'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                         <?php endforeach; ?>
                     </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Компенсация аренды жилья</label>
+                    <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
                 </div>
             </div>
         </div>
