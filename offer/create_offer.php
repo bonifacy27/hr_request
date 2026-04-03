@@ -365,7 +365,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     if ($formData['region_location'] !== '' && isset($regionCalcById[$formData['region_location']])) {
         $formData['rayon_coefficient'] = (string)$regionCalcById[$formData['region_location']]['rayon_coefficient'];
-        $formData['personal_allowance'] = (string)$regionCalcById[$formData['region_location']]['personal_allowance'];
     }
 
     $salaryNum = parseNumericInput($formData['salary']);
@@ -557,43 +556,69 @@ foreach ($regionLocationList as $regionRow) {
                         <label>Должность руководителя</label>
                         <input type="text" class="form-control" name="chief_position" value="<?=h($formData['chief_position'])?>">
                     </div>
-                    <div class="form-group col-md-4">
-                        <label>Оклад</label>
-                        <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>">
+                </div>
+                <div class="card bg-light mb-3">
+                    <div class="card-header">Расчет оффера</div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label>Регион-локация кандидата</label>
+                                <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
+                                <select class="form-control" name="region_location">
+                                    <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>— Выберите —</option>
+                                    <option value="0" <?=$formData['region_location'] === '0' ? 'selected' : ''?>>Нет в списке</option>
+                                    <?php foreach ($regionLocationList as $o): ?>
+                                        <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Районный коэффициент</label>
+                                <input type="number" step="0.01" class="form-control" name="rayon_coefficient" value="<?=h($formData['rayon_coefficient'])?>" readonly>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Северная надбавка %%</label>
+                                <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label>Оклад</label>
+                                <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>ИСН (gross)</label>
+                                <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Тип премирования</label>
+                                <select class="form-control" name="bonus_type">
+                                    <option value="">— Выберите —</option>
+                                    <?php foreach ($bonusTypeList as $o): ?>
+                                        <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label>Процент премии</label>
+                                <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Премиальная часть, руб. Гросс</label>
+                                <input type="number" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Доход в месяц в среднем, руб. Гросс</label>
+                                <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="form-row">
-                    <div class="form-group col-md-4">
-                        <label>ИСН (gross)</label>
-                        <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Тип премирования</label>
-                        <select class="form-control" name="bonus_type">
-                            <option value="">— Выберите —</option>
-                            <?php foreach ($bonusTypeList as $o): ?>
-                                <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Процент премии</label>
-                        <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
-                    </div>
-                </div>
-                <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Премиальная часть, руб. Гросс</label>
-                        <input type="number" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label>Доход в месяц в среднем, руб. Гросс</label>
-                        <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group col-md-4">
                         <label>Испытательный срок</label>
                         <select class="form-control" name="trial_period">
                             <option value="">— Выберите —</option>
@@ -602,20 +627,9 @@ foreach ($regionLocationList as $regionRow) {
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="form-group col-md-4">
+                    <div class="form-group col-md-6">
                         <label>Планируемая дата выхода на работу</label>
                         <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>">
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Регион-локация кандидата</label>
-                        <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
-                        <select class="form-control" name="region_location">
-                            <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>— Выберите —</option>
-                            <option value="0" <?=$formData['region_location'] === '0' ? 'selected' : ''?>>Нет в списке</option>
-                            <?php foreach ($regionLocationList as $o): ?>
-                                <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                            <?php endforeach; ?>
-                        </select>
                     </div>
                 </div>
 
@@ -705,14 +719,6 @@ foreach ($regionLocationList as $regionRow) {
                 <div class="form-group">
                     <label>Компенсация аренды жилья</label>
                     <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
-                </div>
-                <div class="form-group">
-                    <label>Районный коэффициент</label>
-                    <input type="number" step="0.01" class="form-control" name="rayon_coefficient" value="<?=h($formData['rayon_coefficient'])?>" readonly>
-                </div>
-                <div class="form-group">
-                    <label>Северная надбавка %%</label>
-                    <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>" readonly>
                 </div>
             </div>
         </div>
@@ -811,7 +817,7 @@ BX.ready(function () {
         if (monthIncomeAvgInput) monthIncomeAvgInput.value = monthIncome;
     }
 
-    [salaryInput, bonusPercentInput, isnInput].forEach(function (el) {
+    [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
