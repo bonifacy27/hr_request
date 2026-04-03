@@ -272,7 +272,7 @@ $formData = [
     'contract_type' => DEFAULT_CONTRACT,
     'organization' => DEFAULT_ORGANIZATION,
     'housing_compensation' => '',
-    'personal_allowance' => '1',
+    'personal_allowance' => '0',
     'recruiter' => '',
     'request_id' => '',
     'candidate_id' => '',
@@ -333,6 +333,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     if ($formData['candidate_phone'] !== '' && !preg_match('/^\+7[0-9\\s\\-\\(\\)]{10,20}$/', $formData['candidate_phone'])) {
         $errors[] = 'Поле «Контактный телефон кандидата» должно быть в формате +7....';
+    }
+    if ($formData['personal_allowance'] !== '') {
+        $personalAllowance = (float)$formData['personal_allowance'];
+        if ($personalAllowance < 0 || $personalAllowance > 100) {
+            $errors[] = 'Поле «Северная надбавка %%» должно быть в диапазоне от 0 до 100.';
+        }
     }
 
     if (empty($errors)) {
@@ -642,7 +648,7 @@ $bonusTypeList = getIblockOptions(327);
                 </div>
                 <div class="form-group">
                     <label>Северная надбавка %%</label>
-                    <input type="number" step="1" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
+                    <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
                 </div>
             </div>
         </div>
