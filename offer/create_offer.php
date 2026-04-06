@@ -323,7 +323,7 @@ $formData = [
     'salary' => '',
     'isn' => '',
     'bonus_type' => '',
-    'bonus_percent' => '',
+    'bonus_percent' => '0',
     'bonus_rub_gross' => '',
     'month_income_avg_gross' => '',
     'trial_period' => '',
@@ -373,7 +373,7 @@ if ($candidateId > 0) {
                 $formData['salary'] = (string)$requestItem['SALARY'];
                 $formData['isn'] = (string)$requestItem['ISN'];
                 $formData['bonus_type'] = (string)$requestItem['BONUS_TYPE'];
-                $formData['bonus_percent'] = (string)$requestItem['BONUS_PERCENT'];
+                $formData['bonus_percent'] = (string)($requestItem['BONUS_PERCENT'] !== '' ? $requestItem['BONUS_PERCENT'] : '0');
                 $formData['work_format'] = (string)$requestItem['WORK_FORMAT'];
                 $formData['office'] = (string)$requestItem['OFFICE'];
                 $formData['work_schedule'] = (string)$requestItem['WORK_SCHEDULE'];
@@ -436,7 +436,6 @@ if ($candidateId > 0 && $candidate && $requestItem) {
         'department' => (string)$requestItem['DEPARTMENT'],
         'direction' => (string)$requestItem['DIRECTION'],
         'chief' => (string)$requestItem['CHIEF'],
-        'chief_position' => (string)$requestItem['CHIEF_POSITION'],
         'is_chief_position' => normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']),
         'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
         'office' => (string)$requestItem['OFFICE'],
@@ -604,7 +603,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'department' => 'Подразделение',
                     'direction' => 'Дирекция',
                     'chief' => 'ФИО руководителя (из списка)',
-                    'chief_position' => 'Должность руководителя',
                     'is_chief_position' => 'Кандидат на руководящую должность',
                     'contract_type' => 'Тип трудового договора',
                     'office' => 'Офис',
