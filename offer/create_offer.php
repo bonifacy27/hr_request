@@ -256,6 +256,19 @@ function getUserWorkPosition(int $userId): string
     return trim((string)($user['WORK_POSITION'] ?? ''));
 }
 
+function getUserDisplayNameById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return (string)$userId;
+    }
+    $name = trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
+    return $name !== '' ? $name : (string)$userId;
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -310,7 +323,7 @@ $formData = [
     'salary' => '',
     'isn' => '',
     'bonus_type' => '',
-    'bonus_percent' => '',
+    'bonus_percent' => '0',
     'bonus_rub_gross' => '',
     'month_income_avg_gross' => '',
     'trial_period' => '',
@@ -360,7 +373,7 @@ if ($candidateId > 0) {
                 $formData['salary'] = (string)$requestItem['SALARY'];
                 $formData['isn'] = (string)$requestItem['ISN'];
                 $formData['bonus_type'] = (string)$requestItem['BONUS_TYPE'];
-                $formData['bonus_percent'] = (string)$requestItem['BONUS_PERCENT'];
+                $formData['bonus_percent'] = (string)($requestItem['BONUS_PERCENT'] !== '' ? $requestItem['BONUS_PERCENT'] : '0');
                 $formData['work_format'] = (string)$requestItem['WORK_FORMAT'];
                 $formData['office'] = (string)$requestItem['OFFICE'];
                 $formData['work_schedule'] = (string)$requestItem['WORK_SCHEDULE'];
@@ -397,6 +410,40 @@ foreach ($regionLocationList as $regionRow) {
     $regionCalcById[$rid] = [
         'rayon_coefficient' => (string)$regionRow['PROPERTY_1765'],
         'personal_allowance' => (string)$regionRow['PROPERTY_1832'],
+    ];
+}
+$nameById = static function(array $rows): array {
+    $map = [];
+    foreach ($rows as $row) {
+        $map[(string)$row['ID']] = (string)$row['NAME'];
+    }
+    return $map;
+};
+$organizationNameById = $nameById($organizationList);
+$contractNameById = $nameById($contractList);
+$officeNameById = $nameById($officeList);
+$formatNameById = $nameById($formatList);
+$scheduleNameById = $nameById($scheduleList);
+$startNameById = $nameById($startTimeList);
+$equipmentNameById = $nameById($equipmentList);
+
+$sourceSnapshot = null;
+if ($candidateId > 0 && $candidate && $requestItem) {
+    $sourceSnapshot = [
+        'organization' => (string)$requestItem['ORGANIZATION'],
+        'candidate_fio' => (string)$candidate['FIO'],
+        'position' => (string)$requestItem['POSITION'],
+        'department' => (string)$requestItem['DEPARTMENT'],
+        'direction' => (string)$requestItem['DIRECTION'],
+        'chief' => (string)$requestItem['CHIEF'],
+        'is_chief_position' => normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']),
+        'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
+        'office' => (string)$requestItem['OFFICE'],
+        'work_format' => (string)$requestItem['WORK_FORMAT'],
+        'work_schedule' => (string)$requestItem['WORK_SCHEDULE'],
+        'work_start' => (string)$requestItem['WORK_START'],
+        'equipment' => (string)$requestItem['EQUIPMENT'],
+        'equipment_text' => (string)$requestItem['EQUIPMENT_TEXT'],
     ];
 }
 
@@ -546,6 +593,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
         if ($offerId) {
             appendOfferToRequest((int)$formData['request_id'], (int)$offerId);
+
+            if ($sourceSnapshot !== null) {
+                $changes = [];
+                $labelMap = [
+                    'organization' => 'Юридическое лицо',
+                    'candidate_fio' => 'ФИО кандидата',
+                    'position' => 'Должность',
+                    'department' => 'Подразделение',
+                    'direction' => 'Дирекция',
+                    'chief' => 'ФИО руководителя (из списка)',
+                    'is_chief_position' => 'Кандидат на руководящую должность',
+                    'contract_type' => 'Тип трудового договора',
+                    'office' => 'Офис',
+                    'work_format' => 'Формат работы',
+                    'work_schedule' => 'График работы',
+                    'work_start' => 'Начало рабочего дня',
+                    'equipment' => 'Оборудование',
+                    'equipment_text' => 'Оборудование для работы (текст)',
+                ];
+                foreach ($labelMap as $key => $label) {
+                    $old = trim((string)($sourceSnapshot[$key] ?? ''));
+                    $new = trim((string)($formData[$key] ?? ''));
+                    if ($old === $new) {
+                        continue;
+                    }
+
+                    $oldDisplay = $old;
+                    $newDisplay = $new;
+                    if ($key === 'organization') {
+                        $oldDisplay = $organizationNameById[$old] ?? $old;
+                        $newDisplay = $organizationNameById[$new] ?? $new;
+                    } elseif ($key === 'contract_type') {
+                        $oldDisplay = $contractNameById[$old] ?? $old;
+                        $newDisplay = $contractNameById[$new] ?? $new;
+                    } elseif ($key === 'office') {
+                        $oldDisplay = $officeNameById[$old] ?? $old;
+                        $newDisplay = $officeNameById[$new] ?? $new;
+                    } elseif ($key === 'work_format') {
+                        $oldDisplay = $formatNameById[$old] ?? $old;
+                        $newDisplay = $formatNameById[$new] ?? $new;
+                    } elseif ($key === 'work_schedule') {
+                        $oldDisplay = $scheduleNameById[$old] ?? $old;
+                        $newDisplay = $scheduleNameById[$new] ?? $new;
+                    } elseif ($key === 'work_start') {
+                        $oldDisplay = $startNameById[$old] ?? $old;
+                        $newDisplay = $startNameById[$new] ?? $new;
+                    } elseif ($key === 'equipment') {
+                        $oldDisplay = $equipmentNameById[$old] ?? $old;
+                        $newDisplay = $equipmentNameById[$new] ?? $new;
+                    } elseif ($key === 'chief') {
+                        $oldDisplay = getUserDisplayNameById((int)$old);
+                        $newDisplay = getUserDisplayNameById((int)$new);
+                    } elseif ($key === 'is_chief_position') {
+                        $oldDisplay = ($old === '1159' ? 'Да' : 'Нет');
+                        $newDisplay = ($new === '1159' ? 'Да' : 'Нет');
+                    }
+                    $changes[] = $label . ': ' . $oldDisplay . ' → ' . $newDisplay;
+                }
+
+                if (!empty($changes) && Loader::includeModule('bizproc')) {
+                    $documentId = ['lists', 'BizprocDocument', (int)$offerId];
+                    $bpParams = [
+                        'par_Changes_type' => 'recruiter',
+                        'par_Changes' => implode("\n", $changes),
+                    ];
+                    $bpErrors = [];
+                    CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
+                }
+            }
             LocalRedirect('/services/lists/218/view/0/?list_section_id=');
         } else {
             $errors[] = 'Не удалось создать запись в списке офферов: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
