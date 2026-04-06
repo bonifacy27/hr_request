@@ -877,39 +877,41 @@ BX.ready(function(){
 
   var preselectedManagerId = parseUserId(FORM_STATE && FORM_STATE.employee_id ? FORM_STATE.employee_id : $('#employeeId').val());
   var preselectedManagerName = (FORM_STATE && FORM_STATE.employee_name) ? String(FORM_STATE.employee_name) : $('#employeeName').val();
-  var managerDialog = new BX.UI.EntitySelector.Dialog({
-    targetNode: document.getElementById('managerSelector'),
+  var managerSelector = new BX.UI.EntitySelector.TagSelector({
     multiple: false,
-    enableSearch: true,
-    context: 'HR_REQUEST_MANAGER_SELECTOR',
-    entities: [
-      {
-        id: 'user',
-        options: {
-          intranetUsersOnly: true
+    textBoxWidth: '100%',
+    placeholder: 'Выберите сотрудника',
+    dialogOptions: {
+      width: 500,
+      context: 'HR_REQUEST_MANAGER_SELECTOR',
+      entities: [
+        {
+          id: 'user',
+          options: {
+            intranetUsersOnly: true
+          }
         }
-      }
-    ],
+      ]
+    },
     events: {
-      'Item:onSelect': function(event) {
-        var item = event.getData().item;
-        $('#employeeId').val(item.getId() || '');
-        $('#employeeName').val(item.getTitle() || '');
+      onTagAdd: function(event) {
+        var tag = event.getData().tag;
+        $('#employeeId').val(tag.getId() || '');
+        $('#employeeName').val(tag.getTitle() || '');
       },
-      'Item:onDeselect': function() {
+      onTagRemove: function() {
         $('#employeeId').val('');
         $('#employeeName').val('');
       }
     }
   });
-  managerDialog.render();
+  managerSelector.renderTo(document.getElementById('managerSelector'));
   if (preselectedManagerId > 0) {
-    managerDialog.addItem({
+    managerSelector.addTag({
       id: preselectedManagerId,
       entityId: 'user',
       title: preselectedManagerName || ('Пользователь #' + preselectedManagerId)
     });
-    managerDialog.selectItem({id: preselectedManagerId, entityId: 'user'});
     $('#employeeId').val(preselectedManagerId);
     if (preselectedManagerName) {
       $('#employeeName').val(preselectedManagerName);
