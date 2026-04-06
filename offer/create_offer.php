@@ -8,6 +8,7 @@ define('BX_COMPOSITE_DO_NOT_CACHE', true);
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\Context;
+use Bitrix\Main\UI\Extension;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Создание заявки на оффер');
@@ -17,6 +18,11 @@ if (!Loader::includeModule('iblock')) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
+
+Extension::load([
+    'main.core',
+    'ui.entity-selector',
+]);
 
 const IBL_CANDIDATES = 207;
 const IBL_REQUESTS = 201;
@@ -76,6 +82,9 @@ function userIdFromValue($raw): int
     }
     if (stripos($value, 'user_') === 0) {
         return (int)substr($value, 5);
+    }
+    if (preg_match('/(\\d+)/', $value, $m)) {
+        return (int)$m[1];
     }
     return (int)$value;
 }
@@ -233,6 +242,18 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
+function getUserWorkPosition(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    return trim((string)($user['WORK_POSITION'] ?? ''));
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -254,6 +275,18 @@ function appendOfferToRequest(int $requestId, int $offerId): void
     CIBlockElement::SetPropertyValuesEx($requestId, IBL_REQUESTS, [
         PROP_REQ_OFFERS_MULTI => $values,
     ]);
+}
+
+if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
+    header('Content-Type: application/json; charset=UTF-8');
+    $userId = userIdFromValue($_GET['user_id'] ?? '');
+    $position = getUserWorkPosition($userId);
+    echo json_encode([
+        'ok' => ($userId > 0),
+        'user_id' => $userId,
+        'position' => $position,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
 $candidateId = (int)Context::getCurrent()->getRequest()->getQuery('id_ankety');
@@ -338,18 +371,102 @@ if ($candidateId > 0) {
         }
     }
 }
+if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
+    $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
+}
+
+$formatList = getIblockOptions(234);
+$officeList = getIblockOptions(233);
+$scheduleList = getIblockOptions(236);
+$startTimeList = getIblockOptions(237);
+$equipmentList = getIblockOptions(326);
+$contractList = getIblockOptions(325);
+$organizationList = getIblockOptions(308);
+$trialPeriodList = getIblockOptions(324);
+$regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
+$bonusTypeList = getIblockOptions(327);
+$bonusTypeNameById = [];
+foreach ($bonusTypeList as $bonusTypeRow) {
+    $bonusTypeNameById[(string)$bonusTypeRow['ID']] = (string)$bonusTypeRow['NAME'];
+}
+$regionCalcById = [];
+foreach ($regionLocationList as $regionRow) {
+    $rid = (string)$regionRow['ID'];
+    $regionCalcById[$rid] = [
+        'rayon_coefficient' => (string)$regionRow['PROPERTY_1765'],
+        'personal_allowance' => (string)$regionRow['PROPERTY_1832'],
+    ];
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
+    if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
+        $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
+    }
 
     if ($formData['candidate_fio'] === '') {
         $errors[] = 'Заполните поле «ФИО кандидата».';
     }
     if ($formData['position'] === '') {
         $errors[] = 'Заполните поле «Должность».';
+    }
+    if ($formData['planned_send_date'] === '') {
+        $errors[] = 'Заполните поле «Планируемая дата отправки оффера кандидату».';
+    }
+    if ($formData['department'] === '') {
+        $errors[] = 'Заполните поле «Подразделение».';
+    }
+    if ((int)$formData['chief'] <= 0) {
+        $errors[] = 'Заполните поле «ФИО руководителя (из списка)».';
+    }
+    if ($formData['chief_position'] === '') {
+        $errors[] = 'Заполните поле «Должность руководителя».';
+    }
+    if ($formData['region_location'] === '') {
+        $errors[] = 'Заполните поле «Регион-локация кандидата».';
+    }
+    if ($formData['salary'] === '') {
+        $errors[] = 'Заполните поле «Оклад».';
+    }
+    if ($formData['bonus_type'] === '') {
+        $errors[] = 'Заполните поле «Тип премирования».';
+    }
+    $bonusTypeName = mb_strtolower((string)($bonusTypeNameById[$formData['bonus_type']] ?? ''));
+    if ((strpos($bonusTypeName, 'ежекварт') !== false || strpos($bonusTypeName, 'ежемесяч') !== false) && $formData['bonus_percent'] === '') {
+        $errors[] = 'Поле «Процент премии» обязательно для выбранного типа премирования.';
+    }
+    if ($formData['trial_period'] === '') {
+        $errors[] = 'Заполните поле «Испытательный срок».';
+    }
+    if ($formData['planned_start_date'] === '') {
+        $errors[] = 'Заполните поле «Планируемая дата выхода на работу».';
+    }
+    if ($formData['benefits'] === '') {
+        $errors[] = 'Заполните поле «Льготы».';
+    }
+    if ($formData['work_format'] === '') {
+        $errors[] = 'Заполните поле «Формат работы».';
+    }
+    if ($formData['office'] === '') {
+        $errors[] = 'Заполните поле «Офис».';
+    }
+    if ($formData['work_schedule'] === '') {
+        $errors[] = 'Заполните поле «График работы».';
+    }
+    if ($formData['work_start'] === '') {
+        $errors[] = 'Заполните поле «Начало рабочего дня».';
+    }
+    if ($formData['equipment'] === '') {
+        $errors[] = 'Заполните поле «Оборудование».';
+    }
+    if ($formData['contract_type'] === '') {
+        $errors[] = 'Заполните поле «Тип трудового договора».';
+    }
+    if ($formData['organization'] === '') {
+        $errors[] = 'Заполните поле «Юридическое лицо».';
     }
     if ($formData['candidate_phone'] !== '' && !preg_match('/^\+7[0-9\\s\\-\\(\\)]{10,20}$/', $formData['candidate_phone'])) {
         $errors[] = 'Поле «Контактный телефон кандидата» должно быть в формате +7....';
@@ -441,25 +558,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
 }
 
-$formatList = getIblockOptions(234);
-$officeList = getIblockOptions(233);
-$scheduleList = getIblockOptions(236);
-$startTimeList = getIblockOptions(237);
-$equipmentList = getIblockOptions(326);
-$contractList = getIblockOptions(325);
-$organizationList = getIblockOptions(308);
-$trialPeriodList = getIblockOptions(324);
-$regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
-$bonusTypeList = getIblockOptions(327);
-$regionCalcById = [];
-foreach ($regionLocationList as $regionRow) {
-    $rid = (string)$regionRow['ID'];
-    $regionCalcById[$rid] = [
-        'rayon_coefficient' => (string)$regionRow['PROPERTY_1765'],
-        'personal_allowance' => (string)$regionRow['PROPERTY_1832'],
-    ];
-}
-
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 <div class="container my-4">
@@ -485,6 +583,15 @@ foreach ($regionLocationList as $regionRow) {
             <div class="card-body">
                 <div class="form-row">
                     <div class="form-group col-md-4">
+                        <label>Юридическое лицо <span class="text-danger">*</span></label>
+                        <select class="form-control" name="organization" required>
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($organizationList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['organization'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-4">
                         <label>ФИО кандидата <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="candidate_fio" value="<?=h($formData['candidate_fio'])?>" required>
                     </div>
@@ -492,12 +599,31 @@ foreach ($regionLocationList as $regionRow) {
                         <label>Контактный телефон кандидата (+7...)</label>
                         <input type="text" class="form-control" name="candidate_phone" value="<?=h($formData['candidate_phone'])?>" placeholder="+7 ...">
                     </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>Планируемая дата отправки оффера кандидату</label>
-                        <input type="date" class="form-control" name="planned_send_date" value="<?=h($formData['planned_send_date'])?>">
+                        <label>Должность <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="position" value="<?=h($formData['position'])?>" required>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Подразделение <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="department" value="<?=h($formData['department'])?>" required>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Дирекция</label>
+                        <input type="text" class="form-control" name="direction" value="<?=h($formData['direction'])?>">
                     </div>
                 </div>
                 <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>ФИО руководителя (из списка) <span class="text-danger">*</span></label>
+                        <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
+                        <div id="chiefSelector"></div>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Должность руководителя <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="chief_position" value="<?=h($formData['chief_position'])?>" required>
+                    </div>
                     <div class="form-group col-md-4">
                         <label>Кандидат на руководящую должность</label>
                         <select name="is_chief_position" class="form-control">
@@ -505,66 +631,18 @@ foreach ($regionLocationList as $regionRow) {
                             <option value="1159" <?=$formData['is_chief_position'] === '1159' ? 'selected' : ''?>>Да</option>
                         </select>
                     </div>
-                    <div class="form-group col-md-4">
-                        <label>Должность <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="position" value="<?=h($formData['position'])?>" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group col-md-4">
-                        <label>Дирекция</label>
-                        <input type="text" class="form-control" name="direction" value="<?=h($formData['direction'])?>">
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Подразделение</label>
-                        <input type="text" class="form-control" name="department" value="<?=h($formData['department'])?>">
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>ID заявки на подбор</label>
-                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>">
-                    </div>
                 </div>
             </div>
         </div>
 
         <div class="card mb-3">
-            <div class="card-header">Условия оффера</div>
+            <div class="card-header">Расчет оффера</div>
             <div class="card-body">
                 <div class="form-row">
-                    <div class="form-group col-md-4">
-                        <label>ФИО руководителя (из списка)</label>
-                        <?php
-                        $APPLICATION->IncludeComponent(
-                            'bitrix:intranet.user.selector',
-                            '',
-                            [
-                                'INPUT_NAME' => 'chief',
-                                'INPUT_NAME_STRING' => 'chief_name',
-                                'INPUT_VALUE' => ($formData['chief'] !== '' ? [(int)$formData['chief']] : []),
-                                'MULTIPLE' => 'N',
-                                'NAME_TEMPLATE' => '#LAST_NAME# #NAME# #SECOND_NAME#',
-                                'SHOW_EXTRANET_USERS' => 'NONE',
-                                'EXTERNAL' => 'A',
-                                'POPUP' => 'Y',
-                            ],
-                            false,
-                            ['HIDE_ICONS' => 'Y']
-                        );
-                        ?>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Должность руководителя</label>
-                        <input type="text" class="form-control" name="chief_position" value="<?=h($formData['chief_position'])?>">
-                    </div>
-                </div>
-                <div class="card bg-light mb-3">
-                    <div class="card-header">Расчет оффера</div>
-                    <div class="card-body">
-                        <div class="form-row">
                             <div class="form-group col-md-4">
-                                <label>Регион-локация кандидата</label>
+                                <label>Регион-локация кандидата <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
-                                <select class="form-control" name="region_location">
+                                <select class="form-control" name="region_location" required>
                                     <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>— Выберите —</option>
                                     <option value="0" <?=$formData['region_location'] === '0' ? 'selected' : ''?>>Нет в списке</option>
                                     <?php foreach ($regionLocationList as $o): ?>
@@ -581,18 +659,18 @@ foreach ($regionLocationList as $regionRow) {
                                 <input type="number" min="0" max="100" step="0.01" class="form-control" name="personal_allowance" value="<?=h($formData['personal_allowance'])?>">
                             </div>
                         </div>
-                        <div class="form-row">
+                <div class="form-row">
                             <div class="form-group col-md-4">
-                                <label>Оклад</label>
-                                <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>">
+                        <label>Оклад <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>ИСН (gross)</label>
                                 <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
                             </div>
                             <div class="form-group col-md-4">
-                                <label>Тип премирования</label>
-                                <select class="form-control" name="bonus_type">
+                        <label>Тип премирования <span class="text-danger">*</span></label>
+                                <select class="form-control" name="bonus_type" required>
                                     <option value="">— Выберите —</option>
                                     <?php foreach ($bonusTypeList as $o): ?>
                                         <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
@@ -600,9 +678,9 @@ foreach ($regionLocationList as $regionRow) {
                                 </select>
                             </div>
                         </div>
-                        <div class="form-row">
+                <div class="form-row">
                             <div class="form-group col-md-4">
-                                <label>Процент премии</label>
+                        <label>Процент премии</label>
                                 <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
                             </div>
                             <div class="form-group col-md-4">
@@ -613,56 +691,74 @@ foreach ($regionLocationList as $regionRow) {
                                 <label>Доход в месяц в среднем, руб. Гросс</label>
                                 <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
                             </div>
-                        </div>
-                    </div>
                 </div>
+            </div>
+        </div>
 
+        <div class="card mb-3">
+            <div class="card-header">Условия</div>
+            <div class="card-body">
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Испытательный срок</label>
-                        <select class="form-control" name="trial_period">
+                        <label>Тип трудового договора <span class="text-danger">*</span></label>
+                        <select class="form-control" name="contract_type" required>
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($contractList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['contract_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Испытательный срок <span class="text-danger">*</span></label>
+                        <select class="form-control" name="trial_period" required>
                             <option value="">— Выберите —</option>
                             <?php foreach ($trialPeriodList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['trial_period'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Планируемая дата выхода на работу</label>
-                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>">
+                        <label>Планируемая дата выхода на работу <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Планируемая дата отправки оффера кандидату <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="planned_send_date" value="<?=h($formData['planned_send_date'])?>" required>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label>Льготы</label>
-                    <textarea class="form-control" name="benefits" rows="2"><?=h($formData['benefits'])?></textarea>
+                    <label>Льготы <span class="text-danger">*</span></label>
+                    <textarea class="form-control" name="benefits" rows="2" required><?=h($formData['benefits'])?></textarea>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Формат работы</label>
-                        <select class="form-control" name="work_format">
-                            <option value="">— Выберите —</option>
-                            <?php foreach ($formatList as $o): ?>
-                                <option value="<?=h($o['ID'])?>" <?=$formData['work_format'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label>Офис</label>
-                        <select class="form-control" name="office">
+                        <label>Офис <span class="text-danger">*</span></label>
+                        <select class="form-control" name="office" required>
                             <option value="">— Выберите —</option>
                             <?php foreach ($officeList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['office'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="form-group col-md-6">
+                        <label>Формат работы <span class="text-danger">*</span></label>
+                        <select class="form-control" name="work_format" required>
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($formatList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['work_format'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>График работы</label>
-                        <select class="form-control" name="work_schedule">
+                        <label>График работы <span class="text-danger">*</span></label>
+                        <select class="form-control" name="work_schedule" required>
                             <option value="">— Выберите —</option>
                             <?php foreach ($scheduleList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['work_schedule'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
@@ -670,8 +766,8 @@ foreach ($regionLocationList as $regionRow) {
                         </select>
                     </div>
                     <div class="form-group col-md-6">
-                        <label>Начало рабочего дня</label>
-                        <select class="form-control" name="work_start">
+                        <label>Начало рабочего дня <span class="text-danger">*</span></label>
+                        <select class="form-control" name="work_start" required>
                             <option value="">— Выберите —</option>
                             <?php foreach ($startTimeList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['work_start'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
@@ -681,21 +777,12 @@ foreach ($regionLocationList as $regionRow) {
                 </div>
 
                 <div class="form-row">
-                    <div class="form-group col-md-6">
-                        <label>Оборудование</label>
-                        <select class="form-control" name="equipment">
+                    <div class="form-group col-md-12">
+                        <label>Оборудование <span class="text-danger">*</span></label>
+                        <select class="form-control" name="equipment" required>
                             <option value="">— Выберите —</option>
                             <?php foreach ($equipmentList as $o): ?>
                                 <option value="<?=h($o['ID'])?>" <?=$formData['equipment'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label>Тип трудового договора</label>
-                        <select class="form-control" name="contract_type">
-                            <option value="">— Выберите —</option>
-                            <?php foreach ($contractList as $o): ?>
-                                <option value="<?=h($o['ID'])?>" <?=$formData['contract_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
@@ -704,16 +791,6 @@ foreach ($regionLocationList as $regionRow) {
                 <div class="form-group">
                     <label>Оборудование для работы (текст)</label>
                     <textarea class="form-control" name="equipment_text" rows="2"><?=h($formData['equipment_text'])?></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>Юридическое лицо</label>
-                    <select class="form-control" name="organization">
-                        <option value="">— Выберите —</option>
-                        <?php foreach ($organizationList as $o): ?>
-                            <option value="<?=h($o['ID'])?>" <?=$formData['organization'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                        <?php endforeach; ?>
-                    </select>
                 </div>
 
                 <div class="form-group">
@@ -727,6 +804,10 @@ foreach ($regionLocationList as $regionRow) {
             <div class="card-header">Связи</div>
             <div class="card-body">
                 <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>ID заявки на подбор</label>
+                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>">
+                    </div>
                     <div class="form-group col-md-4">
                         <label>ID анкеты кандидата</label>
                         <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>">
@@ -761,8 +842,12 @@ BX.ready(function () {
     var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
     var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
     var salaryInput = document.querySelector('input[name=\"salary\"]');
+    var bonusTypeSelect = document.querySelector('select[name=\"bonus_type\"]');
     var bonusPercentInput = document.querySelector('input[name=\"bonus_percent\"]');
     var isnInput = document.querySelector('input[name=\"isn\"]');
+    var chiefInput = document.getElementById('chiefInputHidden');
+    var chiefSelectorNode = document.getElementById('chiefSelector');
+    var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
@@ -817,12 +902,98 @@ BX.ready(function () {
         if (monthIncomeAvgInput) monthIncomeAvgInput.value = monthIncome;
     }
 
+    function syncBonusPercentRequired() {
+        if (!bonusTypeSelect || !bonusPercentInput) return;
+        var selectedText = '';
+        if (bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
+            selectedText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
+        }
+        var mustRequire = selectedText.indexOf('ежекварт') !== -1 || selectedText.indexOf('ежемесяч') !== -1;
+        bonusPercentInput.required = mustRequire;
+    }
+
+    function parseUserId(raw) {
+        var value = String(raw || '').trim();
+        if (!value) return 0;
+        if (value.indexOf('user_') === 0) {
+            value = value.substring(5);
+        }
+        var match = value.match(/\d+/);
+        if (match && match[0]) {
+            value = match[0];
+        }
+        var id = parseInt(value, 10);
+        return isNaN(id) ? 0 : id;
+    }
+
+    function loadChiefPositionByUser(userRawValue) {
+        if (!chiefPositionInput) return;
+        var userId = parseUserId(userRawValue);
+        if (userId <= 0) {
+            chiefPositionInput.value = '';
+            return;
+        }
+
+        BX.ajax({
+            url: window.location.pathname + '?ajax=get_user_position&user_id=' + encodeURIComponent(userId),
+            method: 'GET',
+            dataType: 'json',
+            onsuccess: function (response) {
+                if (!response || !response.ok) return;
+                chiefPositionInput.value = response.position || '';
+            }
+        });
+    }
+
+    function setChiefValue(userId) {
+        if (!chiefInput) return;
+        chiefInput.value = String(userId || '');
+    }
+
     [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
+    if (bonusTypeSelect) {
+        bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
+    }
+
+    if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
+        var preselectedChiefId = parseUserId(chiefInput.value);
+        var chiefTagSelector = new BX.UI.EntitySelector.TagSelector({
+            multiple: false,
+            textBoxWidth: '100%',
+            placeholder: 'Выберите руководителя',
+            dialogOptions: {
+                context: 'OFFER_CHIEF_SELECTOR',
+                entities: [{id: 'user'}],
+                enableSearch: true,
+                dropdownMode: true,
+                preselectedItems: preselectedChiefId > 0 ? [['user', preselectedChiefId]] : []
+            }
+        });
+        chiefTagSelector.renderTo(chiefSelectorNode);
+
+        var chiefDialog = chiefTagSelector.getDialog();
+        chiefDialog.subscribe('Item:onSelect', function (event) {
+            var item = event.getData().item;
+            var userId = parseUserId(item.getId());
+            if (isNaN(userId) || userId <= 0) {
+                setChiefValue('');
+                loadChiefPositionByUser('');
+                return;
+            }
+            setChiefValue(userId);
+            loadChiefPositionByUser(userId);
+        });
+        chiefDialog.subscribe('Item:onDeselect', function () {
+            setChiefValue('');
+            loadChiefPositionByUser('');
+        });
+    }
 
     regionSelect.dispatchEvent(new Event('change'));
+    syncBonusPercentRequired();
     recalcIncomeFields();
 });
 </script>
