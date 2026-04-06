@@ -269,6 +269,34 @@ function getUserDisplayNameById(int $userId): string
     return $name !== '' ? $name : (string)$userId;
 }
 
+function createRegionLocation(int $iblockId, string $name, float $rkValue, string $candidateFio, string $createdByFio = ''): array
+{
+    $name = trim($name);
+    if ($name === '') {
+        return ['id' => 0, 'error' => 'Пустое название региона.'];
+    }
+    $el = new CIBlockElement();
+    $createdByFio = trim($createdByFio);
+    $comment = 'Создан из оффера ' . trim($candidateFio);
+    if ($createdByFio !== '') {
+        $comment .= '. Добавил: ' . $createdByFio;
+    }
+    $id = $el->Add([
+        'IBLOCK_ID' => $iblockId,
+        'NAME' => $name,
+        'ACTIVE' => 'Y',
+        'PROPERTY_VALUES' => [
+            1784 => ($rkValue > 1 ? 'Y' : 'N'),
+            1765 => (string)$rkValue,
+            1783 => $comment,
+        ],
+    ]);
+    if (!$id) {
+        return ['id' => 0, 'error' => (string)($el->LAST_ERROR ?: 'Не удалось создать регион-локацию.')];
+    }
+    return ['id' => (int)$id, 'error' => ''];
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -304,6 +332,46 @@ if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
     exit;
 }
 
+if ((string)($_GET['ajax'] ?? '') === 'create_region') {
+    global $USER;
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    header('Content-Type: application/json; charset=UTF-8');
+    $name = trim((string)($_POST['name'] ?? ''));
+    $rk = (float)str_replace(',', '.', (string)($_POST['rk'] ?? '0'));
+    $candidateFio = trim((string)($_POST['candidate_fio'] ?? ''));
+    $debug = [
+        'name' => $name,
+        'rk' => $rk,
+        'candidate_fio' => $candidateFio,
+    ];
+    $createdBy = '';
+    if (is_object($USER) && method_exists($USER, 'GetFullName')) {
+        $createdBy = trim((string)$USER->GetFullName());
+        if ($createdBy === '' && method_exists($USER, 'GetID')) {
+            $createdBy = 'ID ' . (int)$USER->GetID();
+        }
+    }
+    if ($name === '' || $rk <= 0) {
+        echo json_encode(['ok' => false, 'error' => 'Некорректные параметры создания региона.', 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    $created = createRegionLocation(293, $name, $rk, $candidateFio, $createdBy);
+    if ((int)$created['id'] <= 0) {
+        echo json_encode(['ok' => false, 'error' => (string)$created['error'], 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    echo json_encode([
+        'ok' => true,
+        'id' => (int)$created['id'],
+        'name' => $name,
+        'rk' => $rk,
+        'debug' => $debug,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $candidateId = (int)Context::getCurrent()->getRequest()->getQuery('id_ankety');
 $candidate = null;
 $requestItem = null;
@@ -330,6 +398,9 @@ $formData = [
     'planned_start_date' => '',
     'region_location' => '',
     'rayon_coefficient' => '',
+    'region_not_in_list' => '',
+    'new_region_name' => '',
+    'manual_region_rk' => '',
     'benefits' => 'ДМС по истечению испытательного срока',
     'work_format' => '',
     'office' => '',
@@ -426,6 +497,7 @@ $formatNameById = $nameById($formatList);
 $scheduleNameById = $nameById($scheduleList);
 $startNameById = $nameById($startTimeList);
 $equipmentNameById = $nameById($equipmentList);
+$regionNameById = $nameById($regionLocationList);
 
 $sourceSnapshot = null;
 if ($candidateId > 0 && $candidate && $requestItem) {
@@ -438,6 +510,10 @@ if ($candidateId > 0 && $candidate && $requestItem) {
         'chief' => (string)$requestItem['CHIEF'],
         'is_chief_position' => normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']),
         'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
+        'salary' => (string)$requestItem['SALARY'],
+        'isn' => (string)$requestItem['ISN'],
+        'bonus_type' => (string)$requestItem['BONUS_TYPE'],
+        'bonus_percent' => (string)$requestItem['BONUS_PERCENT'],
         'office' => (string)$requestItem['OFFICE'],
         'work_format' => (string)$requestItem['WORK_FORMAT'],
         'work_schedule' => (string)$requestItem['WORK_SCHEDULE'],
@@ -451,6 +527,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
+    $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
     if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
         $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
@@ -474,8 +551,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     if ($formData['chief_position'] === '') {
         $errors[] = 'Заполните поле «Должность руководителя».';
     }
-    if ($formData['region_location'] === '') {
+    if ($formData['region_not_in_list'] === 'Y') {
+        $errors[] = 'Сначала нажмите кнопку «Добавить новый регион-локацию», затем выберите созданный регион в списке.';
+    } elseif ($formData['region_location'] === '') {
         $errors[] = 'Заполните поле «Регион-локация кандидата».';
+    } elseif (isset($regionCalcById[$formData['region_location']])) {
+        $selectedRk = parseNumericInput($regionCalcById[$formData['region_location']]['rayon_coefficient']);
+        if ($selectedRk <= 0) {
+            $errors[] = 'Для региона с РК=0 нажмите «Добавить РК», затем выберите созданный регион.';
+        }
     }
     if ($formData['salary'] === '') {
         $errors[] = 'Заполните поле «Оклад».';
@@ -605,6 +689,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'chief' => 'ФИО руководителя (из списка)',
                     'is_chief_position' => 'Кандидат на руководящую должность',
                     'contract_type' => 'Тип трудового договора',
+                    'salary' => 'Оклад, руб.',
+                    'isn' => 'ИСН, руб.',
+                    'bonus_type' => 'Тип премирования',
+                    'bonus_percent' => 'Процент премии',
                     'office' => 'Офис',
                     'work_format' => 'Формат работы',
                     'work_schedule' => 'График работы',
@@ -627,6 +715,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     } elseif ($key === 'contract_type') {
                         $oldDisplay = $contractNameById[$old] ?? $old;
                         $newDisplay = $contractNameById[$new] ?? $new;
+                    } elseif ($key === 'bonus_type') {
+                        $oldDisplay = $bonusTypeNameById[$old] ?? $old;
+                        $newDisplay = $bonusTypeNameById[$new] ?? $new;
                     } elseif ($key === 'office') {
                         $oldDisplay = $officeNameById[$old] ?? $old;
                         $newDisplay = $officeNameById[$new] ?? $new;
@@ -762,11 +853,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                                 <input type="text" class="form-control form-control-sm mb-2" id="regionLocationSearch" placeholder="Поиск по вхождению...">
                                 <select class="form-control" name="region_location" required>
                                     <option value="" <?=$formData['region_location'] === '' ? 'selected' : ''?>>— Выберите —</option>
-                                    <option value="0" <?=$formData['region_location'] === '0' ? 'selected' : ''?>>Нет в списке</option>
                                     <?php foreach ($regionLocationList as $o): ?>
                                         <option value="<?=h($o['ID'])?>" <?=$formData['region_location'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
                                     <?php endforeach; ?>
                                 </select>
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" value="Y" id="regionNotInList" name="region_not_in_list" <?=$formData['region_not_in_list'] === 'Y' ? 'checked' : ''?>>
+                                    <label class="form-check-label" for="regionNotInList">Нет в списке</label>
+                                </div>
+                                <div id="newRegionWrap" style="display:none;" class="mt-2">
+                                    <label>Регион-локация кандидата (новый)</label>
+                                    <input type="text" class="form-control mb-2" name="new_region_name" id="newRegionName" value="<?=h($formData['new_region_name'])?>" placeholder="Введите регион-локацию кандидата">
+                                    <small class="form-text text-muted">Внесите регион-локацию кандидата в текстовом виде.</small>
+                                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addNewRegionBtn" style="display:none;">Добавить новый регион-локацию</button>
+                                </div>
+                                <div id="manualRkWrap" style="display:none;" class="mt-2">
+                                    <label>Региональный коэффициент</label>
+                                    <input type="number" step="0.01" class="form-control" name="manual_region_rk" id="manualRegionRk" value="<?=h($formData['manual_region_rk'])?>">
+                                    <div class="alert alert-warning py-2 px-3 mt-2 mb-0"><strong>Важно:</strong> уточните коэффициент в отделе кадрового администрирования и внесите здесь.</div>
+                                    <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addRkBtn" style="display:none;">Добавить РК</button>
+                                </div>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>Районный коэффициент</label>
@@ -779,11 +885,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         </div>
                 <div class="form-row">
                             <div class="form-group col-md-4">
-                        <label>Оклад <span class="text-danger">*</span></label>
+                        <label>Оклад, руб. <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
                             </div>
                             <div class="form-group col-md-4">
-                                <label>ИСН (gross)</label>
+                                <label>ИСН, руб.</label>
                                 <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
                             </div>
                             <div class="form-group col-md-4">
@@ -799,15 +905,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                             <div class="form-group col-md-4">
                         <label>Процент премии</label>
-                                <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                                    <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                </div>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>Премиальная часть, руб. Гросс</label>
-                                <input type="number" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                                <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
                             </div>
-                            <div class="form-group col-md-4">
+                            <div class="form-group col-md-4" id="monthIncomeWrap">
                                 <label>Доход в месяц в среднем, руб. Гросс</label>
-                                <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                                <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
                             </div>
                 </div>
             </div>
@@ -957,6 +1066,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 BX.ready(function () {
     var searchInput = document.getElementById('regionLocationSearch');
     var regionSelect = document.querySelector('select[name=\"region_location\"]');
+    var regionNotInListCheckbox = document.getElementById('regionNotInList');
+    var newRegionWrap = document.getElementById('newRegionWrap');
+    var manualRkWrap = document.getElementById('manualRkWrap');
+    var newRegionNameInput = document.getElementById('newRegionName');
+    var manualRegionRkInput = document.getElementById('manualRegionRk');
+    var addNewRegionBtn = document.getElementById('addNewRegionBtn');
+    var addRkBtn = document.getElementById('addRkBtn');
     var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
     var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
     var salaryInput = document.querySelector('input[name=\"salary\"]');
@@ -968,7 +1084,9 @@ BX.ready(function () {
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
+    var monthIncomeWrap = document.getElementById('monthIncomeWrap');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
+    var regionNameById = <?=CUtil::PhpToJSObject($regionNameById, false, true)?>;
     if (!searchInput || !regionSelect) {
         return;
     }
@@ -988,21 +1106,118 @@ BX.ready(function () {
 
     regionSelect.addEventListener('change', function () {
         var value = regionSelect.value || '';
-        if (value === '' || value === '0' || !regionCalc[value]) {
+        if (value === '' || !regionCalc[value]) {
             if (rayonInput) rayonInput.value = '';
             if (allowanceInput) allowanceInput.value = '0';
             recalcIncomeFields();
+            syncRegionExtraFields();
             return;
         }
         if (rayonInput) rayonInput.value = regionCalc[value].rayon_coefficient || '';
         if (allowanceInput) allowanceInput.value = regionCalc[value].personal_allowance || '0';
+        syncRegionExtraFields();
         recalcIncomeFields();
     });
+
+    function syncRegionExtraFields() {
+        var selectedRegionId = regionSelect ? (regionSelect.value || '') : '';
+        var selectedRk = selectedRegionId && regionCalc[selectedRegionId] ? toNum(regionCalc[selectedRegionId].rayon_coefficient || '') : 0;
+        var noRegion = regionNotInListCheckbox && regionNotInListCheckbox.checked;
+        var needManualRk = noRegion || (selectedRegionId !== '' && selectedRk <= 0);
+
+        if (newRegionWrap) newRegionWrap.style.display = noRegion ? '' : 'none';
+        if (manualRkWrap) manualRkWrap.style.display = needManualRk ? '' : 'none';
+        if (regionSelect) regionSelect.required = !noRegion;
+        if (newRegionNameInput) newRegionNameInput.required = !!noRegion;
+        if (manualRegionRkInput) manualRegionRkInput.required = !!needManualRk;
+        if (addNewRegionBtn) {
+            addNewRegionBtn.style.display = (noRegion && newRegionNameInput && newRegionNameInput.value.trim() !== '' && manualRegionRkInput && toNum(manualRegionRkInput.value) > 0) ? '' : 'none';
+        }
+        if (addRkBtn) {
+            addRkBtn.style.display = (!noRegion && needManualRk && manualRegionRkInput && toNum(manualRegionRkInput.value) > 0) ? '' : 'none';
+        }
+
+        if (noRegion) {
+            if (regionSelect) regionSelect.value = '';
+            if (rayonInput) rayonInput.value = manualRegionRkInput ? (manualRegionRkInput.value || '') : '';
+        } else if (needManualRk) {
+            if (rayonInput) rayonInput.value = manualRegionRkInput ? (manualRegionRkInput.value || '') : '';
+        }
+    }
+
+    function upsertRegionOption(regionId, regionName, rkValue) {
+        if (!regionSelect) return;
+        var idStr = String(regionId);
+        var existing = null;
+        Array.prototype.forEach.call(regionSelect.options, function(opt) {
+            if (String(opt.value) === idStr) {
+                existing = opt;
+            }
+        });
+        if (!existing) {
+            existing = document.createElement('option');
+            existing.value = idStr;
+            existing.textContent = regionName;
+            regionSelect.appendChild(existing);
+        } else {
+            existing.textContent = regionName;
+        }
+        regionSelect.value = idStr;
+        regionCalc[idStr] = {
+            rayon_coefficient: String(rkValue),
+            personal_allowance: '0'
+        };
+        regionNameById[idStr] = regionName;
+        if (regionNotInListCheckbox) regionNotInListCheckbox.checked = false;
+        if (newRegionNameInput) newRegionNameInput.value = '';
+        if (manualRegionRkInput) manualRegionRkInput.value = '';
+        syncRegionExtraFields();
+        regionSelect.dispatchEvent(new Event('change'));
+    }
+
+    function createRegionByAjax(name, rkValue) {
+        BX.ajax({
+            url: window.location.pathname + '?ajax=create_region',
+            method: 'POST',
+            data: {
+                name: name,
+                rk: rkValue,
+                candidate_fio: document.querySelector('input[name=\"candidate_fio\"]') ? document.querySelector('input[name=\"candidate_fio\"]').value : ''
+            },
+            onsuccess: function(response) {
+                var rawResponse = response;
+                if (typeof response === 'string') {
+                    try {
+                        response = JSON.parse(response);
+                    } catch (e) {
+                        response = null;
+                    }
+                }
+                if (!response || !response.ok) {
+                    alert((response && response.error) ? response.error : 'Не удалось создать регион');
+                    return;
+                }
+                upsertRegionOption(response.id, response.name, response.rk);
+            },
+            onfailure: function() {
+                alert('Ошибка создания региона');
+            }
+        });
+    }
 
     function toNum(value) {
         var normalized = String(value || '').replace(/\s+/g, '').replace(',', '.');
         var num = parseFloat(normalized);
         return isNaN(num) ? 0 : num;
+    }
+
+    function formatNumberRu(value) {
+        if (String(value || '').trim() === '') {
+            return '';
+        }
+        var num = toNum(value);
+        var rounded = Math.round(num);
+        return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     }
 
     function recalcIncomeFields() {
@@ -1015,9 +1230,11 @@ BX.ready(function () {
         var bonusRub = Math.round(salary * bonusPercent / 100);
         var baseIncome = salary + bonusRub + isn;
         var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
+        var canShowMonthIncome = (rayon > 0);
 
-        if (bonusRubGrossInput) bonusRubGrossInput.value = bonusRub;
-        if (monthIncomeAvgInput) monthIncomeAvgInput.value = monthIncome;
+        if (bonusRubGrossInput) bonusRubGrossInput.value = formatNumberRu(bonusRub);
+        if (monthIncomeAvgInput) monthIncomeAvgInput.value = canShowMonthIncome ? formatNumberRu(monthIncome) : '';
+        if (monthIncomeWrap) monthIncomeWrap.style.display = canShowMonthIncome ? '' : 'none';
     }
 
     function syncBonusPercentRequired() {
@@ -1095,6 +1312,48 @@ BX.ready(function () {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
+    [salaryInput, isnInput].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener('blur', function () {
+            el.value = formatNumberRu(el.value);
+            recalcIncomeFields();
+        });
+    });
+    if (manualRegionRkInput) {
+        manualRegionRkInput.addEventListener('input', function () {
+            if (rayonInput) rayonInput.value = manualRegionRkInput.value || '';
+            recalcIncomeFields();
+            syncRegionExtraFields();
+        });
+    }
+    if (newRegionNameInput) {
+        newRegionNameInput.addEventListener('input', syncRegionExtraFields);
+    }
+    if (addNewRegionBtn) {
+        addNewRegionBtn.addEventListener('click', function () {
+            if (!newRegionNameInput || !manualRegionRkInput) return;
+            var name = newRegionNameInput.value.trim();
+            var rk = toNum(manualRegionRkInput.value);
+            if (!name || rk <= 0) return;
+            createRegionByAjax(name, rk);
+        });
+    }
+    if (addRkBtn) {
+        addRkBtn.addEventListener('click', function () {
+            if (!regionSelect || !manualRegionRkInput) return;
+            var selectedId = regionSelect.value || '';
+            var baseName = regionNameById[selectedId] || '';
+            var rk = toNum(manualRegionRkInput.value);
+            if (!selectedId || !baseName || rk <= 0) return;
+            createRegionByAjax(baseName + ' (РК ' + rk + ')', rk);
+        });
+    }
+    if (regionNotInListCheckbox) {
+        regionNotInListCheckbox.addEventListener('change', function () {
+            syncRegionExtraFields();
+            recalcIncomeFields();
+        });
+    }
     if (bonusTypeSelect) {
         bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
     }
@@ -1139,6 +1398,7 @@ BX.ready(function () {
     }
 
     regionSelect.dispatchEvent(new Event('change'));
+    syncRegionExtraFields();
     syncBonusPercentRequired();
     recalcIncomeFields();
 });
