@@ -846,10 +846,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                                 <div id="manualRkWrap" style="display:none;" class="mt-2">
                                     <label>Региональный коэффициент</label>
                                     <input type="number" step="0.01" class="form-control" name="manual_region_rk" id="manualRegionRk" value="<?=h($formData['manual_region_rk'])?>">
-                                    <small class="form-text text-muted">Уточните коэффициент в отделе кадрового администрирования и внесите здесь.</small>
+                                    <div class="alert alert-warning py-2 px-3 mt-2 mb-0"><strong>Важно:</strong> уточните коэффициент в отделе кадрового администрирования и внесите здесь.</div>
                                     <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addRkBtn" style="display:none;">Добавить РК</button>
                                 </div>
-                                <pre id="regionCreateDebug" style="display:none; white-space:pre-wrap; margin-top:8px; padding:8px; background:#f8f9fa; border:1px solid #dee2e6;"></pre>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>Районный коэффициент</label>
@@ -862,11 +861,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         </div>
                 <div class="form-row">
                             <div class="form-group col-md-4">
-                        <label>Оклад <span class="text-danger">*</span></label>
+                        <label>Оклад, руб. <span class="text-danger">*</span></label>
                                 <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
                             </div>
                             <div class="form-group col-md-4">
-                                <label>ИСН (gross)</label>
+                                <label>ИСН, руб.</label>
                                 <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
                             </div>
                             <div class="form-group col-md-4">
@@ -882,15 +881,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                             <div class="form-group col-md-4">
                         <label>Процент премии</label>
-                                <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                                    <div class="input-group-append"><span class="input-group-text">%</span></div>
+                                </div>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>Премиальная часть, руб. Гросс</label>
-                                <input type="number" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                                <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
                             </div>
-                            <div class="form-group col-md-4">
+                            <div class="form-group col-md-4" id="monthIncomeWrap">
                                 <label>Доход в месяц в среднем, руб. Гросс</label>
-                                <input type="number" class="form-control" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                                <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
                             </div>
                 </div>
             </div>
@@ -1047,7 +1049,6 @@ BX.ready(function () {
     var manualRegionRkInput = document.getElementById('manualRegionRk');
     var addNewRegionBtn = document.getElementById('addNewRegionBtn');
     var addRkBtn = document.getElementById('addRkBtn');
-    var regionCreateDebug = document.getElementById('regionCreateDebug');
     var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
     var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
     var salaryInput = document.querySelector('input[name=\"salary\"]');
@@ -1059,6 +1060,7 @@ BX.ready(function () {
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
+    var monthIncomeWrap = document.getElementById('monthIncomeWrap');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     var regionNameById = <?=CUtil::PhpToJSObject($regionNameById, false, true)?>;
     if (!searchInput || !regionSelect) {
@@ -1150,10 +1152,6 @@ BX.ready(function () {
     }
 
     function createRegionByAjax(name, rkValue) {
-        if (regionCreateDebug) {
-            regionCreateDebug.style.display = '';
-            regionCreateDebug.textContent = 'Запрос создания региона...\nname=' + name + '\nrk=' + rkValue;
-        }
         BX.ajax({
             url: window.location.pathname + '?ajax=create_region',
             method: 'POST',
@@ -1168,16 +1166,8 @@ BX.ready(function () {
                     try {
                         response = JSON.parse(response);
                     } catch (e) {
-                        if (regionCreateDebug) {
-                            regionCreateDebug.style.display = '';
-                            regionCreateDebug.textContent = 'Ошибка парсинга JSON ответа:\n' + String(rawResponse);
-                        }
                         response = null;
                     }
-                }
-                if (regionCreateDebug) {
-                    regionCreateDebug.style.display = '';
-                    regionCreateDebug.textContent = 'Ответ create_region:\n' + JSON.stringify(response || rawResponse, null, 2);
                 }
                 if (!response || !response.ok) {
                     alert((response && response.error) ? response.error : 'Не удалось создать регион');
@@ -1186,10 +1176,6 @@ BX.ready(function () {
                 upsertRegionOption(response.id, response.name, response.rk);
             },
             onfailure: function() {
-                if (regionCreateDebug) {
-                    regionCreateDebug.style.display = '';
-                    regionCreateDebug.textContent = 'Ошибка сети/запроса при создании региона';
-                }
                 alert('Ошибка создания региона');
             }
         });
@@ -1199,6 +1185,15 @@ BX.ready(function () {
         var normalized = String(value || '').replace(/\s+/g, '').replace(',', '.');
         var num = parseFloat(normalized);
         return isNaN(num) ? 0 : num;
+    }
+
+    function formatNumberRu(value) {
+        if (String(value || '').trim() === '') {
+            return '';
+        }
+        var num = toNum(value);
+        var rounded = Math.round(num);
+        return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     }
 
     function recalcIncomeFields() {
@@ -1211,9 +1206,11 @@ BX.ready(function () {
         var bonusRub = Math.round(salary * bonusPercent / 100);
         var baseIncome = salary + bonusRub + isn;
         var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
+        var canShowMonthIncome = (rayon > 0);
 
-        if (bonusRubGrossInput) bonusRubGrossInput.value = bonusRub;
-        if (monthIncomeAvgInput) monthIncomeAvgInput.value = monthIncome;
+        if (bonusRubGrossInput) bonusRubGrossInput.value = formatNumberRu(bonusRub);
+        if (monthIncomeAvgInput) monthIncomeAvgInput.value = canShowMonthIncome ? formatNumberRu(monthIncome) : '';
+        if (monthIncomeWrap) monthIncomeWrap.style.display = canShowMonthIncome ? '' : 'none';
     }
 
     function syncBonusPercentRequired() {
@@ -1290,6 +1287,13 @@ BX.ready(function () {
     [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
+    });
+    [salaryInput, isnInput].forEach(function (el) {
+        if (!el) return;
+        el.addEventListener('blur', function () {
+            el.value = formatNumberRu(el.value);
+            recalcIncomeFields();
+        });
     });
     if (manualRegionRkInput) {
         manualRegionRkInput.addEventListener('input', function () {
