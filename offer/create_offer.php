@@ -945,6 +945,29 @@ BX.ready(function () {
         });
     }
 
+    function extractChiefPositionFromItem(item) {
+        if (!item) return '';
+        var position = '';
+        try {
+            if (typeof item.getCustomData === 'function') {
+                var customData = item.getCustomData();
+                if (customData && typeof customData.get === 'function') {
+                    position = customData.get('workPosition')
+                        || customData.get('WORK_POSITION')
+                        || customData.get('position')
+                        || customData.get('POST')
+                        || '';
+                }
+            }
+            if (!position && typeof item.getSubtitle === 'function') {
+                position = item.getSubtitle() || '';
+            }
+        } catch (e) {
+            position = '';
+        }
+        return String(position || '').trim();
+    }
+
     function setChiefValue(userId) {
         if (!chiefInput) return;
         chiefInput.value = String(userId || '');
@@ -984,7 +1007,12 @@ BX.ready(function () {
                 return;
             }
             setChiefValue(userId);
-            loadChiefPositionByUser(userId);
+            var instantPosition = extractChiefPositionFromItem(item);
+            if (instantPosition && chiefPositionInput) {
+                chiefPositionInput.value = instantPosition;
+            } else {
+                loadChiefPositionByUser(userId);
+            }
         });
         chiefDialog.subscribe('Item:onDeselect', function () {
             setChiefValue('');
