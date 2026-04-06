@@ -269,13 +269,18 @@ function getUserDisplayNameById(int $userId): string
     return $name !== '' ? $name : (string)$userId;
 }
 
-function createRegionLocation(int $iblockId, string $name, float $rkValue, string $candidateFio): array
+function createRegionLocation(int $iblockId, string $name, float $rkValue, string $candidateFio, string $createdByFio = ''): array
 {
     $name = trim($name);
     if ($name === '') {
         return ['id' => 0, 'error' => 'Пустое название региона.'];
     }
     $el = new CIBlockElement();
+    $createdByFio = trim($createdByFio);
+    $comment = 'Создан из оффера ' . trim($candidateFio);
+    if ($createdByFio !== '') {
+        $comment .= '. Добавил: ' . $createdByFio;
+    }
     $id = $el->Add([
         'IBLOCK_ID' => $iblockId,
         'NAME' => $name,
@@ -283,7 +288,7 @@ function createRegionLocation(int $iblockId, string $name, float $rkValue, strin
         'PROPERTY_VALUES' => [
             1784 => ($rkValue > 1 ? 'Y' : 'N'),
             1765 => (string)$rkValue,
-            1783 => 'Создан из оффера ' . trim($candidateFio),
+            1783 => $comment,
         ],
     ]);
     if (!$id) {
@@ -328,6 +333,7 @@ if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
 }
 
 if ((string)($_GET['ajax'] ?? '') === 'create_region') {
+    global $USER;
     while (ob_get_level() > 0) {
         @ob_end_clean();
     }
@@ -340,11 +346,18 @@ if ((string)($_GET['ajax'] ?? '') === 'create_region') {
         'rk' => $rk,
         'candidate_fio' => $candidateFio,
     ];
+    $createdBy = '';
+    if (is_object($USER) && method_exists($USER, 'GetFullName')) {
+        $createdBy = trim((string)$USER->GetFullName());
+        if ($createdBy === '' && method_exists($USER, 'GetID')) {
+            $createdBy = 'ID ' . (int)$USER->GetID();
+        }
+    }
     if ($name === '' || $rk <= 0) {
         echo json_encode(['ok' => false, 'error' => 'Некорректные параметры создания региона.', 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
-    $created = createRegionLocation(293, $name, $rk, $candidateFio);
+    $created = createRegionLocation(293, $name, $rk, $candidateFio, $createdBy);
     if ((int)$created['id'] <= 0) {
         echo json_encode(['ok' => false, 'error' => (string)$created['error'], 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
@@ -497,6 +510,10 @@ if ($candidateId > 0 && $candidate && $requestItem) {
         'chief' => (string)$requestItem['CHIEF'],
         'is_chief_position' => normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']),
         'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
+        'salary' => (string)$requestItem['SALARY'],
+        'isn' => (string)$requestItem['ISN'],
+        'bonus_type' => (string)$requestItem['BONUS_TYPE'],
+        'bonus_percent' => (string)$requestItem['BONUS_PERCENT'],
         'office' => (string)$requestItem['OFFICE'],
         'work_format' => (string)$requestItem['WORK_FORMAT'],
         'work_schedule' => (string)$requestItem['WORK_SCHEDULE'],
@@ -672,6 +689,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'chief' => 'ФИО руководителя (из списка)',
                     'is_chief_position' => 'Кандидат на руководящую должность',
                     'contract_type' => 'Тип трудового договора',
+                    'salary' => 'Оклад, руб.',
+                    'isn' => 'ИСН, руб.',
+                    'bonus_type' => 'Тип премирования',
+                    'bonus_percent' => 'Процент премии',
                     'office' => 'Офис',
                     'work_format' => 'Формат работы',
                     'work_schedule' => 'График работы',
@@ -694,6 +715,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     } elseif ($key === 'contract_type') {
                         $oldDisplay = $contractNameById[$old] ?? $old;
                         $newDisplay = $contractNameById[$new] ?? $new;
+                    } elseif ($key === 'bonus_type') {
+                        $oldDisplay = $bonusTypeNameById[$old] ?? $old;
+                        $newDisplay = $bonusTypeNameById[$new] ?? $new;
                     } elseif ($key === 'office') {
                         $oldDisplay = $officeNameById[$old] ?? $old;
                         $newDisplay = $officeNameById[$new] ?? $new;
