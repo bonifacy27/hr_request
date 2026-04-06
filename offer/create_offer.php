@@ -281,7 +281,7 @@ function createRegionLocation(int $iblockId, string $name, float $rkValue, strin
         'NAME' => $name,
         'ACTIVE' => 'Y',
         'PROPERTY_VALUES' => [
-            1784 => 'N',
+            1784 => ($rkValue > 1 ? 'Y' : 'N'),
             1765 => (string)$rkValue,
             1783 => 'Создан из оффера ' . trim($candidateFio),
         ],
@@ -328,17 +328,25 @@ if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
 }
 
 if ((string)($_GET['ajax'] ?? '') === 'create_region') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
     header('Content-Type: application/json; charset=UTF-8');
     $name = trim((string)($_POST['name'] ?? ''));
     $rk = (float)str_replace(',', '.', (string)($_POST['rk'] ?? '0'));
     $candidateFio = trim((string)($_POST['candidate_fio'] ?? ''));
+    $debug = [
+        'name' => $name,
+        'rk' => $rk,
+        'candidate_fio' => $candidateFio,
+    ];
     if ($name === '' || $rk <= 0) {
-        echo json_encode(['ok' => false, 'error' => 'Некорректные параметры создания региона.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        echo json_encode(['ok' => false, 'error' => 'Некорректные параметры создания региона.', 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
     $created = createRegionLocation(293, $name, $rk, $candidateFio);
     if ((int)$created['id'] <= 0) {
-        echo json_encode(['ok' => false, 'error' => (string)$created['error']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        echo json_encode(['ok' => false, 'error' => (string)$created['error'], 'debug' => $debug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
     echo json_encode([
@@ -346,6 +354,7 @@ if ((string)($_GET['ajax'] ?? '') === 'create_region') {
         'id' => (int)$created['id'],
         'name' => $name,
         'rk' => $rk,
+        'debug' => $debug,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -840,6 +849,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                                     <small class="form-text text-muted">Уточните коэффициент в отделе кадрового администрирования и внесите здесь.</small>
                                     <button type="button" class="btn btn-outline-primary btn-sm mt-2" id="addRkBtn" style="display:none;">Добавить РК</button>
                                 </div>
+                                <pre id="regionCreateDebug" style="display:none; white-space:pre-wrap; margin-top:8px; padding:8px; background:#f8f9fa; border:1px solid #dee2e6;"></pre>
                             </div>
                             <div class="form-group col-md-4">
                                 <label>Районный коэффициент</label>
@@ -1037,6 +1047,7 @@ BX.ready(function () {
     var manualRegionRkInput = document.getElementById('manualRegionRk');
     var addNewRegionBtn = document.getElementById('addNewRegionBtn');
     var addRkBtn = document.getElementById('addRkBtn');
+    var regionCreateDebug = document.getElementById('regionCreateDebug');
     var rayonInput = document.querySelector('input[name=\"rayon_coefficient\"]');
     var allowanceInput = document.querySelector('input[name=\"personal_allowance\"]');
     var salaryInput = document.querySelector('input[name=\"salary\"]');
@@ -1139,6 +1150,10 @@ BX.ready(function () {
     }
 
     function createRegionByAjax(name, rkValue) {
+        if (regionCreateDebug) {
+            regionCreateDebug.style.display = '';
+            regionCreateDebug.textContent = 'Запрос создания региона...\nname=' + name + '\nrk=' + rkValue;
+        }
         BX.ajax({
             url: window.location.pathname + '?ajax=create_region',
             method: 'POST',
@@ -1148,12 +1163,21 @@ BX.ready(function () {
                 candidate_fio: document.querySelector('input[name=\"candidate_fio\"]') ? document.querySelector('input[name=\"candidate_fio\"]').value : ''
             },
             onsuccess: function(response) {
+                var rawResponse = response;
                 if (typeof response === 'string') {
                     try {
                         response = JSON.parse(response);
                     } catch (e) {
+                        if (regionCreateDebug) {
+                            regionCreateDebug.style.display = '';
+                            regionCreateDebug.textContent = 'Ошибка парсинга JSON ответа:\n' + String(rawResponse);
+                        }
                         response = null;
                     }
+                }
+                if (regionCreateDebug) {
+                    regionCreateDebug.style.display = '';
+                    regionCreateDebug.textContent = 'Ответ create_region:\n' + JSON.stringify(response || rawResponse, null, 2);
                 }
                 if (!response || !response.ok) {
                     alert((response && response.error) ? response.error : 'Не удалось создать регион');
@@ -1162,6 +1186,10 @@ BX.ready(function () {
                 upsertRegionOption(response.id, response.name, response.rk);
             },
             onfailure: function() {
+                if (regionCreateDebug) {
+                    regionCreateDebug.style.display = '';
+                    regionCreateDebug.textContent = 'Ошибка сети/запроса при создании региона';
+                }
                 alert('Ошибка создания региона');
             }
         });
