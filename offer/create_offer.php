@@ -181,6 +181,7 @@ function getRequestById(int $requestId): ?array
         'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
         'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
+        'OBORUDOVANIE_DLYA_RABOTY_TEKST',
         'YURIDICHESKOE_LITSO',
     ];
 
@@ -213,6 +214,7 @@ function getRequestById(int $requestId): ?array
         'WORK_START' => $raw($p, 'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'),
         'CONTRACT_TYPE' => $raw($p, 'TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA'),
         'EQUIPMENT' => $raw($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'),
+        'EQUIPMENT_TEXT' => $raw($p, 'OBORUDOVANIE_DLYA_RABOTY_TEKST'),
         'ORGANIZATION' => $raw($p, 'YURIDICHESKOE_LITSO'),
     ];
 }
@@ -364,7 +366,7 @@ if ($candidateId > 0) {
                 $formData['work_schedule'] = (string)$requestItem['WORK_SCHEDULE'];
                 $formData['work_start'] = (string)$requestItem['WORK_START'];
                 $formData['equipment'] = (string)($requestItem['EQUIPMENT'] ?: DEFAULT_EQUIPMENT);
-                $formData['equipment_text'] = (string)($requestItem['EQUIPMENT'] ?: '');
+                $formData['equipment_text'] = (string)$requestItem['EQUIPMENT_TEXT'];
                 $formData['contract_type'] = (string)($requestItem['CONTRACT_TYPE'] ?: DEFAULT_CONTRACT);
                 $formData['organization'] = (string)($requestItem['ORGANIZATION'] ?: DEFAULT_ORGANIZATION);
             }
