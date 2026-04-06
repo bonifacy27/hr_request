@@ -83,6 +83,9 @@ function userIdFromValue($raw): int
     if (stripos($value, 'user_') === 0) {
         return (int)substr($value, 5);
     }
+    if (preg_match('/(\\d+)/', $value, $m)) {
+        return (int)$m[1];
+    }
     return (int)$value;
 }
 
@@ -915,6 +918,10 @@ BX.ready(function () {
         if (value.indexOf('user_') === 0) {
             value = value.substring(5);
         }
+        var match = value.match(/\d+/);
+        if (match && match[0]) {
+            value = match[0];
+        }
         var id = parseInt(value, 10);
         return isNaN(id) ? 0 : id;
     }
@@ -970,7 +977,7 @@ BX.ready(function () {
         var chiefDialog = chiefTagSelector.getDialog();
         chiefDialog.subscribe('Item:onSelect', function (event) {
             var item = event.getData().item;
-            var userId = parseInt(item.getId(), 10);
+            var userId = parseUserId(item.getId());
             if (isNaN(userId) || userId <= 0) {
                 setChiefValue('');
                 loadChiefPositionByUser('');
