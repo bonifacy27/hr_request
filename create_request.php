@@ -47,6 +47,7 @@ Extension::load([
     'ui.buttons',
     'ui.notification',
     'ui.layout-form',
+    'ui.entity-selector',
 ]);
 
 $APPLICATION->SetTitle('Заявка на подбор персонала');
@@ -285,9 +286,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     $formatName    = getNameById($formatList, (int)($post['format'] ?? 0));
     $officeName    = getNameById($officeList, (int)($post['office'] ?? 0));
     $contractName  = getNameById($contractList, (int)($post['contract'] ?? 0));
-    $equipName     = getNameById($equipList, (int)($post['equipment'] ?? 0));
     $equipComment  = trim((string)($post['equipment_comment'] ?? ''));
-    $equipCombined = trim($equipName . ($equipComment !== '' ? PHP_EOL . $equipComment : ''));
 
     $furnitureNameById = [];
     $furnitureMultiById = [];
@@ -420,7 +419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'              => (int)($post['start_time'] ?? 0),
         'KONFIDENTSIALNYY_POISK'                        => trim((string)($post['confidential'] ?? 'Нет')),
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'            => (int)($post['equipment'] ?? 0),
-        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipCombined,
+        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipComment,
         'NEOBKHODIMAYA_MEBEL'                           => $furnitureText,
         // === НОВОЕ СВОЙСТВО ===
         'JSON'                                          => $jsonData,
@@ -534,24 +533,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
           </div>
           <div class="form-group col-md-6">
             <label>Непосредственный руководитель <span class="text-danger">*</span></label>
-            <?php
-            $APPLICATION->IncludeComponent(
-                'bitrix:intranet.user.selector',
-                '',
-                [
-                    'INPUT_NAME'          => 'employee_id',
-                    'INPUT_NAME_STRING'   => 'employee_name',
-                    'INPUT_VALUE'         => [],
-                    'MULTIPLE'            => 'N',
-                    'NAME_TEMPLATE'       => '#LAST_NAME# #NAME# #SECOND_NAME#',
-                    'SHOW_EXTRANET_USERS' => 'NONE',
-                    'EXTERNAL'            => 'A',
-                    'POPUP'               => 'Y',
-                ],
-                false,
-                ['HIDE_ICONS' => 'Y']
-            );
-            ?>
+            <input type="hidden" name="employee_id" id="employeeId" value="">
+            <input type="hidden" name="employee_name" id="employeeName" value="">
+            <div id="managerSelector"></div>
           </div>
         </div>
 
@@ -879,6 +863,58 @@ BX.ready(function(){
   }
 
   restorePostedFormData(FORM_STATE);
+
+  function parseUserId(rawValue) {
+    if (Array.isArray(rawValue)) {
+      rawValue = rawValue.length ? rawValue[0] : '';
+    }
+    if (rawValue === null || rawValue === undefined) {
+      return 0;
+    }
+    var match = String(rawValue).match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
+  var preselectedManagerId = parseUserId(FORM_STATE && FORM_STATE.employee_id ? FORM_STATE.employee_id : $('#employeeId').val());
+  var preselectedManagerName = (FORM_STATE && FORM_STATE.employee_name) ? String(FORM_STATE.employee_name) : $('#employeeName').val();
+  var managerDialog = new BX.UI.EntitySelector.Dialog({
+    targetNode: document.getElementById('managerSelector'),
+    multiple: false,
+    enableSearch: true,
+    context: 'HR_REQUEST_MANAGER_SELECTOR',
+    entities: [
+      {
+        id: 'user',
+        options: {
+          intranetUsersOnly: true
+        }
+      }
+    ],
+    events: {
+      'Item:onSelect': function(event) {
+        var item = event.getData().item;
+        $('#employeeId').val(item.getId() || '');
+        $('#employeeName').val(item.getTitle() || '');
+      },
+      'Item:onDeselect': function() {
+        $('#employeeId').val('');
+        $('#employeeName').val('');
+      }
+    }
+  });
+  managerDialog.render();
+  if (preselectedManagerId > 0) {
+    managerDialog.addItem({
+      id: preselectedManagerId,
+      entityId: 'user',
+      title: preselectedManagerName || ('Пользователь #' + preselectedManagerId)
+    });
+    managerDialog.selectItem({id: preselectedManagerId, entityId: 'user'});
+    $('#employeeId').val(preselectedManagerId);
+    if (preselectedManagerName) {
+      $('#employeeName').val(preselectedManagerName);
+    }
+  }
 
   BX.UI.Hint.init();
   var $legal = $('select[name="legal"]');
