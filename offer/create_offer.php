@@ -8,6 +8,7 @@ define('BX_COMPOSITE_DO_NOT_CACHE', true);
 
 use Bitrix\Main\Loader;
 use Bitrix\Main\Context;
+use Bitrix\Main\UI\Extension;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Создание заявки на оффер');
@@ -17,6 +18,11 @@ if (!Loader::includeModule('iblock')) {
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
+
+Extension::load([
+    'main.core',
+    'ui.entity-selector',
+]);
 
 const IBL_CANDIDATES = 207;
 const IBL_REQUESTS = 201;
@@ -608,24 +614,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>ФИО руководителя (из списка) <span class="text-danger">*</span></label>
-                        <?php
-                        $APPLICATION->IncludeComponent(
-                            'bitrix:intranet.user.selector',
-                            '',
-                            [
-                                'INPUT_NAME' => 'chief',
-                                'INPUT_NAME_STRING' => 'chief_name',
-                                'INPUT_VALUE' => ($formData['chief'] !== '' ? [(int)$formData['chief']] : []),
-                                'MULTIPLE' => 'N',
-                                'NAME_TEMPLATE' => '#LAST_NAME# #NAME# #SECOND_NAME#',
-                                'SHOW_EXTRANET_USERS' => 'NONE',
-                                'EXTERNAL' => 'A',
-                                'POPUP' => 'Y',
-                            ],
-                            false,
-                            ['HIDE_ICONS' => 'Y']
-                        );
-                        ?>
+                        <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
+                        <div id="chiefSelector"></div>
                     </div>
                     <div class="form-group col-md-4">
                         <label>Должность руководителя <span class="text-danger">*</span></label>
@@ -852,7 +842,8 @@ BX.ready(function () {
     var bonusTypeSelect = document.querySelector('select[name=\"bonus_type\"]');
     var bonusPercentInput = document.querySelector('input[name=\"bonus_percent\"]');
     var isnInput = document.querySelector('input[name=\"isn\"]');
-    var chiefInput = document.querySelector('input[name=\"chief\"], input[name=\"chief[]\"]');
+    var chiefInput = document.getElementById('chiefInputHidden');
+    var chiefSelectorNode = document.getElementById('chiefSelector');
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
@@ -947,6 +938,11 @@ BX.ready(function () {
         });
     }
 
+    function setChiefValue(userId) {
+        if (!chiefInput) return;
+        chiefInput.value = String(userId || '');
+    }
+
     [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
@@ -955,14 +951,38 @@ BX.ready(function () {
         bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
     }
 
-    if (chiefInput) {
-        var lastChiefRawValue = chiefInput.value;
-        setInterval(function () {
-            if (!chiefInput) return;
-            if (chiefInput.value === lastChiefRawValue) return;
-            lastChiefRawValue = chiefInput.value;
-            loadChiefPositionByUser(lastChiefRawValue);
-        }, 300);
+    if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
+        var preselectedChiefId = parseUserId(chiefInput.value);
+        var chiefTagSelector = new BX.UI.EntitySelector.TagSelector({
+            multiple: false,
+            textBoxWidth: '100%',
+            placeholder: 'Выберите руководителя',
+            dialogOptions: {
+                context: 'OFFER_CHIEF_SELECTOR',
+                entities: [{id: 'user'}],
+                enableSearch: true,
+                dropdownMode: true,
+                preselectedItems: preselectedChiefId > 0 ? [['user', preselectedChiefId]] : []
+            }
+        });
+        chiefTagSelector.renderTo(chiefSelectorNode);
+
+        var chiefDialog = chiefTagSelector.getDialog();
+        chiefDialog.subscribe('Item:onSelect', function (event) {
+            var item = event.getData().item;
+            var userId = parseInt(item.getId(), 10);
+            if (isNaN(userId) || userId <= 0) {
+                setChiefValue('');
+                loadChiefPositionByUser('');
+                return;
+            }
+            setChiefValue(userId);
+            loadChiefPositionByUser(userId);
+        });
+        chiefDialog.subscribe('Item:onDeselect', function () {
+            setChiefValue('');
+            loadChiefPositionByUser('');
+        });
     }
 
     regionSelect.dispatchEvent(new Event('change'));
