@@ -268,6 +268,18 @@ function appendOfferToRequest(int $requestId, int $offerId): void
     ]);
 }
 
+if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
+    header('Content-Type: application/json; charset=UTF-8');
+    $userId = userIdFromValue($_GET['user_id'] ?? '');
+    $position = getUserWorkPosition($userId);
+    echo json_encode([
+        'ok' => ($userId > 0),
+        'user_id' => $userId,
+        'position' => $position,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $candidateId = (int)Context::getCurrent()->getRequest()->getQuery('id_ankety');
 $candidate = null;
 $requestItem = null;
@@ -840,6 +852,8 @@ BX.ready(function () {
     var bonusTypeSelect = document.querySelector('select[name=\"bonus_type\"]');
     var bonusPercentInput = document.querySelector('input[name=\"bonus_percent\"]');
     var isnInput = document.querySelector('input[name=\"isn\"]');
+    var chiefInput = document.querySelector('input[name=\"chief\"], input[name=\"chief[]\"]');
+    var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
@@ -904,12 +918,51 @@ BX.ready(function () {
         bonusPercentInput.required = mustRequire;
     }
 
+    function parseUserId(raw) {
+        var value = String(raw || '').trim();
+        if (!value) return 0;
+        if (value.indexOf('user_') === 0) {
+            value = value.substring(5);
+        }
+        var id = parseInt(value, 10);
+        return isNaN(id) ? 0 : id;
+    }
+
+    function loadChiefPositionByUser(userRawValue) {
+        if (!chiefPositionInput) return;
+        var userId = parseUserId(userRawValue);
+        if (userId <= 0) {
+            chiefPositionInput.value = '';
+            return;
+        }
+
+        BX.ajax({
+            url: window.location.pathname + '?ajax=get_user_position&user_id=' + encodeURIComponent(userId),
+            method: 'GET',
+            dataType: 'json',
+            onsuccess: function (response) {
+                if (!response || !response.ok) return;
+                chiefPositionInput.value = response.position || '';
+            }
+        });
+    }
+
     [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
     if (bonusTypeSelect) {
         bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
+    }
+
+    if (chiefInput) {
+        var lastChiefRawValue = chiefInput.value;
+        setInterval(function () {
+            if (!chiefInput) return;
+            if (chiefInput.value === lastChiefRawValue) return;
+            lastChiefRawValue = chiefInput.value;
+            loadChiefPositionByUser(lastChiefRawValue);
+        }, 300);
     }
 
     regionSelect.dispatchEvent(new Event('change'));
