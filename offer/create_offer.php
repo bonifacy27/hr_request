@@ -1142,13 +1142,19 @@ BX.ready(function () {
         BX.ajax({
             url: window.location.pathname + '?ajax=create_region',
             method: 'POST',
-            dataType: 'json',
             data: {
                 name: name,
                 rk: rkValue,
                 candidate_fio: document.querySelector('input[name=\"candidate_fio\"]') ? document.querySelector('input[name=\"candidate_fio\"]').value : ''
             },
             onsuccess: function(response) {
+                if (typeof response === 'string') {
+                    try {
+                        response = JSON.parse(response);
+                    } catch (e) {
+                        response = null;
+                    }
+                }
                 if (!response || !response.ok) {
                     alert((response && response.error) ? response.error : 'Не удалось создать регион');
                     return;
@@ -1283,7 +1289,7 @@ BX.ready(function () {
             var baseName = regionNameById[selectedId] || '';
             var rk = toNum(manualRegionRkInput.value);
             if (!selectedId || !baseName || rk <= 0) return;
-            createRegionByAjax('РК ' + rk + ' ' + baseName, rk);
+            createRegionByAjax(baseName + ' (РК ' + rk + ')', rk);
         });
     }
     if (regionNotInListCheckbox) {
