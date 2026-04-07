@@ -568,6 +568,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $errors[] = 'Заполните поле «Тип премирования».';
     }
     $bonusTypeName = mb_strtolower((string)($bonusTypeNameById[$formData['bonus_type']] ?? ''));
+    if (strpos($bonusTypeName, 'без прем') !== false) {
+        $formData['bonus_percent'] = '0';
+    }
     if ((strpos($bonusTypeName, 'ежекварт') !== false || strpos($bonusTypeName, 'ежемесяч') !== false) && $formData['bonus_percent'] === '') {
         $errors[] = 'Поле «Процент премии» обязательно для выбранного типа премирования.';
     }
@@ -1255,8 +1258,13 @@ BX.ready(function () {
         if (bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
             selectedText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
         }
+        var isNoBonusType = selectedText.indexOf('без прем') !== -1;
         var mustRequire = selectedText.indexOf('ежекварт') !== -1 || selectedText.indexOf('ежемесяч') !== -1;
         bonusPercentInput.required = mustRequire;
+        bonusPercentInput.readOnly = isNoBonusType;
+        if (isNoBonusType) {
+            bonusPercentInput.value = '0';
+        }
     }
 
     function parseUserId(raw) {
@@ -1320,7 +1328,7 @@ BX.ready(function () {
         chiefInput.value = String(userId || '');
     }
 
-    [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
+    [salaryInput, bonusPercentInput, isnInput, rayonInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
@@ -1367,7 +1375,10 @@ BX.ready(function () {
         });
     }
     if (bonusTypeSelect) {
-        bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
+        bonusTypeSelect.addEventListener('change', function () {
+            syncBonusPercentRequired();
+            recalcIncomeFields();
+        });
     }
 
     if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
