@@ -255,13 +255,34 @@ function calcNetAfterNdfl(float $gross): array
     }
 
     $annualGross = $gross * 12;
-    $annualAt13 = min($annualGross, 2400000.0);
-    $annualAt15 = max($annualGross - 2400000.0, 0.0);
-    $annualTax = ($annualAt13 * 0.13) + ($annualAt15 * 0.15);
+    $brackets = [
+        ['limit' => 2400000.0, 'rate' => 0.13, 'label' => '13%'],
+        ['limit' => 5000000.0, 'rate' => 0.15, 'label' => '15%'],
+        ['limit' => 20000000.0, 'rate' => 0.18, 'label' => '18%'],
+        ['limit' => 50000000.0, 'rate' => 0.20, 'label' => '20%'],
+        ['limit' => INF, 'rate' => 0.22, 'label' => '22%'],
+    ];
+
+    $annualTax = 0.0;
+    $prevLimit = 0.0;
+    $usedRates = [];
+    foreach ($brackets as $bracket) {
+        if ($annualGross <= $prevLimit) {
+            break;
+        }
+        $upperLimit = min($annualGross, (float)$bracket['limit']);
+        $slice = max(0.0, $upperLimit - $prevLimit);
+        if ($slice > 0) {
+            $annualTax += $slice * (float)$bracket['rate'];
+            $usedRates[] = (string)$bracket['label'];
+        }
+        $prevLimit = (float)$bracket['limit'];
+    }
+
     $monthlyTax = $annualTax / 12;
     $net = $gross - $monthlyTax;
     $effectiveRate = ($monthlyTax / $gross) * 100;
-    $rates = ($annualAt15 > 0.0) ? '13% + 15%' : '13%';
+    $rates = implode(' + ', $usedRates);
 
     return ['net' => $net, 'rates' => $rates, 'effective_rate' => $effectiveRate];
 }
@@ -1300,13 +1321,30 @@ BX.ready(function () {
             return {net: 0, rates: '13%', effective: 0};
         }
         var annualGross = gross * 12;
-        var annualAt13 = Math.min(annualGross, 2400000);
-        var annualAt15 = Math.max(annualGross - 2400000, 0);
-        var annualTax = (annualAt13 * 0.13) + (annualAt15 * 0.15);
+        var brackets = [
+            {limit: 2400000, rate: 0.13, label: '13%'},
+            {limit: 5000000, rate: 0.15, label: '15%'},
+            {limit: 20000000, rate: 0.18, label: '18%'},
+            {limit: 50000000, rate: 0.20, label: '20%'},
+            {limit: Infinity, rate: 0.22, label: '22%'}
+        ];
+        var annualTax = 0;
+        var prevLimit = 0;
+        var usedRates = [];
+        brackets.forEach(function (bracket) {
+            if (annualGross <= prevLimit) return;
+            var upperLimit = Math.min(annualGross, bracket.limit);
+            var slice = Math.max(0, upperLimit - prevLimit);
+            if (slice > 0) {
+                annualTax += slice * bracket.rate;
+                usedRates.push(bracket.label);
+            }
+            prevLimit = bracket.limit;
+        });
         var monthlyTax = annualTax / 12;
         var net = Math.round(gross - monthlyTax);
         var effective = (monthlyTax / gross) * 100;
-        var rates = annualAt15 > 0 ? '13% + 15%' : '13%';
+        var rates = usedRates.join(' + ');
         return {net: net, rates: rates, effective: effective};
     }
 
