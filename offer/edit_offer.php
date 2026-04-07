@@ -1422,7 +1422,7 @@ BX.ready(function () {
         chiefInput.value = String(userId || '');
     }
 
-    [salaryInput, bonusPercentInput, isnInput, allowanceInput].forEach(function (el) {
+    [salaryInput, bonusPercentInput, isnInput, rayonInput, allowanceInput].forEach(function (el) {
         if (!el) return;
         el.addEventListener('input', recalcIncomeFields);
     });
@@ -1469,7 +1469,10 @@ BX.ready(function () {
         });
     }
     if (bonusTypeSelect) {
-        bonusTypeSelect.addEventListener('change', syncBonusPercentRequired);
+        bonusTypeSelect.addEventListener('change', function () {
+            syncBonusPercentRequired();
+            recalcIncomeFields();
+        });
     }
 
     if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
