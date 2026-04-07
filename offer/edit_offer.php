@@ -349,6 +349,30 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
+function dateToInputFormat(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})$/', $value, $m)) {
+        return $m[3] . '-' . $m[2] . '-' . $m[1];
+    }
+    return $value;
+}
+
+function dateToStorageFormat(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m)) {
+        return $m[3] . '.' . $m[2] . '.' . $m[1];
+    }
+    return $value;
+}
+
 function calcNetAfterNdfl(float $gross): array
 {
     if ($gross <= 0) {
@@ -590,7 +614,7 @@ $formData = [
 $props = $offerItem['PROPS'];
 $formData['candidate_fio'] = (string)$props[OFFER_PROP_CANDIDATE_FIO];
 $formData['candidate_phone'] = (string)$props[OFFER_PROP_CANDIDATE_PHONE];
-$formData['planned_send_date'] = (string)$props[OFFER_PROP_PLANNED_SEND_DATE];
+$formData['planned_send_date'] = dateToInputFormat((string)$props[OFFER_PROP_PLANNED_SEND_DATE]);
 $formData['is_chief_position'] = ((string)$props[OFFER_PROP_IS_CHIEF_POSITION] !== '' ? (string)$props[OFFER_PROP_IS_CHIEF_POSITION] : '1160');
 $formData['position'] = (string)$props[OFFER_PROP_POSITION];
 $formData['direction'] = (string)$props[OFFER_PROP_DIRECTION];
@@ -608,7 +632,7 @@ $formData['isn_ndfl'] = (string)$props[OFFER_PROP_ISN_NDFL];
 $formData['bonus_rub_ndfl'] = (string)$props[OFFER_PROP_BONUS_RUB_NDFL];
 $formData['month_income_avg_ndfl'] = (string)$props[OFFER_PROP_MONTH_INCOME_AVG_NDFL];
 $formData['trial_period'] = (string)$props[OFFER_PROP_TRIAL_PERIOD];
-$formData['planned_start_date'] = (string)$props[OFFER_PROP_PLANNED_START_DATE];
+$formData['planned_start_date'] = dateToInputFormat((string)$props[OFFER_PROP_PLANNED_START_DATE]);
 $formData['benefits'] = ((string)$props[OFFER_PROP_BENEFITS] !== '' ? (string)$props[OFFER_PROP_BENEFITS] : $formData['benefits']);
 $formData['work_format'] = (string)$props[OFFER_PROP_WORK_FORMAT];
 $formData['office'] = (string)$props[OFFER_PROP_OFFICE];
@@ -815,7 +839,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
             OFFER_PROP_CANDIDATE_PHONE => $formData['candidate_phone'],
-            OFFER_PROP_PLANNED_SEND_DATE => $formData['planned_send_date'],
+            OFFER_PROP_PLANNED_SEND_DATE => dateToStorageFormat($formData['planned_send_date']),
             OFFER_PROP_IS_CHIEF_POSITION => $formData['is_chief_position'],
             OFFER_PROP_POSITION => $formData['position'],
             OFFER_PROP_DIRECTION => $formData['direction'],
@@ -833,7 +857,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
-            OFFER_PROP_PLANNED_START_DATE => $formData['planned_start_date'],
+            OFFER_PROP_PLANNED_START_DATE => dateToStorageFormat($formData['planned_start_date']),
             OFFER_PROP_BENEFITS => $formData['benefits'],
             OFFER_PROP_WORK_FORMAT => $formData['work_format'],
             OFFER_PROP_OFFICE => $formData['office'],
