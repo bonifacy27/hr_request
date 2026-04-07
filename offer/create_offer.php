@@ -475,7 +475,7 @@ $formData = [
     'request_id' => '',
     'candidate_id' => '',
     'fw_candidate_id' => '',
-    'comment' => '',
+    'comment' => 'Вручную',
 ];
 
 if ($candidateId > 0) {
@@ -588,6 +588,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
+    if ($candidateId <= 0) {
+        $formData['comment'] = 'Вручную';
+    }
     if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
         $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
     }
