@@ -627,6 +627,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     if ($formData['planned_start_date'] === '') {
         $errors[] = 'Заполните поле «Планируемая дата выхода на работу».';
     }
+    if ($formData['planned_start_date'] !== '' && $formData['planned_send_date'] !== '') {
+        $startTs = strtotime($formData['planned_start_date']);
+        $sendTs = strtotime($formData['planned_send_date']);
+        if ($startTs !== false && $sendTs !== false && $startTs < $sendTs) {
+            $errors[] = 'Дата «Планируемая дата выхода на работу» не может быть ранее даты «Планируемая дата отправки оффера кандидату».';
+        }
+    }
     if ($formData['benefits'] === '') {
         $errors[] = 'Заполните поле «Льготы».';
     }
@@ -1035,12 +1042,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Планируемая дата выхода на работу <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>" required>
-                    </div>
-                    <div class="form-group col-md-6">
                         <label>Планируемая дата отправки оффера кандидату <span class="text-danger">*</span></label>
                         <input type="date" class="form-control" name="planned_send_date" value="<?=h($formData['planned_send_date'])?>" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Планируемая дата выхода на работу <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>" required>
                     </div>
                 </div>
 
@@ -1172,6 +1179,8 @@ BX.ready(function () {
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
+    var plannedSendDateInput = document.querySelector('input[name=\"planned_send_date\"]');
+    var plannedStartDateInput = document.querySelector('input[name=\"planned_start_date\"]');
     var salaryNdflInput = document.querySelector('input[name=\"salary_ndfl\"]');
     var isnNdflInput = document.querySelector('input[name=\"isn_ndfl\"]');
     var bonusRubNdflInput = document.querySelector('input[name=\"bonus_rub_ndfl\"]');
@@ -1406,6 +1415,11 @@ BX.ready(function () {
         }
     }
 
+    function syncPlannedDateConstraint() {
+        if (!plannedSendDateInput || !plannedStartDateInput) return;
+        plannedStartDateInput.min = plannedSendDateInput.value || '';
+    }
+
     function parseUserId(raw) {
         var value = String(raw || '').trim();
         if (!value) return 0;
@@ -1519,6 +1533,12 @@ BX.ready(function () {
             recalcIncomeFields();
         });
     }
+    if (plannedSendDateInput) {
+        plannedSendDateInput.addEventListener('change', syncPlannedDateConstraint);
+    }
+    if (plannedStartDateInput) {
+        plannedStartDateInput.addEventListener('change', syncPlannedDateConstraint);
+    }
 
     if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
         var preselectedChiefId = parseUserId(chiefInput.value);
@@ -1562,6 +1582,7 @@ BX.ready(function () {
     regionSelect.dispatchEvent(new Event('change'));
     syncRegionExtraFields();
     syncBonusPercentRequired();
+    syncPlannedDateConstraint();
     recalcIncomeFields();
 });
 </script>
