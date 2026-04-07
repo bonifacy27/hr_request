@@ -925,60 +925,62 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                             </div>
                         </div>
                 <div class="form-row">
-                            <div class="form-group col-md-4">
+                    <div class="form-group col-md-6">
                         <label>Оклад, руб. <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label>Оклад, руб. (после вычета НДФЛ)</label>
-                                <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
-                                <small class="form-text text-muted" id="salaryNdflInfo"></small>
-                            </div>
-                            <div class="form-group col-md-4">
+                        <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Оклад, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="salaryNdflInfo"></small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>ИСН, руб.</label>
+                        <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>ИСН, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="isnNdflInfo"></small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
                         <label>Тип премирования <span class="text-danger">*</span></label>
-                                <select class="form-control" name="bonus_type" required>
-                                    <option value="">— Выберите —</option>
-                                    <?php foreach ($bonusTypeList as $o): ?>
-                                        <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
-                <div class="form-row">
-                            <div class="form-group col-md-4">
-                                <label>ИСН, руб.</label>
-                                <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label>ИСН, руб. (после вычета НДФЛ)</label>
-                                <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
-                                <small class="form-text text-muted" id="isnNdflInfo"></small>
-                            </div>
-                            <div class="form-group col-md-4">
+                        <select class="form-control" name="bonus_type" required>
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($bonusTypeList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-6">
                         <label>Процент премии</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
-                                    <div class="input-group-append"><span class="input-group-text">%</span></div>
-                                </div>
-                            </div>
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                            <div class="input-group-append"><span class="input-group-text">%</span></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-row">
-                            <div class="form-group col-md-4">
-                                <label>Премиальная часть, руб. Гросс</label>
-                                <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
-                                <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
-                                <small class="form-text text-muted" id="bonusNdflInfo"></small>
-                            </div>
-                            <div class="form-group col-md-4" id="monthIncomeWrap">
-                                <label>Доход в месяц в среднем, руб. Гросс</label>
-                                <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
-                            </div>
+                    <div class="form-group col-md-6">
+                        <label>Премиальная часть, руб. Гросс</label>
+                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="bonusNdflInfo"></small>
+                    </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group col-md-4">
+                <div class="form-row" id="monthIncomeWrap">
+                    <div class="form-group col-md-6">
+                        <label>Доход в месяц в среднем, руб. Гросс</label>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                    </div>
+                    <div class="form-group col-md-6">
                         <label>Доход в месяц в среднем, руб. (после вычета НДФЛ)</label>
                         <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h($formData['month_income_avg_ndfl'])?>" readonly>
                         <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
