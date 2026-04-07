@@ -1333,8 +1333,15 @@ BX.ready(function () {
         var isn = toNum(isnInput && isnInput.value);
         var rayon = toNum(rayonInput && rayonInput.value);
         var northPercent = toNum(allowanceInput && allowanceInput.value);
+        var bonusPeriodDivisor = 1;
+        if (bonusTypeSelect && bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
+            var bonusTypeText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
+            if (bonusTypeText.indexOf('ежекварт') !== -1) {
+                bonusPeriodDivisor = 3;
+            }
+        }
 
-        var bonusRub = Math.round(salary * bonusPercent / 100);
+        var bonusRub = Math.round((salary * bonusPercent / 100) / bonusPeriodDivisor);
         var baseIncome = salary + bonusRub + isn;
         var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
         var canShowMonthIncome = (rayon > 0);
