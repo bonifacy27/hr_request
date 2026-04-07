@@ -40,6 +40,10 @@ const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
 const OFFER_PROP_CHIEF_POSITION = 1169;
 const OFFER_PROP_BONUS_RUB_GROSS = 1170;
 const OFFER_PROP_MONTH_INCOME_AVG_GROSS = 1172;
+const OFFER_PROP_SALARY_NDFL = 1166;
+const OFFER_PROP_ISN_NDFL = 1167;
+const OFFER_PROP_BONUS_RUB_NDFL = 1171;
+const OFFER_PROP_MONTH_INCOME_AVG_NDFL = 1173;
 const OFFER_PROP_SALARY = 1165;
 const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
@@ -244,6 +248,24 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
+function calcNetAfterNdfl(float $gross): array
+{
+    if ($gross <= 0) {
+        return ['net' => 0.0, 'rates' => '13%', 'effective_rate' => 0.0];
+    }
+
+    $annualGross = $gross * 12;
+    $annualAt13 = min($annualGross, 2400000.0);
+    $annualAt15 = max($annualGross - 2400000.0, 0.0);
+    $annualTax = ($annualAt13 * 0.13) + ($annualAt15 * 0.15);
+    $monthlyTax = $annualTax / 12;
+    $net = $gross - $monthlyTax;
+    $effectiveRate = ($monthlyTax / $gross) * 100;
+    $rates = ($annualAt15 > 0.0) ? '13% + 15%' : '13%';
+
+    return ['net' => $net, 'rates' => $rates, 'effective_rate' => $effectiveRate];
+}
+
 function getUserWorkPosition(int $userId): string
 {
     if ($userId <= 0) {
@@ -394,6 +416,10 @@ $formData = [
     'bonus_percent' => '0',
     'bonus_rub_gross' => '',
     'month_income_avg_gross' => '',
+    'salary_ndfl' => '',
+    'isn_ndfl' => '',
+    'bonus_rub_ndfl' => '',
+    'month_income_avg_ndfl' => '',
     'trial_period' => '',
     'planned_start_date' => '',
     'region_location' => '',
@@ -634,6 +660,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
     $formData['bonus_rub_gross'] = (string)$bonusRubGross;
     $formData['month_income_avg_gross'] = (string)$monthIncomeAvg;
+    $formData['salary_ndfl'] = (string)round(calcNetAfterNdfl($salaryNum)['net']);
+    $formData['isn_ndfl'] = (string)round(calcNetAfterNdfl($isnNum)['net']);
+    $formData['bonus_rub_ndfl'] = (string)round(calcNetAfterNdfl((float)$bonusRubGross)['net']);
+    $formData['month_income_avg_ndfl'] = (string)round(calcNetAfterNdfl((float)$monthIncomeAvg)['net']);
 
     if (empty($errors)) {
         $props = [
@@ -648,6 +678,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
             OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
             OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
+            OFFER_PROP_SALARY_NDFL => $formData['salary_ndfl'],
+            OFFER_PROP_ISN_NDFL => $formData['isn_ndfl'],
+            OFFER_PROP_BONUS_RUB_NDFL => $formData['bonus_rub_ndfl'],
+            OFFER_PROP_MONTH_INCOME_AVG_NDFL => $formData['month_income_avg_ndfl'],
             OFFER_PROP_SALARY => $formData['salary'],
             OFFER_PROP_ISN => $formData['isn'],
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
@@ -896,8 +930,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                                 <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
                             </div>
                             <div class="form-group col-md-4">
-                                <label>ИСН, руб.</label>
-                                <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                                <label>Оклад, руб. (после вычета НДФЛ)</label>
+                                <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
+                                <small class="form-text text-muted" id="salaryNdflInfo"></small>
                             </div>
                             <div class="form-group col-md-4">
                         <label>Тип премирования <span class="text-danger">*</span></label>
@@ -911,20 +946,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         </div>
                 <div class="form-row">
                             <div class="form-group col-md-4">
+                                <label>ИСН, руб.</label>
+                                <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>ИСН, руб. (после вычета НДФЛ)</label>
+                                <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
+                                <small class="form-text text-muted" id="isnNdflInfo"></small>
+                            </div>
+                            <div class="form-group col-md-4">
                         <label>Процент премии</label>
                                 <div class="input-group">
                                     <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
                                     <div class="input-group-append"><span class="input-group-text">%</span></div>
                                 </div>
                             </div>
+                </div>
+                <div class="form-row">
                             <div class="form-group col-md-4">
                                 <label>Премиальная часть, руб. Гросс</label>
                                 <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
+                                <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
+                                <small class="form-text text-muted" id="bonusNdflInfo"></small>
                             </div>
                             <div class="form-group col-md-4" id="monthIncomeWrap">
                                 <label>Доход в месяц в среднем, руб. Гросс</label>
                                 <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
                             </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>Доход в месяц в среднем, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h($formData['month_income_avg_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1091,6 +1149,14 @@ BX.ready(function () {
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
+    var salaryNdflInput = document.querySelector('input[name=\"salary_ndfl\"]');
+    var isnNdflInput = document.querySelector('input[name=\"isn_ndfl\"]');
+    var bonusRubNdflInput = document.querySelector('input[name=\"bonus_rub_ndfl\"]');
+    var monthIncomeAvgNdflInput = document.querySelector('input[name=\"month_income_avg_ndfl\"]');
+    var salaryNdflInfo = document.getElementById('salaryNdflInfo');
+    var isnNdflInfo = document.getElementById('isnNdflInfo');
+    var bonusNdflInfo = document.getElementById('bonusNdflInfo');
+    var monthIncomeNdflInfo = document.getElementById('monthIncomeNdflInfo');
     var monthIncomeWrap = document.getElementById('monthIncomeWrap');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     var regionNameById = <?=CUtil::PhpToJSObject($regionNameById, false, true)?>;
@@ -1227,6 +1293,35 @@ BX.ready(function () {
         return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     }
 
+    function calcNdfl(gross) {
+        if (gross <= 0) {
+            return {net: 0, rates: '13%', effective: 0};
+        }
+        var annualGross = gross * 12;
+        var annualAt13 = Math.min(annualGross, 2400000);
+        var annualAt15 = Math.max(annualGross - 2400000, 0);
+        var annualTax = (annualAt13 * 0.13) + (annualAt15 * 0.15);
+        var monthlyTax = annualTax / 12;
+        var net = Math.round(gross - monthlyTax);
+        var effective = (monthlyTax / gross) * 100;
+        var rates = annualAt15 > 0 ? '13% + 15%' : '13%';
+        return {net: net, rates: rates, effective: effective};
+    }
+
+    function fillNdflField(gross, input, infoNode) {
+        if (!input) return;
+        if (gross <= 0) {
+            input.value = '';
+            if (infoNode) infoNode.textContent = '';
+            return;
+        }
+        var ndfl = calcNdfl(gross);
+        input.value = formatNumberRu(ndfl.net);
+        if (infoNode) {
+            infoNode.textContent = 'НДФЛ: ' + ndfl.rates + ', эффективная ставка: ' + ndfl.effective.toFixed(2) + '%';
+        }
+    }
+
     function recalcIncomeFields() {
         var salary = toNum(salaryInput && salaryInput.value);
         var bonusPercent = toNum(bonusPercentInput && bonusPercentInput.value);
@@ -1250,6 +1345,10 @@ BX.ready(function () {
         if (bonusRubGrossInput) bonusRubGrossInput.value = formatNumberRu(bonusRub);
         if (monthIncomeAvgInput) monthIncomeAvgInput.value = canShowMonthIncome ? formatNumberRu(monthIncome) : '';
         if (monthIncomeWrap) monthIncomeWrap.style.display = canShowMonthIncome ? '' : 'none';
+        fillNdflField(salary, salaryNdflInput, salaryNdflInfo);
+        fillNdflField(isn, isnNdflInput, isnNdflInfo);
+        fillNdflField(bonusRub, bonusRubNdflInput, bonusNdflInfo);
+        fillNdflField(canShowMonthIncome ? monthIncome : 0, monthIncomeAvgNdflInput, monthIncomeNdflInfo);
     }
 
     function syncBonusPercentRequired() {
