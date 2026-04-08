@@ -40,6 +40,10 @@ const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
 const OFFER_PROP_CHIEF_POSITION = 1169;
 const OFFER_PROP_BONUS_RUB_GROSS = 1170;
 const OFFER_PROP_MONTH_INCOME_AVG_GROSS = 1172;
+const OFFER_PROP_SALARY_NDFL = 1166;
+const OFFER_PROP_ISN_NDFL = 1167;
+const OFFER_PROP_BONUS_RUB_NDFL = 1171;
+const OFFER_PROP_MONTH_INCOME_AVG_NDFL = 1173;
 const OFFER_PROP_SALARY = 1165;
 const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
@@ -244,6 +248,57 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
+function dateToStorageFormat(string $value): string
+{
+    $value = trim($value);
+    if ($value === '') {
+        return '';
+    }
+    if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m)) {
+        return $m[3] . '.' . $m[2] . '.' . $m[1];
+    }
+    return $value;
+}
+
+function calcNetAfterNdfl(float $gross): array
+{
+    if ($gross <= 0) {
+        return ['net' => 0.0, 'rates' => '13%', 'effective_rate' => 0.0];
+    }
+
+    $annualGross = $gross * 12;
+    $brackets = [
+        ['limit' => 2400000.0, 'rate' => 0.13, 'label' => '13%'],
+        ['limit' => 5000000.0, 'rate' => 0.15, 'label' => '15%'],
+        ['limit' => 20000000.0, 'rate' => 0.18, 'label' => '18%'],
+        ['limit' => 50000000.0, 'rate' => 0.20, 'label' => '20%'],
+        ['limit' => INF, 'rate' => 0.22, 'label' => '22%'],
+    ];
+
+    $annualTax = 0.0;
+    $prevLimit = 0.0;
+    $usedRates = [];
+    foreach ($brackets as $bracket) {
+        if ($annualGross <= $prevLimit) {
+            break;
+        }
+        $upperLimit = min($annualGross, (float)$bracket['limit']);
+        $slice = max(0.0, $upperLimit - $prevLimit);
+        if ($slice > 0) {
+            $annualTax += $slice * (float)$bracket['rate'];
+            $usedRates[] = (string)$bracket['label'];
+        }
+        $prevLimit = (float)$bracket['limit'];
+    }
+
+    $monthlyTax = $annualTax / 12;
+    $net = $gross - $monthlyTax;
+    $effectiveRate = ($monthlyTax / $gross) * 100;
+    $rates = implode(' + ', $usedRates);
+
+    return ['net' => $net, 'rates' => $rates, 'effective_rate' => $effectiveRate];
+}
+
 function getUserWorkPosition(int $userId): string
 {
     if ($userId <= 0) {
@@ -394,6 +449,10 @@ $formData = [
     'bonus_percent' => '0',
     'bonus_rub_gross' => '',
     'month_income_avg_gross' => '',
+    'salary_ndfl' => '',
+    'isn_ndfl' => '',
+    'bonus_rub_ndfl' => '',
+    'month_income_avg_ndfl' => '',
     'trial_period' => '',
     'planned_start_date' => '',
     'region_location' => '',
@@ -416,7 +475,7 @@ $formData = [
     'request_id' => '',
     'candidate_id' => '',
     'fw_candidate_id' => '',
-    'comment' => '',
+    'comment' => 'Вручную',
 ];
 
 if ($candidateId > 0) {
@@ -529,6 +588,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
+    if ($candidateId <= 0) {
+        $formData['comment'] = 'Вручную';
+    }
     if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
         $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
     }
@@ -568,6 +630,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $errors[] = 'Заполните поле «Тип премирования».';
     }
     $bonusTypeName = mb_strtolower((string)($bonusTypeNameById[$formData['bonus_type']] ?? ''));
+    if (strpos($bonusTypeName, 'без прем') !== false) {
+        $formData['bonus_percent'] = '0';
+    }
     if ((strpos($bonusTypeName, 'ежекварт') !== false || strpos($bonusTypeName, 'ежемесяч') !== false) && $formData['bonus_percent'] === '') {
         $errors[] = 'Поле «Процент премии» обязательно для выбранного типа премирования.';
     }
@@ -576,6 +641,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     if ($formData['planned_start_date'] === '') {
         $errors[] = 'Заполните поле «Планируемая дата выхода на работу».';
+    }
+    if ($formData['planned_start_date'] !== '' && $formData['planned_send_date'] !== '') {
+        $startTs = strtotime($formData['planned_start_date']);
+        $sendTs = strtotime($formData['planned_send_date']);
+        if ($startTs !== false && $sendTs !== false && $startTs < $sendTs) {
+            $errors[] = 'Дата «Планируемая дата выхода на работу» не может быть ранее даты «Планируемая дата отправки оффера кандидату».';
+        }
     }
     if ($formData['benefits'] === '') {
         $errors[] = 'Заполните поле «Льготы».';
@@ -631,12 +703,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
     $formData['bonus_rub_gross'] = (string)$bonusRubGross;
     $formData['month_income_avg_gross'] = (string)$monthIncomeAvg;
+    $formData['salary_ndfl'] = (string)round(calcNetAfterNdfl($salaryNum)['net']);
+    $formData['isn_ndfl'] = (string)round(calcNetAfterNdfl($isnNum)['net']);
+    $formData['bonus_rub_ndfl'] = (string)round(calcNetAfterNdfl((float)$bonusRubGross)['net']);
+    $formData['month_income_avg_ndfl'] = (string)round(calcNetAfterNdfl((float)$monthIncomeAvg)['net']);
 
     if (empty($errors)) {
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
             OFFER_PROP_CANDIDATE_PHONE => $formData['candidate_phone'],
-            OFFER_PROP_PLANNED_SEND_DATE => $formData['planned_send_date'],
+            OFFER_PROP_PLANNED_SEND_DATE => dateToStorageFormat($formData['planned_send_date']),
             OFFER_PROP_IS_CHIEF_POSITION => $formData['is_chief_position'],
             OFFER_PROP_POSITION => $formData['position'],
             OFFER_PROP_DIRECTION => $formData['direction'],
@@ -645,12 +721,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
             OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
             OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
+            OFFER_PROP_SALARY_NDFL => $formData['salary_ndfl'],
+            OFFER_PROP_ISN_NDFL => $formData['isn_ndfl'],
+            OFFER_PROP_BONUS_RUB_NDFL => $formData['bonus_rub_ndfl'],
+            OFFER_PROP_MONTH_INCOME_AVG_NDFL => $formData['month_income_avg_ndfl'],
             OFFER_PROP_SALARY => $formData['salary'],
             OFFER_PROP_ISN => $formData['isn'],
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
-            OFFER_PROP_PLANNED_START_DATE => $formData['planned_start_date'],
+            OFFER_PROP_PLANNED_START_DATE => dateToStorageFormat($formData['planned_start_date']),
             OFFER_PROP_BENEFITS => $formData['benefits'],
             OFFER_PROP_WORK_FORMAT => $formData['work_format'],
             OFFER_PROP_OFFICE => $formData['office'],
@@ -888,40 +968,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                             </div>
                         </div>
                 <div class="form-row">
-                            <div class="form-group col-md-4">
+                    <div class="form-group col-md-6">
                         <label>Оклад, руб. <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label>ИСН, руб.</label>
-                                <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
-                            </div>
-                            <div class="form-group col-md-4">
-                        <label>Тип премирования <span class="text-danger">*</span></label>
-                                <select class="form-control" name="bonus_type" required>
-                                    <option value="">— Выберите —</option>
-                                    <?php foreach ($bonusTypeList as $o): ?>
-                                        <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                        </div>
+                        <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Оклад, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="salaryNdflInfo"></small>
+                    </div>
+                </div>
                 <div class="form-row">
-                            <div class="form-group col-md-4">
+                    <div class="form-group col-md-6">
+                        <label>ИСН, руб.</label>
+                        <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>ИСН, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="isnNdflInfo"></small>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Тип премирования <span class="text-danger">*</span></label>
+                        <select class="form-control" name="bonus_type" required>
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($bonusTypeList as $o): ?>
+                                <option value="<?=h($o['ID'])?>" <?=$formData['bonus_type'] === $o['ID'] ? 'selected' : ''?>><?=h($o['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-6">
                         <label>Процент премии</label>
-                                <div class="input-group">
-                                    <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
-                                    <div class="input-group-append"><span class="input-group-text">%</span></div>
-                                </div>
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label>Премиальная часть, руб. Гросс</label>
-                                <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
-                            </div>
-                            <div class="form-group col-md-4" id="monthIncomeWrap">
-                                <label>Доход в месяц в среднем, руб. Гросс</label>
-                                <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
-                            </div>
+                        <div class="input-group">
+                            <input type="text" class="form-control" name="bonus_percent" value="<?=h($formData['bonus_percent'])?>">
+                            <div class="input-group-append"><span class="input-group-text">%</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group col-md-6">
+                        <label>Премиальная часть, руб. Гросс</label>
+                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="bonusNdflInfo"></small>
+                    </div>
+                </div>
+                <div class="form-row" id="monthIncomeWrap">
+                    <div class="form-group col-md-6">
+                        <label>Доход в месяц в среднем, руб. Гросс</label>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Доход в месяц в среднем, руб. (после вычета НДФЛ)</label>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h($formData['month_income_avg_ndfl'])?>" readonly>
+                        <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
+                    </div>
                 </div>
             </div>
         </div>
@@ -951,12 +1057,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label>Планируемая дата выхода на работу <span class="text-danger">*</span></label>
-                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>" required>
-                    </div>
-                    <div class="form-group col-md-6">
                         <label>Планируемая дата отправки оффера кандидату <span class="text-danger">*</span></label>
                         <input type="date" class="form-control" name="planned_send_date" value="<?=h($formData['planned_send_date'])?>" required>
+                    </div>
+                    <div class="form-group col-md-6">
+                        <label>Планируемая дата выхода на работу <span class="text-danger">*</span></label>
+                        <input type="date" class="form-control" name="planned_start_date" value="<?=h($formData['planned_start_date'])?>" required>
                     </div>
                 </div>
 
@@ -1088,6 +1194,16 @@ BX.ready(function () {
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
+    var plannedSendDateInput = document.querySelector('input[name=\"planned_send_date\"]');
+    var plannedStartDateInput = document.querySelector('input[name=\"planned_start_date\"]');
+    var salaryNdflInput = document.querySelector('input[name=\"salary_ndfl\"]');
+    var isnNdflInput = document.querySelector('input[name=\"isn_ndfl\"]');
+    var bonusRubNdflInput = document.querySelector('input[name=\"bonus_rub_ndfl\"]');
+    var monthIncomeAvgNdflInput = document.querySelector('input[name=\"month_income_avg_ndfl\"]');
+    var salaryNdflInfo = document.getElementById('salaryNdflInfo');
+    var isnNdflInfo = document.getElementById('isnNdflInfo');
+    var bonusNdflInfo = document.getElementById('bonusNdflInfo');
+    var monthIncomeNdflInfo = document.getElementById('monthIncomeNdflInfo');
     var monthIncomeWrap = document.getElementById('monthIncomeWrap');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     var regionNameById = <?=CUtil::PhpToJSObject($regionNameById, false, true)?>;
@@ -1224,6 +1340,52 @@ BX.ready(function () {
         return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
     }
 
+    function calcNdfl(gross) {
+        if (gross <= 0) {
+            return {net: 0, rates: '13%', effective: 0};
+        }
+        var annualGross = gross * 12;
+        var brackets = [
+            {limit: 2400000, rate: 0.13, label: '13%'},
+            {limit: 5000000, rate: 0.15, label: '15%'},
+            {limit: 20000000, rate: 0.18, label: '18%'},
+            {limit: 50000000, rate: 0.20, label: '20%'},
+            {limit: Infinity, rate: 0.22, label: '22%'}
+        ];
+        var annualTax = 0;
+        var prevLimit = 0;
+        var usedRates = [];
+        brackets.forEach(function (bracket) {
+            if (annualGross <= prevLimit) return;
+            var upperLimit = Math.min(annualGross, bracket.limit);
+            var slice = Math.max(0, upperLimit - prevLimit);
+            if (slice > 0) {
+                annualTax += slice * bracket.rate;
+                usedRates.push(bracket.label);
+            }
+            prevLimit = bracket.limit;
+        });
+        var monthlyTax = annualTax / 12;
+        var net = Math.round(gross - monthlyTax);
+        var effective = (monthlyTax / gross) * 100;
+        var rates = usedRates.join(' + ');
+        return {net: net, rates: rates, effective: effective};
+    }
+
+    function fillNdflField(gross, input, infoNode) {
+        if (!input) return;
+        if (gross <= 0) {
+            input.value = '';
+            if (infoNode) infoNode.textContent = '';
+            return;
+        }
+        var ndfl = calcNdfl(gross);
+        input.value = formatNumberRu(ndfl.net);
+        if (infoNode) {
+            infoNode.textContent = 'НДФЛ: ' + ndfl.rates + ', эффективная ставка: ' + ndfl.effective.toFixed(2) + '%';
+        }
+    }
+
     function recalcIncomeFields() {
         var salary = toNum(salaryInput && salaryInput.value);
         var bonusPercent = toNum(bonusPercentInput && bonusPercentInput.value);
@@ -1247,6 +1409,10 @@ BX.ready(function () {
         if (bonusRubGrossInput) bonusRubGrossInput.value = formatNumberRu(bonusRub);
         if (monthIncomeAvgInput) monthIncomeAvgInput.value = canShowMonthIncome ? formatNumberRu(monthIncome) : '';
         if (monthIncomeWrap) monthIncomeWrap.style.display = canShowMonthIncome ? '' : 'none';
+        fillNdflField(salary, salaryNdflInput, salaryNdflInfo);
+        fillNdflField(isn, isnNdflInput, isnNdflInfo);
+        fillNdflField(bonusRub, bonusRubNdflInput, bonusNdflInfo);
+        fillNdflField(canShowMonthIncome ? monthIncome : 0, monthIncomeAvgNdflInput, monthIncomeNdflInfo);
     }
 
     function syncBonusPercentRequired() {
@@ -1255,8 +1421,18 @@ BX.ready(function () {
         if (bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
             selectedText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
         }
+        var isNoBonusType = selectedText.indexOf('без прем') !== -1;
         var mustRequire = selectedText.indexOf('ежекварт') !== -1 || selectedText.indexOf('ежемесяч') !== -1;
         bonusPercentInput.required = mustRequire;
+        bonusPercentInput.readOnly = isNoBonusType;
+        if (isNoBonusType) {
+            bonusPercentInput.value = '0';
+        }
+    }
+
+    function syncPlannedDateConstraint() {
+        if (!plannedSendDateInput || !plannedStartDateInput) return;
+        plannedStartDateInput.min = plannedSendDateInput.value || '';
     }
 
     function parseUserId(raw) {
@@ -1372,6 +1548,12 @@ BX.ready(function () {
             recalcIncomeFields();
         });
     }
+    if (plannedSendDateInput) {
+        plannedSendDateInput.addEventListener('change', syncPlannedDateConstraint);
+    }
+    if (plannedStartDateInput) {
+        plannedStartDateInput.addEventListener('change', syncPlannedDateConstraint);
+    }
 
     if (chiefSelectorNode && chiefInput && BX.UI && BX.UI.EntitySelector && BX.UI.EntitySelector.TagSelector) {
         var preselectedChiefId = parseUserId(chiefInput.value);
@@ -1415,6 +1597,7 @@ BX.ready(function () {
     regionSelect.dispatchEvent(new Event('change'));
     syncRegionExtraFields();
     syncBonusPercentRequired();
+    syncPlannedDateConstraint();
     recalcIncomeFields();
 });
 </script>
