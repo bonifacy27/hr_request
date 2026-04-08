@@ -313,9 +313,252 @@ function fwGetAccounts($cookieFile)
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
+function findUserRunningTaskForDocument($iblockId, $elementId, $userId)
+{
+    $candidates = [
+        ['lists',  'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
+        ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
+        ['lists',  'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
+    ];
+
+    foreach ($candidates as $docId) {
+        try {
+            $rs = CBPTaskService::GetList(
+                ['ID' => 'ASC'],
+                ['DOCUMENT_ID' => $docId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
+                false,
+                false,
+                ['ID', 'NAME', 'WORKFLOW_ID', 'USER_ID', 'ACTIVITY', 'ACTIVITY_NAME']
+            );
+            if ($task = $rs->GetNext()) {
+                return [
+                    'ID' => (int)$task['ID'],
+                    'NAME' => (string)$task['NAME'],
+                    'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+                    'ACTIVITY_NAME' => (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? ''),
+                    'DOCUMENT_ID' => $docId,
+                ];
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+
+    return null;
+}
+
+function taskIsRunning($taskId)
+{
+    $taskId = (int)$taskId;
+    if ($taskId <= 0) {
+        return false;
+    }
+
+    try {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID']
+        );
+        return (bool)$rs->GetNext();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+function getRunningTaskByIdForUser($taskId, $userId)
+{
+    $taskId = (int)$taskId;
+    $userId = (int)$userId;
+    if ($taskId <= 0 || $userId <= 0) {
+        return null;
+    }
+
+    try {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
+            false,
+            false,
+            ['ID', 'NAME', 'WORKFLOW_ID', 'USER_ID', 'ACTIVITY', 'ACTIVITY_NAME']
+        );
+        $task = $rs->GetNext();
+        if (!$task) {
+            return null;
+        }
+
+        return [
+            'ID' => (int)$task['ID'],
+            'NAME' => (string)$task['NAME'],
+            'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+            'ACTIVITY_NAME' => (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? ''),
+        ];
+    } catch (\Throwable $e) {
+        return null;
+    }
+}
+
+function flattenBizprocErrors(array $errors)
+{
+    $parts = [];
+    foreach ($errors as $e) {
+        if (is_array($e)) {
+            $msg = trim((string)($e['message'] ?? $e['MESSAGE'] ?? ''));
+            $code = trim((string)($e['code'] ?? $e['CODE'] ?? ''));
+            if ($msg !== '' && $code !== '') {
+                $parts[] = $code . ': ' . $msg;
+            } elseif ($msg !== '') {
+                $parts[] = $msg;
+            } elseif ($code !== '') {
+                $parts[] = $code;
+            }
+        } else {
+            $s = trim((string)$e);
+            if ($s !== '') {
+                $parts[] = $s;
+            }
+        }
+    }
+
+    return implode('; ', array_values(array_unique($parts)));
+}
+
+function completeBizprocTask(array $task, $userId, $action = 'approve', $comment = '')
+{
+    $taskId = (int)($task['ID'] ?? 0);
+    $userId = (int)$userId;
+    if ($taskId <= 0) {
+        return ['OK' => false, 'ERROR' => 'Некорректный ID задачи БП.'];
+    }
+
+    $errors = [];
+    $aliases = [
+        'yes' => 'approve',
+        'ok' => 'approve',
+        'no' => 'nonapprove',
+        'cancel' => 'nonapprove',
+        'reject' => 'nonapprove',
+        'decline' => 'nonapprove',
+    ];
+    $code = strtolower(trim((string)$action));
+    if ($code === '') {
+        $code = 'approve';
+    }
+    if (isset($aliases[$code])) {
+        $code = $aliases[$code];
+    }
+
+    try {
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $fields1 = [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                'COMMENT' => $comment,
+                'ACTION' => $code,
+                $code => 'Y',
+            ];
+            $tmpErr = [];
+            CBPDocument::PostTaskForm($taskId, $userId, $fields1, $tmpErr);
+            if (!empty($tmpErr)) {
+                $errors = array_merge($errors, $tmpErr);
+            }
+            if (!taskIsRunning($taskId)) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    try {
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $fields2 = [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                'COMMENT' => $comment,
+                $code => 'Y',
+            ];
+            $tmpErr2 = [];
+            CBPDocument::PostTaskForm($taskId, $userId, $fields2, $tmpErr2);
+            if (!empty($tmpErr2)) {
+                $errors = array_merge($errors, $tmpErr2);
+            }
+            if (!taskIsRunning($taskId)) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    try {
+        $workflowId = (string)($task['WORKFLOW_ID'] ?? '');
+        $activity = (string)($task['ACTIVITY_NAME'] ?? $task['NAME'] ?? '');
+        if ($workflowId !== '' && $activity !== '' && method_exists('CBPDocument', 'SendExternalEvent')) {
+            $isYes = in_array($code, ['approve', 'accepted', 'accept', 'ok', 'yes', 'y', 'agree'], true);
+            $isNo = in_array($code, ['cancel', 'rejected', 'reject', 'no', 'n', 'disagree', 'decline', 'deny', 'refuse', 'nonapprove'], true);
+            $payloads = [];
+
+            if ($isYes || $isNo) {
+                $appr = $isYes ? 'Y' : 'N';
+                $payloads[] = ['APPROVE' => $appr, 'COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+                $payloads[] = ['RESULT' => $appr, 'COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+            } else {
+                $payloads[] = ['COMMENT' => $comment, 'USER_ID' => $userId, 'REAL_USER_ID' => $userId];
+            }
+
+            foreach ($payloads as $payload) {
+                $extErr = [];
+                CBPDocument::SendExternalEvent($workflowId, $activity, $payload, $extErr);
+                if (!empty($extErr)) {
+                    $errors = array_merge($errors, $extErr);
+                }
+                if (!taskIsRunning($taskId)) {
+                    return ['OK' => true, 'ERROR' => ''];
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    try {
+        if (method_exists('CBPTaskService', 'DoTask')) {
+            CBPTaskService::DoTask($taskId, $userId, [
+                'ACTION' => $code,
+                $code => 'Y',
+                'COMMENT' => $comment,
+            ]);
+            if (!taskIsRunning($taskId)) {
+                return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = ['message' => $e->getMessage()];
+    }
+
+    $flat = flattenBizprocErrors($errors);
+    if ($flat === '') {
+        $flat = 'Задание осталось активным после всех попыток завершения.';
+    }
+
+    return ['OK' => false, 'ERROR' => $flat];
+}
+
 
 if (!Loader::includeModule('iblock')) {
     ShowError('Не удалось подключить модуль iblock.');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+    return;
+}
+if (!Loader::includeModule('bizproc')) {
+    ShowError('Не удалось подключить модуль bizproc.');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+    return;
+}
+if (!Loader::includeModule('lists')) {
+    ShowError('Не удалось подключить модуль lists.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
@@ -398,8 +641,15 @@ $existingFwUrl = trim((string)valueOr($element, 'PROPERTY_SSYLKA_NA_VAKANSIYU_FW
 $alreadyCreated = ($existingFwId !== '');
 
 $errors = [];
+$warnings = [];
 $success = '';
 $debugInfo = [];
+$bizprocCompletion = null;
+$currentUserId = (int)$GLOBALS['USER']->GetID();
+$task = null;
+if ($currentUserId > 0) {
+    $task = findUserRunningTaskForDocument(IBLOCK_RECRUITMENT, $requestId, $currentUserId);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_POST, 'action', '') === 'submit_to_fw') {
     if ($alreadyCreated) {
@@ -525,7 +775,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                             $existingFwId = (string)$jobId;
                             $existingFwUrl = $jobUrl;
                             $alreadyCreated = true;
-                            $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId);
+                            $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId) . '.';
+
+                            $taskId = (int)($task['ID'] ?? 0);
+                            if ($taskId <= 0) {
+                                $warnings[] = 'Вакансия создана, но не удалось определить текущее задание БП для автозавершения.';
+                            } else {
+                                $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
+                                if (!$actualTask) {
+                                    $warnings[] = 'Вакансия создана, но текущее задание БП не найдено среди активных задач пользователя.';
+                                } else {
+                                    $bizprocCompletion = completeBizprocTask(
+                                        $actualTask,
+                                        $currentUserId,
+                                        'approve',
+                                        'Заявка успешно отправлена в FriendWork. Вакансия #' . $jobId
+                                    );
+                                    if (!empty($bizprocCompletion['OK'])) {
+                                        $success = 'Вакансия успешно создана в FriendWork (ID: ' . h($jobId) . '), задание БП успешно завершено.';
+                                    } else {
+                                        $warnings[] = 'Вакансия создана (ID: ' . h($jobId) . '), но завершить задание БП не удалось: ' . (string)($bizprocCompletion['ERROR'] ?? 'неизвестная ошибка');
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -554,6 +826,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
 
     <?php foreach ($errors as $error): ?>
         <div class="fw-error"><?= h($error) ?></div>
+    <?php endforeach; ?>
+    <?php foreach ($warnings as $warning): ?>
+        <div class="fw-muted" style="margin-bottom: 10px; color:#ad6800;"><?= h($warning) ?></div>
     <?php endforeach; ?>
 
     <?php if ($success !== ''): ?>
