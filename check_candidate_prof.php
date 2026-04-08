@@ -8,6 +8,7 @@ header('X-Accel-Buffering: no');
 flush();
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\Application;
 
 if (
     !Loader::includeModule("iblock") ||
@@ -28,14 +29,14 @@ echo "<div style='font-size:11px;color:#777'>check_prof.php v1.5</div>";
    CONFIG
    ================================================================ */
 
-// INTERNAL FRIENDWORK API (OLD — получение кандидатов)
-const FW_USER_INTERNAL = 'login';
-const FW_PASS_INTERNAL = 'pass';
+// FRIENDWORK API
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
+const FW_API_EXTERNAL  = 'https://api.friend.work';
 
-// EXTERNAL FRIENDWORK API (NEW — справочник аккаунтов/ответственных)
-const FW_TOKEN_EXTERNAL = 'rntF2WupwPYYvJ93VFrJ3PTzQAmi7YQ1QV_Zj9nFaW5P--4hmUyhF2psZTxY3ERVypfbRCPUsiW01n14Trg99RQtzA9Lm0ElfHXblj-15gvvunO6T7raLGoR5-puwTkEh5bNHR2pcZ-emqD5pBcg-UoHdLBM0oinPq5_bmS6v0LC7s0aPIA_UKXtddBlOdnCiPsWqXrU7WTNbsm_eLVsL7UWIUzgaL99F951bNQbv5fKmfXGzpIqIxtNzyHuoTLZ0oYGMYKFsFVOHVccFFUgILThL-sn2eCgCIowytSG-0Mlw7s3_KZGsv0IVFQQb9Uh7VhLkHHAXah7Etb-kyUJvGkCv3kOnEjlencGrUYOs3c28NES';
-const FW_API_EXTERNAL   = 'https://api.friend.work';
+// Глобальные константы БП (b_bp_global_const)
+const FW_LOGIN_CONST_ID = 'Constant1698403240866';
+const FW_PASS_CONST_ID  = 'Constant1698403290839';
+const FW_TOKEN_CONST_ID = 'Constant1775635795058';
 
 // Bitrix
 const IBLOCK_REQUESTS = 201; // список/ИБ "Заявки на подбор"
@@ -87,6 +88,81 @@ $tmpCookie = __DIR__ . '/fw_cookie_prof.txt';
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+function valueOr($array, $key, $default = '')
+{
+    return (is_array($array) && isset($array[$key])) ? $array[$key] : $default;
+}
+
+function decodeGlobalConstValue(string $raw): string
+{
+    $raw = trim($raw);
+    if ($raw === '') return '';
+
+    $unserialized = @unserialize($raw, ['allowed_classes' => false]);
+    if (is_array($unserialized)) {
+        if (isset($unserialized['value'])) return trim((string)$unserialized['value']);
+        if (isset($unserialized[0])) return trim((string)$unserialized[0]);
+    }
+    if (is_string($unserialized)) return trim($unserialized);
+
+    $unescaped = stripcslashes($raw);
+    if ($unescaped !== $raw) {
+        $unserialized = @unserialize($unescaped, ['allowed_classes' => false]);
+        if (is_string($unserialized)) return trim($unserialized);
+    }
+
+    // Например: s:368:"token123";
+    if (preg_match('/^s:\d+:"(.*)";$/s', $unescaped, $m)) return trim((string)$m[1]);
+    if (preg_match('/^s:\d+:"(.*)";$/s', $raw, $m)) return trim((string)$m[1]);
+
+    return trim($raw);
+}
+
+function fwGetIntegrationConfig(): array
+{
+    static $cached = null;
+    if ($cached !== null) return $cached;
+
+    $cached = [
+        'username' => '',
+        'password' => '',
+        'token'    => '',
+        'error'    => '',
+    ];
+
+    try {
+        $connection = Application::getConnection();
+        $sqlHelper = $connection->getSqlHelper();
+
+        $ids = [FW_LOGIN_CONST_ID, FW_PASS_CONST_ID, FW_TOKEN_CONST_ID];
+        $escapedIds = array_map([$sqlHelper, 'forSql'], $ids);
+        $in = "'" . implode("','", $escapedIds) . "'";
+
+        $rows = [];
+        $rs = $connection->query("
+            SELECT ID, PROPERTY_VALUE
+            FROM b_bp_global_const
+            WHERE ID IN (" . $in . ")
+        ");
+
+        while ($row = $rs->fetch()) {
+            $rows[$row['ID']] = (string)valueOr($row, 'PROPERTY_VALUE', '');
+        }
+
+        $cached['username'] = decodeGlobalConstValue((string)valueOr($rows, FW_LOGIN_CONST_ID, ''));
+        $cached['password'] = decodeGlobalConstValue((string)valueOr($rows, FW_PASS_CONST_ID, ''));
+        $cached['token']    = decodeGlobalConstValue((string)valueOr($rows, FW_TOKEN_CONST_ID, ''));
+
+        if ($cached['username'] === '' || $cached['password'] === '' || $cached['token'] === '') {
+            $cached['error'] = 'Не удалось получить логин/пароль/токен FriendWork из b_bp_global_const.';
+        }
+    } catch (\Throwable $e) {
+        $cached['error'] = 'Ошибка получения констант FriendWork из b_bp_global_const: ' . $e->getMessage();
+    }
+
+    return $cached;
+}
+
 /**
  * Определяем куда вернуть пользователя после создания анкеты.
  * Поддерживаем несколько вариантов параметров, чтобы ссылку можно было формировать как угодно.
@@ -122,8 +198,14 @@ function getReturnUrl(): string
 function fwInternalAuth()
 {
     global $tmpCookie;
+
+    $cfg = fwGetIntegrationConfig();
+    if ($cfg['error'] !== '') {
+        return $cfg;
+    }
+
     $loginUrl = FW_API_INTERNAL . "/Accounts/LogIn?username=" .
-        urlencode(FW_USER_INTERNAL) . "&password=" . urlencode(FW_PASS_INTERNAL);
+        urlencode($cfg['username']) . "&password=" . urlencode($cfg['password']);
 
     $ch = curl_init();
     curl_setopt_array($ch, [
@@ -134,7 +216,17 @@ function fwInternalAuth()
         CURLOPT_SSL_VERIFYHOST => false
     ]);
     curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
     curl_close($ch);
+
+    if ($httpCode !== 200) {
+        return [
+            'error' => 'Ошибка авторизации FW internal API. HTTP: ' . (string)$httpCode . ($err ? ' (' . $err . ')' : ''),
+        ];
+    }
+
+    return ['error' => ''];
 }
 
 function fwInternal($method, $url, $payload = null)
@@ -172,9 +264,19 @@ function fwInternal($method, $url, $payload = null)
 
 function fwExternal($method, $url, $payload = null)
 {
+    $cfg = fwGetIntegrationConfig();
+    if ($cfg['error'] !== '') {
+        return [
+            'http' => 0,
+            'data' => null,
+            'raw'  => '',
+            'err'  => $cfg['error'],
+        ];
+    }
+
     $ch = curl_init();
     $headers = [
-        "Authorization: Bearer " . FW_TOKEN_EXTERNAL,
+        "Authorization: Bearer " . $cfg['token'],
         "Content-Type: application/json"
     ];
 
@@ -397,7 +499,12 @@ if ($fwAccounts['http'] == 200 && is_array($fwAccounts['data'])) {
 /* ================================================================
    3) Кандидаты FW internal
    ================================================================ */
-fwInternalAuth();
+$fwAuth = fwInternalAuth();
+if (!empty($fwAuth['error'])) {
+    echo "<div style='color:red'>" . h($fwAuth['error']) . "</div>";
+    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
+}
 
 echo "<h3>Загрузка кандидатов из Friendwork…</h3>";
 
