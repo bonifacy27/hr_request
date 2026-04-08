@@ -180,6 +180,63 @@ function emailLocalPart($email)
     return (string)substr($email, 0, $pos);
 }
 
+function normalizePersonName($name)
+{
+    $name = mb_strtolower(trim((string)$name));
+    if ($name === '') {
+        return [];
+    }
+
+    $name = str_replace('ё', 'е', $name);
+    $name = preg_replace('/[^[:alnum:][:space:]]+/u', ' ', $name);
+    $name = preg_replace('/\s+/u', ' ', $name);
+    $name = trim((string)$name);
+
+    if ($name === '') {
+        return [];
+    }
+
+    return preg_split('/\s+/u', $name, -1, PREG_SPLIT_NO_EMPTY);
+}
+
+function personNamesLikelyMatch($leftName, $rightName)
+{
+    $leftTokens = normalizePersonName($leftName);
+    $rightTokens = normalizePersonName($rightName);
+
+    if (!$leftTokens || !$rightTokens) {
+        return false;
+    }
+
+    if (implode(' ', $leftTokens) === implode(' ', $rightTokens)) {
+        return true;
+    }
+
+    $usedRight = [];
+    $matched = 0;
+
+    foreach ($leftTokens as $leftToken) {
+        foreach ($rightTokens as $idx => $rightToken) {
+            if (isset($usedRight[$idx])) {
+                continue;
+            }
+
+            $isExact = ($leftToken === $rightToken);
+            $isPrefix = (mb_strlen($leftToken) >= 4 && mb_strlen($rightToken) >= 4
+                && mb_substr($leftToken, 0, 4) === mb_substr($rightToken, 0, 4));
+
+            if ($isExact || $isPrefix) {
+                $usedRight[$idx] = true;
+                $matched++;
+                break;
+            }
+        }
+    }
+
+    $requiredMatches = min(2, count($leftTokens), count($rightTokens));
+    return $matched >= $requiredMatches;
+}
+
 function buildDescription($fields)
 {
     $header = "<b>Триколор</b> — мультиплатформенный оператор, предлагающий единое информационное пространство развлечений и сервисов для всей семьи.<br>\n"
@@ -694,9 +751,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     $emailLocalPart = emailLocalPart($recruiterEmail);
 
                     $resolvedResponsibleId = 0;
+                    $resolvedBy = '';
 
                     $accountsList = $accountsResponse;
-                    $debugInfo['responsibleLookup'] = array('recruiterEmailRaw' => $recruiterEmail);
+                    $debugInfo['responsibleLookup'] = array(
+                        'recruiterEmailRaw' => $recruiterEmail,
+                        'recruiterNameRaw' => $recruiterName,
+                    );
                     if (isset($accountsResponse['items']) && is_array($accountsResponse['items'])) {
                         $accountsList = $accountsResponse['items'];
                     } elseif (isset($accountsResponse['data']) && is_array($accountsResponse['data'])) {
@@ -736,12 +797,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
 
                         if (($isDirectEmailMatch || $isLocalPartMatch) && $accountId > 0 && $resolvedResponsibleId <= 0) {
                             $resolvedResponsibleId = $accountId;
+                            $resolvedBy = $isDirectEmailMatch ? 'email_exact' : 'email_local_part';
+                            continue;
+                        }
+
+                        if ($resolvedResponsibleId <= 0 && $recruiterName !== '' && $accountId > 0) {
+                            $accountFirstName = trim((string)valueOr($account, 'firstName', valueOr($account, 'FirstName', '')));
+                            $accountLastName = trim((string)valueOr($account, 'lastName', valueOr($account, 'LastName', '')));
+                            $accountMiddleName = trim((string)valueOr($account, 'middleName', valueOr($account, 'MiddleName', '')));
+                            $accountFullName = trim($accountLastName . ' ' . $accountFirstName . ' ' . $accountMiddleName);
+                            if ($accountFullName === '') {
+                                $accountFullName = trim($accountFirstName . ' ' . $accountLastName . ' ' . $accountMiddleName);
+                            }
+
+                            if ($accountFullName !== '' && personNamesLikelyMatch($recruiterName, $accountFullName)) {
+                                $resolvedResponsibleId = $accountId;
+                                $resolvedBy = 'name_match';
+                            }
                         }
                     }
 
                     $debugInfo['responsibleLookup']['recruiterEmailNormalized'] = $emailLower;
                     $debugInfo['responsibleLookup']['recruiterLocalPart'] = $emailLocalPart;
                     $debugInfo['responsibleLookup']['resolvedResponsibleId'] = $resolvedResponsibleId;
+                    $debugInfo['responsibleLookup']['resolvedBy'] = $resolvedBy;
 
                     if ($resolvedResponsibleId <= 0) {
                         @unlink($cookieFile);
