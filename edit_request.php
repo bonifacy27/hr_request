@@ -794,6 +794,18 @@ if ($request->isPost() && check_bitrix_sessid()) {
             $hasWorkflowRelevantChanges = true;
         }
     }
+
+    // Синхронизируем строковое поле типа премирования с именем выбранной привязки.
+    $bonusTypeIdSync = (int)($updates['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? normPropValue($curProps['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'] ?? 0));
+    $bonusTypeNameSync = getElementNameById(IBLOCK_BONUSTYPE, $bonusTypeIdSync);
+    $bonusTypeTextOld = (string)normPropValue($curProps['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_TEKST'] ?? '');
+    if ($bonusTypeNameSync !== $bonusTypeTextOld) {
+        $updates['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_TEKST'] = $bonusTypeNameSync;
+        if (!isset($updates['PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA'])) {
+            $historyChanged[] = 'Предполагаемый тип премирования (текст): ' . $bonusTypeTextOld . ' → ' . $bonusTypeNameSync;
+            $hasWorkflowRelevantChanges = true;
+        }
+    }
     }
 
     if (empty($errors) && empty($updates)) {
