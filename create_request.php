@@ -287,6 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
     $officeName    = getNameById($officeList, (int)($post['office'] ?? 0));
     $contractName  = getNameById($contractList, (int)($post['contract'] ?? 0));
     $equipName     = getNameById($equipList, (int)($post['equipment'] ?? 0));
+    $equipComment  = trim((string)($post['equipment_comment'] ?? ''));
 
     $furnitureNameById = [];
     $furnitureMultiById = [];
@@ -419,7 +420,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA'              => (int)($post['start_time'] ?? 0),
         'KONFIDENTSIALNYY_POISK'                        => trim((string)($post['confidential'] ?? 'Нет')),
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'            => (int)($post['equipment'] ?? 0),
-        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipName,
+        'OBORUDOVANIE_DLYA_RABOTY_STROKA'               => $equipName,
+        'OBORUDOVANIE_DLYA_RABOTY_TEKST'                => $equipComment,
         'NEOBKHODIMAYA_MEBEL'                           => $furnitureText,
         // === НОВОЕ СВОЙСТВО ===
         'JSON'                                          => $jsonData,

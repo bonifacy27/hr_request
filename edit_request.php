@@ -134,6 +134,7 @@ $GROUP_MAP = [
     'FORMAT_RABOTY_PRIVYAZKA' => 'Условия работы',
     'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA' => 'Условия работы',
     'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA' => 'Условия работы',
+    'OBORUDOVANIE_DLYA_RABOTY_STROKA' => 'Условия работы',
     'OBORUDOVANIE_DLYA_RABOTY_TEKST' => 'Условия работы',
     'NEOBKHODIMAYA_MEBEL' => 'Условия работы',
     'KOMANDIROVKI_TEKST' => 'Условия работы',
@@ -198,6 +199,7 @@ $FIELDS = [
     ["CODE" => "FORMAT_RABOTY_PRIVYAZKA", "NAME" => "Формат работы (привязка)", "EDITABLE" => true],
     ["CODE" => "NACHALO_RABOCHEGO_DNYA_PRIVYAZKA", "NAME" => "Начало рабочего дня (привязка)", "EDITABLE" => false],
     ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA", "NAME" => "Оборудование для работы (привязка)", "EDITABLE" => true],
+    ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_STROKA", "NAME" => "Оборудование для работы (строка)", "EDITABLE" => false],
     ["CODE" => "OBORUDOVANIE_DLYA_RABOTY_TEKST", "NAME" => "Доп. требования к оборудованию", "EDITABLE" => true],
     ["CODE" => "NEOBKHODIMAYA_MEBEL", "NAME" => "Необходимая мебель", "EDITABLE" => true],
     ["CODE" => "KOMANDIROVKI_TEKST", "NAME" => "Командировки", "EDITABLE" => true],
@@ -227,6 +229,7 @@ $RECRUITER_ALLOWED_CODES = [
     'OFIS_PRIVYAZKA',
     'NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
     'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
+    'OBORUDOVANIE_DLYA_RABOTY_STROKA',
     'OBORUDOVANIE_DLYA_RABOTY_TEKST',
     'NEOBKHODIMAYA_MEBEL',
 ];
@@ -780,14 +783,14 @@ if ($request->isPost() && check_bitrix_sessid()) {
         }
     }
 
-    // Синхронизируем строковое поле оборудования с именем выбранной привязки.
+    // Синхронизируем поле-строку оборудования с именем выбранной привязки.
     $equipmentId = (int)($updates['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? normPropValue($curProps['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? 0));
     $equipmentName = getElementNameById(IBLOCK_EQUIPMENT, $equipmentId);
-    $equipmentTextOld = (string)normPropValue($curProps['OBORUDOVANIE_DLYA_RABOTY_TEKST'] ?? '');
-    if ($equipmentName !== $equipmentTextOld) {
-        $updates['OBORUDOVANIE_DLYA_RABOTY_TEKST'] = $equipmentName;
+    $equipmentNameOld = (string)normPropValue($curProps['OBORUDOVANIE_DLYA_RABOTY_STROKA'] ?? '');
+    if ($equipmentName !== $equipmentNameOld) {
+        $updates['OBORUDOVANIE_DLYA_RABOTY_STROKA'] = $equipmentName;
         if (!isset($updates['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'])) {
-            $historyChanged[] = 'Оборудование для работы: ' . $equipmentTextOld . ' → ' . $equipmentName;
+            $historyChanged[] = 'Оборудование для работы (строка): ' . $equipmentNameOld . ' → ' . $equipmentName;
             $hasWorkflowRelevantChanges = true;
         }
     }
