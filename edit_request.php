@@ -779,6 +779,18 @@ if ($request->isPost() && check_bitrix_sessid()) {
             }
         }
     }
+
+    // Синхронизируем строковое поле оборудования с именем выбранной привязки.
+    $equipmentId = (int)($updates['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? normPropValue($curProps['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'] ?? 0));
+    $equipmentName = getElementNameById(IBLOCK_EQUIPMENT, $equipmentId);
+    $equipmentTextOld = (string)normPropValue($curProps['OBORUDOVANIE_DLYA_RABOTY_TEKST'] ?? '');
+    if ($equipmentName !== $equipmentTextOld) {
+        $updates['OBORUDOVANIE_DLYA_RABOTY_TEKST'] = $equipmentName;
+        if (!isset($updates['OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'])) {
+            $historyChanged[] = 'Оборудование для работы: ' . $equipmentTextOld . ' → ' . $equipmentName;
+            $hasWorkflowRelevantChanges = true;
+        }
+    }
     }
 
     if (empty($errors) && empty($updates)) {
