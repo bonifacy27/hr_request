@@ -42,10 +42,12 @@ const FW_TOKEN_CONST_ID = 'Constant1775635795058';
 const IBLOCK_REQUESTS = 201; // список/ИБ "Заявки на подбор"
 const PROP_FW_VACANCY_ID_NUM = 1593;            // число (ID свойства)
 const PROP_FW_VACANCY_SELECT = 'PROPERTY_1593'; // строка для SELECT
+const PROP_REQ_ANKETA_KANDIDATA_ID = 3127;      // ANKETA_KANDIDATA (множественное число)
 
 // Заявка -> Должность
 const PROP_REQ_DOLZHNOST_SELECT = 'PROPERTY_1011'; // DOLZHNOST в заявке (для SELECT)
 const PROP_REQ_DOLZHNOST_ID_NUM = 1011;            // ID свойства (для GetProperty фоллбек)
+const PROP_REQ_RUKOVODITEL_ID_NUM = 1034;          // NEPOSREDSTVENNYY_RUKOVODITEL (пользователь)
 
 const IBLOCK_CANDIDATES = 207; // список "Кандидаты" (анкеты)
 const BP_TEMPLATE_1 = 466;
@@ -78,6 +80,7 @@ const ROUTE_VALUE             = "Из заявки на подбор";
 
 // Анкета -> Должность
 const PROP_ANK_DOLZHNOST_ID   = 1617; // DOLZHNOST в анкете (ИБ 207)
+const PROP_ANK_RUKOVODITEL_ID = 1988; // RUKOVODITEL в анкете (пользователь)
 
 // cookie для internal FW
 $tmpCookie = __DIR__ . '/fw_cookie_prof.txt';
@@ -425,6 +428,27 @@ function getDolzhnostFromRequest(int $requestElementId): string
 }
 
 /**
+ * Читаем непосредственного руководителя из заявки: PROPERTY_1034.
+ */
+function getRukovoditelFromRequest(int $requestElementId): int
+{
+    $propRes = CIBlockElement::GetProperty(
+        IBLOCK_REQUESTS,
+        $requestElementId,
+        ["sort" => "asc"],
+        ["ID" => PROP_REQ_RUKOVODITEL_ID_NUM]
+    );
+    if ($p = $propRes->Fetch()) {
+        $v = $p["VALUE"];
+        if (is_array($v)) $v = reset($v);
+        $id = (int)$v;
+        if ($id > 0) return $id;
+    }
+
+    return 0;
+}
+
+/**
  * Запуск БП по элементу списка (ваша рабочая схема)
  */
 function startListWorkflow(int $templateId, int $elementId, array &$errors = [])
@@ -432,6 +456,135 @@ function startListWorkflow(int $templateId, int $elementId, array &$errors = [])
     $errors = [];
     $documentId = ["lists", "Bitrix\\Lists\\BizprocDocumentLists", $elementId];
     return CBPDocument::StartWorkflow($templateId, $documentId, [], $errors);
+}
+
+function taskIsRunning(int $taskId): bool
+{
+    if ($taskId <= 0) return false;
+
+    try {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID']
+        );
+        return (bool)$rs->GetNext();
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+function findUserRunningTaskForRequest(int $requestId, int $userId): ?array
+{
+    $docIds = [
+        ['lists',  'BizprocDocument', "lists_" . IBLOCK_REQUESTS . "_" . $requestId],
+        ['iblock', 'CIBlockDocument', "iblock_" . IBLOCK_REQUESTS . "_" . $requestId],
+        ['lists',  'Bitrix\\Lists\\BizprocDocumentLists', $requestId],
+    ];
+
+    foreach ($docIds as $docId) {
+        try {
+            $rs = CBPTaskService::GetList(
+                ['ID' => 'ASC'],
+                ['DOCUMENT_ID' => $docId, 'STATUS' => CBPTaskStatus::Running, 'USER_ID' => $userId],
+                false,
+                false,
+                ['ID', 'NAME', 'WORKFLOW_ID', 'ACTIVITY', 'ACTIVITY_NAME']
+            );
+            if ($task = $rs->GetNext()) {
+                return [
+                    'ID' => (int)$task['ID'],
+                    'NAME' => (string)$task['NAME'],
+                    'WORKFLOW_ID' => (string)$task['WORKFLOW_ID'],
+                    'ACTIVITY_NAME' => (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? ''),
+                ];
+            }
+        } catch (\Throwable $e) {
+        }
+    }
+
+    return null;
+}
+
+function completeBizprocTaskApprove(array $task, int $userId): array
+{
+    $taskId = (int)($task['ID'] ?? 0);
+    if ($taskId <= 0 || $userId <= 0) {
+        return ['OK' => false, 'ERROR' => 'Некорректный ID задачи или пользователя.'];
+    }
+
+    $code = 'approve';
+    $errors = [];
+
+    try {
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $tmpErr = [];
+            CBPDocument::PostTaskForm($taskId, $userId, [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                'ACTION' => $code,
+                $code => 'Y',
+            ], $tmpErr);
+            if (!empty($tmpErr)) $errors = array_merge($errors, $tmpErr);
+            if (!taskIsRunning($taskId)) return ['OK' => true, 'ERROR' => ''];
+        }
+    } catch (\Throwable $e) {
+        $errors[] = $e->getMessage();
+    }
+
+    try {
+        if (method_exists('CBPTaskService', 'DoTask')) {
+            CBPTaskService::DoTask($taskId, $userId, ['ACTION' => $code, $code => 'Y']);
+            if (!taskIsRunning($taskId)) return ['OK' => true, 'ERROR' => ''];
+        }
+    } catch (\Throwable $e) {
+        $errors[] = $e->getMessage();
+    }
+
+    $flat = [];
+    foreach ($errors as $e) {
+        if (is_array($e)) {
+            $msg = trim((string)($e['message'] ?? $e['MESSAGE'] ?? ''));
+            if ($msg !== '') $flat[] = $msg;
+        } else {
+            $msg = trim((string)$e);
+            if ($msg !== '') $flat[] = $msg;
+        }
+    }
+    $errorText = implode('; ', array_unique($flat));
+    if ($errorText === '') $errorText = 'Задание осталось активным после попыток завершения.';
+
+    return ['OK' => false, 'ERROR' => $errorText];
+}
+
+function addAnketaIdToRequest(int $requestId, int $anketaId): array
+{
+    if ($requestId <= 0 || $anketaId <= 0) {
+        return ['OK' => false, 'ERROR' => 'Некорректные ID заявки/анкеты.'];
+    }
+
+    $values = [];
+    $propRes = CIBlockElement::GetProperty(
+        IBLOCK_REQUESTS,
+        $requestId,
+        ["sort" => "asc"],
+        ["ID" => PROP_REQ_ANKETA_KANDIDATA_ID]
+    );
+    while ($p = $propRes->Fetch()) {
+        $v = trim((string)($p['VALUE'] ?? ''));
+        if ($v !== '') $values[] = (int)$v;
+    }
+
+    $values[] = $anketaId;
+    $values = array_values(array_unique(array_filter($values, static function($v){ return (int)$v > 0; })));
+
+    CIBlockElement::SetPropertyValuesEx($requestId, IBLOCK_REQUESTS, [
+        PROP_REQ_ANKETA_KANDIDATA_ID => $values
+    ]);
+
+    return ['OK' => true, 'ERROR' => ''];
 }
 
 /* ================================================================
@@ -466,11 +619,13 @@ if (!$arReq) {
 
 $fwVacancyId = getFwVacancyIdFromRequest($jobRequestId);
 $reqDolzhnost = getDolzhnostFromRequest($jobRequestId);
+$reqRukovoditelId = getRukovoditelFromRequest($jobRequestId);
 
 echo "<h2>Профессиональный подбор — заявка #".h($jobRequestId)."</h2>";
 echo "<div><b>Заявка:</b> ".h($arReq['NAME'])."</div>";
 echo "<div><b>Friendwork Vacancy ID (PROPERTY_1593):</b> ".h($fwVacancyId)."</div>";
 echo "<div><b>Должность (PROPERTY_1011):</b> ".h($reqDolzhnost)."</div>";
+echo "<div><b>Непосредственный руководитель (PROPERTY_1034):</b> ".h($reqRukovoditelId ?: '-')."</div>";
 echo "<hr>";
 
 if ($fwVacancyId <= 0) {
@@ -656,6 +811,8 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // === НОВОЕ: должность из заявки ===
         PROP_ANK_DOLZHNOST_ID    => $reqDolzhnost,
+        // === НОВОЕ: руководитель из заявки ===
+        PROP_ANK_RUKOVODITEL_ID  => $reqRukovoditelId,
     ];
 
     setOptionalPropsByCode(IBLOCK_CANDIDATES, $propValues, [
@@ -682,10 +839,26 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Запуск БП
     $bpErrors1 = [];
-    startListWorkflow(BP_TEMPLATE_1, $elementId, $bpErrors1);
+    $wf1 = startListWorkflow(BP_TEMPLATE_1, $elementId, $bpErrors1);
 
     $bpErrors2 = [];
-    startListWorkflow(BP_TEMPLATE_2, $elementId, $bpErrors2);
+    $wf2 = startListWorkflow(BP_TEMPLATE_2, $elementId, $bpErrors2);
+
+    $bpStartedOk = ($wf1 !== false && empty($bpErrors1) && $wf2 !== false && empty($bpErrors2));
+    $anketaLinked = ['OK' => false, 'ERROR' => 'Запись в заявку не выполнялась.'];
+    $taskCompletion = ['OK' => false, 'ERROR' => 'Завершение задания не выполнялось.'];
+
+    if ($bpStartedOk) {
+        $anketaLinked = addAnketaIdToRequest($jobRequestId, $elementId);
+        if (!empty($anketaLinked['OK'])) {
+            $runningTask = findUserRunningTaskForRequest($jobRequestId, $currentUserId);
+            if ($runningTask) {
+                $taskCompletion = completeBizprocTaskApprove($runningTask, $currentUserId);
+            } else {
+                $taskCompletion = ['OK' => false, 'ERROR' => 'Активное задание БП для текущего пользователя не найдено.'];
+            }
+        }
+    }
 
     // === НОВОЕ: Возврат пользователя в задание БП ===
     if (!empty($returnUrl)) {
@@ -698,6 +871,18 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     echo "<div style='color:green'><b>Анкета создана:</b> ID ".h($elementId)."</div>";
     echo "<div>БП #1 (".BP_TEMPLATE_1.") ошибок: ".h(count($bpErrors1))."</div>";
     echo "<div>БП #2 (".BP_TEMPLATE_2.") ошибок: ".h(count($bpErrors2))."</div>";
+    echo "<div>Запись ID анкеты в заявку (PROPERTY_".PROP_REQ_ANKETA_KANDIDATA_ID."): "
+        . (!empty($anketaLinked['OK']) ? "<span style='color:green'>успешно</span>" : "<span style='color:red'>ошибка</span>")
+        . "</div>";
+    if (empty($anketaLinked['OK'])) {
+        echo "<div style='color:red'>".h((string)$anketaLinked['ERROR'])."</div>";
+    }
+    echo "<div>Завершение задания БП по заявке (Approve): "
+        . (!empty($taskCompletion['OK']) ? "<span style='color:green'>успешно</span>" : "<span style='color:#a66'>не выполнено</span>")
+        . "</div>";
+    if (empty($taskCompletion['OK'])) {
+        echo "<div style='color:#a66'>".h((string)$taskCompletion['ERROR'])."</div>";
+    }
     echo "<hr><div><a href='?job_id=".h($jobRequestId)."'>← К списку кандидатов</a></div>";
 
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
@@ -765,7 +950,7 @@ if ($selectCandidateId > 0 && !empty($byId[$selectCandidateId])) {
             </div>
 
             <button type='submit' style='padding:10px 14px; font-size:14px'>
-                Создать анкету и запустить БП
+                Создать анкету и запустить проверку СБ
             </button>
           </form>";
 
@@ -779,6 +964,7 @@ if ($selectCandidateId > 0 && !empty($byId[$selectCandidateId])) {
    ================================================================ */
 if (empty($allCandidates)) {
     echo "<div>Кандидатов в статусе 127730 не найдено.</div>";
+    echo "<hr><div><a href='/forms/staff_recruitment/staffing/list.php'>← Вернуться к списку заявок на подбор</a></div>";
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
     exit;
 }
@@ -847,5 +1033,6 @@ foreach ($allCandidates as $c) {
 }
 
 echo "</table>";
+echo "<hr><div><a href='/forms/staff_recruitment/staffing/list.php'>← Вернуться к списку заявок на подбор</a></div>";
 
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
