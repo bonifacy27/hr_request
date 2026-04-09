@@ -701,6 +701,7 @@ $errors = [];
 $warnings = [];
 $success = '';
 $debugInfo = [];
+$isDebugMode = (strtolower((string)valueOr($_GET, 'debug', '')) === 'true');
 $bizprocCompletion = null;
 $currentUserId = (int)$GLOBALS['USER']->GetID();
 $task = null;
@@ -946,13 +947,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
         <div class="fw-html-box"><?= $payload['Description'] ?></div>
     </div>
 
-    <div class="fw-row">
-        <div class="fw-label">JSON, который будет отправлен в FriendWork</div>
-        <div class="fw-value"><?= h(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></div>
-    </div>
+    <?php if ($isDebugMode): ?>
+        <div class="fw-row">
+            <div class="fw-label">JSON, который будет отправлен в FriendWork</div>
+            <div class="fw-value"><?= h(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)) ?></div>
+        </div>
+    <?php endif; ?>
 
 
-    <?php if ($_SERVER['REQUEST_METHOD'] === 'POST'): ?>
+    <?php if ($isDebugMode && $_SERVER['REQUEST_METHOD'] === 'POST'): ?>
         <div class="fw-row">
             <div class="fw-label">Диагностика FriendWork (логин/пароль и ответы API)</div>
             <div class="fw-value"><?php
