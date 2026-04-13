@@ -29,6 +29,7 @@ const FW_LOGIN_ENDPOINT = 'https://app.friend.work/api/Accounts/LogIn';
 const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
 const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
+const FW_INTEGRATION_ACCOUNT_ID = 34234;
 
 /**
  * Достаём учётные данные FW из глобальных констант БП (b_bp_global_const).
@@ -897,9 +898,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                         } else {
                             $jobId = (int)$fwResponse['jobId'];
                             $jobUrl = FW_JOB_EDIT_URL . $jobId;
+                            $integrationAccountSource = 'response.responsibleAccount.id';
                             $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'responsibleAccount', []));
                             if ($integrationAccountId <= 0) {
+                                $integrationAccountSource = 'response.creatorAccount.id';
                                 $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'creatorAccount', []));
+                            }
+                            if ($integrationAccountId <= 0) {
+                                $integrationAccountSource = 'FW_INTEGRATION_ACCOUNT_ID';
+                                $integrationAccountId = FW_INTEGRATION_ACCOUNT_ID;
                             }
 
                             if ($integrationAccountId <= 0) {
@@ -937,6 +944,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                 $debugInfo['patch'] = [
                                     'operations' => $patchOperations,
                                     'integrationAccountId' => $integrationAccountId,
+                                    'integrationAccountSource' => $integrationAccountSource,
                                     'httpCode' => $patchHttpCode,
                                     'rawResponse' => $patchRaw,
                                     'parsedResponse' => $patchResponse,
