@@ -814,13 +814,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                 } else {
                     $emailLower = normalizeEmail($recruiterEmail);
                     $emailLocalPart = emailLocalPart($recruiterEmail);
-                    $integrationEmailLower = normalizeEmail($fwCredentials['username']);
-
                     $resolvedResponsibleId = 0;
                     $resolvedBy = '';
                     $resolvedResponsibleUserName = '';
-                    $integrationAccountId = 0;
-                    $integrationAccountUserName = '';
 
                     $accountsList = $accountsResponse;
                     $debugInfo['responsibleLookup'] = array(
@@ -874,10 +870,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                             }
                         }
 
-                        if ($integrationAccountId <= 0 && $accountEmail !== '' && $accountEmail === $integrationEmailLower && $accountId > 0) {
-                            $integrationAccountId = $accountId;
-                            $integrationAccountUserName = $accountUserName;
-                        }
                     }
 
                     $debugInfo['responsibleLookup']['recruiterEmailNormalized'] = $emailLower;
@@ -885,18 +877,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     $debugInfo['responsibleLookup']['resolvedResponsibleId'] = $resolvedResponsibleId;
                     $debugInfo['responsibleLookup']['resolvedResponsibleUserName'] = $resolvedResponsibleUserName;
                     $debugInfo['responsibleLookup']['resolvedBy'] = $resolvedBy;
-                    $debugInfo['responsibleLookup']['integrationAccountId'] = $integrationAccountId;
-                    $debugInfo['responsibleLookup']['integrationAccountUserName'] = $integrationAccountUserName;
 
                     if ($resolvedResponsibleId <= 0) {
                         @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
-                    } elseif ($resolvedResponsibleUserName === '') {
-                        @unlink($cookieFile);
-                        $errors[] = 'Найден ID рекрутера в FriendWork, но не удалось определить userName для PATCH вакансии.';
-                    } elseif ($integrationAccountUserName === '') {
-                        @unlink($cookieFile);
-                        $errors[] = 'Не найден аккаунт FriendWork для интеграционного пользователя: ' . h($fwCredentials['username']);
                     } else {
                         $payload['ResponsibleId'] = 0;
 
@@ -913,77 +897,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                         } else {
                             $jobId = (int)$fwResponse['jobId'];
                             $jobUrl = FW_JOB_EDIT_URL . $jobId;
-
-                            $teamMembers = [
-                                [
-                                    'userName' => $resolvedResponsibleUserName,
-                                    'functionTypeName' => 'Сотрудник',
-                                ],
-                            ];
-                            if (normalizeEmail($integrationAccountUserName) !== normalizeEmail($resolvedResponsibleUserName)) {
-                                $teamMembers[] = [
-                                    'userName' => $integrationAccountUserName,
-                                    'functionTypeName' => 'Сотрудник',
-                                ];
+                            $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'responsibleAccount', []));
+                            if ($integrationAccountId <= 0) {
+                                $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'creatorAccount', []));
                             }
 
-                            $patchOperations = [
-                                [
-                                    'op' => 'replace',
-                                    'path' => '/responsibleAccount',
-                                    'value' => ['userName' => $resolvedResponsibleUserName],
-                                ],
-                                [
-                                    'op' => 'replace',
-                                    'path' => '/teamMembers',
-                                    'value' => $teamMembers,
-                                ],
-                            ];
-
-                            list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile);
-                            @unlink($cookieFile);
-                            $debugInfo['patch'] = [
-                                'operations' => $patchOperations,
-                                'httpCode' => $patchHttpCode,
-                                'rawResponse' => $patchRaw,
-                                'parsedResponse' => $patchResponse,
-                            ];
-
-                            if (!$patchOk) {
-                                $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но изменить ответственного/команду не удалось: ' . $patchError;
+                            if ($integrationAccountId <= 0) {
+                                @unlink($cookieFile);
+                                $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но не удалось определить ID интеграционного аккаунта из ответа FriendWork.';
                             } else {
-                                CIBlockElement::SetPropertyValuesEx(
-                                    $requestId,
-                                    IBLOCK_RECRUITMENT,
+                                $teamMembers = [
                                     [
-                                        'ID_FW_VAKANSII' => $jobId,
-                                        'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
+                                        'id' => $resolvedResponsibleId,
+                                        'functionTypeName' => 'Сотрудник',
                                     ]
-                                );
+                                ];
+                                if ($integrationAccountId !== $resolvedResponsibleId) {
+                                    $teamMembers[] = [
+                                        'id' => $integrationAccountId,
+                                        'functionTypeName' => 'Сотрудник',
+                                    ];
+                                }
 
-                                $existingFwId = (string)$jobId;
-                                $existingFwUrl = $jobUrl;
-                                $alreadyCreated = true;
-                                $success = 'Вакансия успешно создана и обновлена в FriendWork. ID: ' . h($jobId) . '.';
+                                $patchOperations = [
+                                    [
+                                        'op' => 'replace',
+                                        'path' => '/responsibleAccount',
+                                        'value' => ['id' => $resolvedResponsibleId],
+                                    ],
+                                    [
+                                        'op' => 'replace',
+                                        'path' => '/teamMembers',
+                                        'value' => $teamMembers,
+                                    ],
+                                ];
 
-                                $taskId = (int)($task['ID'] ?? 0);
-                                if ($taskId <= 0) {
-                                    $warnings[] = 'Вакансия создана, но не удалось определить текущее задание БП для автозавершения.';
+                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile);
+                                @unlink($cookieFile);
+                                $debugInfo['patch'] = [
+                                    'operations' => $patchOperations,
+                                    'integrationAccountId' => $integrationAccountId,
+                                    'httpCode' => $patchHttpCode,
+                                    'rawResponse' => $patchRaw,
+                                    'parsedResponse' => $patchResponse,
+                                ];
+
+                                if (!$patchOk) {
+                                    $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но изменить ответственного/команду не удалось: ' . $patchError;
                                 } else {
-                                    $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
-                                    if (!$actualTask) {
-                                        $warnings[] = 'Вакансия создана, но текущее задание БП не найдено среди активных задач пользователя.';
+                                    CIBlockElement::SetPropertyValuesEx(
+                                        $requestId,
+                                        IBLOCK_RECRUITMENT,
+                                        [
+                                            'ID_FW_VAKANSII' => $jobId,
+                                            'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
+                                        ]
+                                    );
+
+                                    $existingFwId = (string)$jobId;
+                                    $existingFwUrl = $jobUrl;
+                                    $alreadyCreated = true;
+                                    $success = 'Вакансия успешно создана и обновлена в FriendWork. ID: ' . h($jobId) . '.';
+
+                                    $taskId = (int)($task['ID'] ?? 0);
+                                    if ($taskId <= 0) {
+                                        $warnings[] = 'Вакансия создана, но не удалось определить текущее задание БП для автозавершения.';
                                     } else {
-                                        $bizprocCompletion = completeBizprocTask(
-                                            $actualTask,
-                                            $currentUserId,
-                                            'approve',
-                                            'Заявка успешно отправлена в FriendWork. Вакансия #' . $jobId . '. Ответственный и команда обновлены.'
-                                        );
-                                        if (!empty($bizprocCompletion['OK'])) {
-                                            $success = 'Вакансия успешно создана и обновлена в FriendWork (ID: ' . h($jobId) . '), задание БП успешно завершено.';
+                                        $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
+                                        if (!$actualTask) {
+                                            $warnings[] = 'Вакансия создана, но текущее задание БП не найдено среди активных задач пользователя.';
                                         } else {
-                                            $warnings[] = 'Вакансия создана (ID: ' . h($jobId) . '), но завершить задание БП не удалось: ' . (string)($bizprocCompletion['ERROR'] ?? 'неизвестная ошибка');
+                                            $bizprocCompletion = completeBizprocTask(
+                                                $actualTask,
+                                                $currentUserId,
+                                                'approve',
+                                                'Заявка успешно отправлена в FriendWork. Вакансия #' . $jobId . '. Ответственный и команда обновлены.'
+                                            );
+                                            if (!empty($bizprocCompletion['OK'])) {
+                                                $success = 'Вакансия успешно создана и обновлена в FriendWork (ID: ' . h($jobId) . '), задание БП успешно завершено.';
+                                            } else {
+                                                $warnings[] = 'Вакансия создана (ID: ' . h($jobId) . '), но завершить задание БП не удалось: ' . (string)($bizprocCompletion['ERROR'] ?? 'неизвестная ошибка');
+                                            }
                                         }
                                     }
                                 }
