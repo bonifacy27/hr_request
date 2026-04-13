@@ -1068,12 +1068,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                         'value' => $teamMembers,
                                     ],
                                 ];
+                                $patchOperationsAlt = [
+                                    [
+                                        'op' => 'replace',
+                                        'path' => '/responsibleId',
+                                        'value' => $resolvedResponsibleId,
+                                    ],
+                                    [
+                                        'op' => 'replace',
+                                        'path' => '/employeeIds',
+                                        'value' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
+                                    ],
+                                ];
 
                                 list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $accessToken);
+                                $patchUsed = 'primary';
+                                if (!$patchOk) {
+                                    list($patchOkAlt, $patchErrorAlt, $patchResponseAlt, $patchHttpCodeAlt, $patchRawAlt) = fwPatchJob($jobId, $patchOperationsAlt, $cookieFile, $accessToken);
+                                    if ($patchOkAlt) {
+                                        $patchOk = true;
+                                        $patchError = '';
+                                        $patchResponse = $patchResponseAlt;
+                                        $patchHttpCode = $patchHttpCodeAlt;
+                                        $patchRaw = $patchRawAlt;
+                                        $patchUsed = 'alt';
+                                    } else {
+                                        $patchError .= ' | ALT failed: ' . $patchErrorAlt;
+                                    }
+                                }
                                 list($jobGetOk, $jobGetError, $jobGetResponse, $jobGetHttpCode, $jobGetRaw, $jobGetAttempts) = fwGetJobById($jobId, $cookieFile, $accessToken);
                                 @unlink($cookieFile);
                                 $debugInfo['patch'] = [
                                     'operations' => $patchOperations,
+                                    'operationsAlt' => $patchOperationsAlt,
+                                    'patchUsed' => $patchUsed,
                                     'integrationAccountId' => $integrationAccountId,
                                     'integrationAccountSource' => $integrationAccountSource,
                                     'httpCode' => $patchHttpCode,
@@ -1089,7 +1117,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                     'parsedResponse' => $jobGetResponse,
                                 ];
                                 $debugInfo['jobUpdatePreview'] = [
-                                    'currentResponsibleId' => (int)valueOr($jobGetResponse, 'responsibleId', 0),
+                                    'currentResponsibleId' => (int)valueOr(
+                                        $jobGetResponse,
+                                        'responsibleId',
+                                        (int)valueOr((array)valueOr($jobGetResponse, 'responsibleAccount', []), 'id', 0)
+                                    ),
                                     'targetResponsibleId' => $resolvedResponsibleId,
                                     'currentTeamMembers' => valueOr($jobGetResponse, 'teamMembers', []),
                                     'targetTeamMembers' => $teamMembers,
