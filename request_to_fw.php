@@ -1075,6 +1075,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                     'rawResponse' => $jobGetRaw,
                                     'parsedResponse' => $jobGetResponse,
                                 ];
+                                $debugInfo['jobUpdatePreview'] = [
+                                    'currentResponsibleId' => (int)valueOr($jobGetResponse, 'responsibleId', 0),
+                                    'targetResponsibleId' => $resolvedResponsibleId,
+                                    'currentTeamMembers' => valueOr($jobGetResponse, 'teamMembers', []),
+                                    'targetTeamMembers' => $teamMembers,
+                                    'targetEmployeeIds' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
+                                    'suggestedJsonPatch' => $patchOperations,
+                                    'suggestedUpdateBody' => [
+                                        'jobId' => $jobId,
+                                        'responsibleId' => $resolvedResponsibleId,
+                                        'employeeIds' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
+                                        'teamMembers' => $teamMembers,
+                                    ],
+                                ];
 
                                 if (!$patchOk) {
                                     $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но изменить ответственного/команду не удалось: ' . $patchError;
@@ -1207,6 +1221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     'create' => valueOr($debugInfo, 'create', null),
                     'patch' => valueOr($debugInfo, 'patch', null),
                     'jobGet' => valueOr($debugInfo, 'jobGet', null),
+                    'jobUpdatePreview' => valueOr($debugInfo, 'jobUpdatePreview', null),
                     'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
                     'responsibleLookup' => valueOr($debugInfo, 'responsibleLookup', null),
                 ];
