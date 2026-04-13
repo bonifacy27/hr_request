@@ -420,6 +420,63 @@ function fwPatchJob($jobId, array $operations, $cookieFile, $jwtToken = '')
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
+function fwGetJobById($jobId, $cookieFile, $jwtToken = '')
+{
+    $jobId = (int)$jobId;
+    if ($jobId <= 0) {
+        return [false, 'Некорректный jobId для GET вакансии.', [], 0, '', []];
+    }
+
+    $attempts = [
+        ['url' => FW_JOBS_ENDPOINT . '/' . $jobId],
+        ['url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId],
+    ];
+
+    $responseRaw = '';
+    $curlErr = '';
+    $httpCode = 0;
+    $attemptResults = [];
+
+    foreach ($attempts as $attempt) {
+        $headers = ['Accept: application/json'];
+        if (trim((string)$jwtToken) !== '') {
+            $headers[] = 'Authorization: Bearer ' . trim((string)$jwtToken);
+        }
+
+        $ch = curl_init($attempt['url']);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+        $responseRaw = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $attemptResults[] = 'GET ' . $attempt['url'] . ' => HTTP ' . $httpCode . ($curlErr !== '' ? ('; CURL ' . $curlErr) : '');
+
+        if ($responseRaw !== false && $httpCode >= 200 && $httpCode < 300) {
+            break;
+        }
+    }
+
+    if ($responseRaw === false) {
+        return [false, 'Ошибка CURL при GET вакансии FriendWork: ' . $curlErr, [], $httpCode, '', $attemptResults];
+    }
+
+    $response = json_decode($responseRaw, true);
+    if (!is_array($response)) {
+        $response = [];
+    }
+
+    if ($httpCode >= 400) {
+        return [false, 'FriendWork GET вакансии вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw, $attemptResults];
+    }
+
+    return [true, '', $response, $httpCode, $responseRaw, $attemptResults];
+}
+
 function fwGetAccounts($cookieFile)
 {
     $ch = curl_init(FW_ACCOUNTS_ENDPOINT);
@@ -1000,6 +1057,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                 ];
 
                                 list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $jwtToken);
+                                list($jobGetOk, $jobGetError, $jobGetResponse, $jobGetHttpCode, $jobGetRaw, $jobGetAttempts) = fwGetJobById($jobId, $cookieFile, $jwtToken);
                                 @unlink($cookieFile);
                                 $debugInfo['patch'] = [
                                     'operations' => $patchOperations,
@@ -1008,6 +1066,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                     'httpCode' => $patchHttpCode,
                                     'rawResponse' => $patchRaw,
                                     'parsedResponse' => $patchResponse,
+                                ];
+                                $debugInfo['jobGet'] = [
+                                    'ok' => $jobGetOk,
+                                    'error' => $jobGetError,
+                                    'httpCode' => $jobGetHttpCode,
+                                    'attempts' => $jobGetAttempts,
+                                    'rawResponse' => $jobGetRaw,
+                                    'parsedResponse' => $jobGetResponse,
                                 ];
 
                                 if (!$patchOk) {
@@ -1140,6 +1206,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     'accounts' => valueOr($debugInfo, 'accounts', null),
                     'create' => valueOr($debugInfo, 'create', null),
                     'patch' => valueOr($debugInfo, 'patch', null),
+                    'jobGet' => valueOr($debugInfo, 'jobGet', null),
                     'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
                     'responsibleLookup' => valueOr($debugInfo, 'responsibleLookup', null),
                 ];
