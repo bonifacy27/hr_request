@@ -27,6 +27,7 @@ const FW_STATUS_DRAFT = 5;
 const FW_POSITION_COUNT = 1;
 const FW_LOGIN_ENDPOINT = 'https://app.friend.work/api/Accounts/LogIn';
 const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
+const FW_JOBS_ENDPOINT_ALT = 'https://api.friend.work/jobs';
 const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
 const FW_INTEGRATION_ACCOUNT_ID = 34234;
@@ -340,20 +341,33 @@ function fwCreateJob($payload, $cookieFile)
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
-function fwPatchJob($jobId, array $operations, $cookieFile)
+function fwPatchJob($jobId, array $operations, $cookieFile, $jwtToken = '')
 {
     $jobId = (int)$jobId;
     if ($jobId <= 0) {
         return [false, 'Некорректный jobId для PATCH вакансии.', [], 0, ''];
     }
 
-    $url = FW_JOBS_ENDPOINT . '/' . $jobId;
-
     $requestBody = json_encode($operations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $doRequest = static function ($method) use ($url, $cookieFile, $requestBody) {
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    $attempts = [
+        ['method' => 'PATCH', 'url' => FW_JOBS_ENDPOINT . '/' . $jobId, 'contentType' => 'application/json'],
+        ['method' => 'PUT', 'url' => FW_JOBS_ENDPOINT . '/' . $jobId, 'contentType' => 'application/json'],
+        ['method' => 'PATCH', 'url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId, 'contentType' => 'application/json-patch+json'],
+        ['method' => 'PUT', 'url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId, 'contentType' => 'application/json-patch+json'],
+    ];
+
+    $doRequest = static function (array $attempt) use ($cookieFile, $requestBody, $jwtToken) {
+        $headers = [
+            'Content-Type: ' . $attempt['contentType'],
+            'Accept: application/json',
+        ];
+        if (trim((string)$jwtToken) !== '') {
+            $headers[] = 'Authorization: Bearer ' . trim((string)$jwtToken);
+        }
+
+        $ch = curl_init($attempt['url']);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $attempt['method']);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
@@ -367,21 +381,30 @@ function fwPatchJob($jobId, array $operations, $cookieFile)
         return [$responseRaw, $curlErr, $httpCode];
     };
 
-    list($responseRaw, $curlErr, $httpCode) = $doRequest('PATCH');
-    $usedMethod = 'PATCH';
+    $responseRaw = '';
+    $curlErr = '';
+    $httpCode = 0;
+    $usedMethod = '';
+    $usedUrl = '';
+    $attemptResults = [];
 
-    if ($responseRaw === false) {
-        fwLog('Ошибка CURL при PATCH вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId]);
-        return [false, 'Ошибка CURL при PATCH вакансии FriendWork: ' . $curlErr, [], $httpCode, ''];
+    foreach ($attempts as $attempt) {
+        list($responseRaw, $curlErr, $httpCode) = $doRequest($attempt);
+        $usedMethod = (string)$attempt['method'];
+        $usedUrl = (string)$attempt['url'];
+        $attemptResults[] = $usedMethod . ' ' . $usedUrl . ' => HTTP ' . $httpCode . ($curlErr !== '' ? ('; CURL ' . $curlErr) : '');
+
+        if ($responseRaw === false) {
+            continue;
+        }
+        if ($httpCode >= 200 && $httpCode < 300) {
+            break;
+        }
     }
 
-    if ($httpCode === 405) {
-        list($responseRaw, $curlErr, $httpCode) = $doRequest('PUT');
-        $usedMethod = 'PUT';
-        if ($responseRaw === false) {
-            fwLog('Ошибка CURL при fallback PUT вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId]);
-            return [false, 'Ошибка CURL при fallback PUT вакансии FriendWork: ' . $curlErr, [], $httpCode, ''];
-        }
+    if ($responseRaw === false) {
+        fwLog('Ошибка CURL при обновлении вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId, 'attempts' => $attemptResults]);
+        return [false, 'Ошибка CURL при обновлении вакансии FriendWork: ' . $curlErr . '. Попытки: ' . implode(' | ', $attemptResults), [], $httpCode, ''];
     }
 
     $response = json_decode($responseRaw, true);
@@ -390,8 +413,8 @@ function fwPatchJob($jobId, array $operations, $cookieFile)
     }
 
     if ($httpCode >= 400) {
-        fwLog('FriendWork Jobs PATCH/PUT HTTP error', ['httpCode' => $httpCode, 'jobId' => $jobId, 'response' => $responseRaw, 'operations' => $operations, 'method' => $usedMethod]);
-        return [false, 'FriendWork ' . $usedMethod . ' /api/Jobs/' . $jobId . ' вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
+        fwLog('FriendWork Jobs update HTTP error', ['httpCode' => $httpCode, 'jobId' => $jobId, 'response' => $responseRaw, 'operations' => $operations, 'method' => $usedMethod, 'url' => $usedUrl, 'attempts' => $attemptResults]);
+        return [false, 'FriendWork ' . $usedMethod . ' ' . $usedUrl . ' вернул HTTP ' . $httpCode . ': ' . $responseRaw . '. Попытки: ' . implode(' | ', $attemptResults), $response, $httpCode, $responseRaw];
     }
 
     return [true, '', $response, $httpCode, $responseRaw];
@@ -830,6 +853,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                 $fwCredentials['password']
             );
             $debugInfo['login'] = $loginDebug;
+            $jwtToken = '';
+            $loginResponseDecoded = json_decode((string)valueOr($loginDebug, 'response', ''), true);
+            if (is_array($loginResponseDecoded)) {
+                $jwtToken = trim((string)valueOr($loginResponseDecoded, 'jwtToken', ''));
+            }
 
             if (!$loginOk) {
                 $errors[] = $loginError;
@@ -971,7 +999,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                     ],
                                 ];
 
-                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile);
+                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $jwtToken);
                                 @unlink($cookieFile);
                                 $debugInfo['patch'] = [
                                     'operations' => $patchOperations,
