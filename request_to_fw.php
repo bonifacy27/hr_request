@@ -31,6 +31,7 @@ const FW_JOBS_ENDPOINT_ALT = 'https://api.friend.work/jobs';
 const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
 const FW_INTEGRATION_ACCOUNT_ID = 34234;
+const FW_TOKEN_CONST_ID = 'Constant1775635795058';
 
 /**
  * Достаём учётные данные FW из глобальных констант БП (b_bp_global_const).
@@ -42,6 +43,7 @@ function fwGetCredentials()
     $result = [
         'username' => '',
         'password' => '',
+        'token' => '',
         'error' => '',
     ];
 
@@ -52,6 +54,7 @@ function fwGetCredentials()
         $ids = [
             'Constant1698403240866',
             'Constant1698403290839',
+            FW_TOKEN_CONST_ID,
         ];
 
         $escapedIds = array_map([$sqlHelper, 'forSql'], $ids);
@@ -70,6 +73,7 @@ function fwGetCredentials()
 
         $usernameRaw = valueOr($rows, 'Constant1698403240866', '');
         $passwordRaw = valueOr($rows, 'Constant1698403290839', '');
+        $tokenRaw = valueOr($rows, FW_TOKEN_CONST_ID, '');
 
         // Значение констант в БП часто хранится сериализованным массивом вида ['value' => '...'].
         $decodeValue = static function (string $raw): string {
@@ -115,6 +119,7 @@ function fwGetCredentials()
 
         $result['username'] = $decodeValue($usernameRaw);
         $result['password'] = $decodeValue($passwordRaw);
+        $result['token'] = $decodeValue($tokenRaw);
 
         if ($result['username'] === '' || $result['password'] === '') {
             $result['error'] = 'Не удалось получить логин/пароль FriendWork из b_bp_global_const (Constant1698403240866 / Constant1698403290839).';
@@ -915,6 +920,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
             if (is_array($loginResponseDecoded)) {
                 $jwtToken = trim((string)valueOr($loginResponseDecoded, 'jwtToken', ''));
             }
+            $accessToken = trim((string)valueOr($fwCredentials, 'token', ''));
+            if ($accessToken === '') {
+                $accessToken = $jwtToken;
+            }
+            $debugInfo['auth'] = [
+                'accessTokenSource' => (trim((string)valueOr($fwCredentials, 'token', '')) !== '') ? 'b_bp_global_const' : 'login.jwtToken',
+                'accessTokenPresent' => ($accessToken !== ''),
+            ];
 
             if (!$loginOk) {
                 $errors[] = $loginError;
@@ -1056,8 +1069,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                                     ],
                                 ];
 
-                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $jwtToken);
-                                list($jobGetOk, $jobGetError, $jobGetResponse, $jobGetHttpCode, $jobGetRaw, $jobGetAttempts) = fwGetJobById($jobId, $cookieFile, $jwtToken);
+                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $accessToken);
+                                list($jobGetOk, $jobGetError, $jobGetResponse, $jobGetHttpCode, $jobGetRaw, $jobGetAttempts) = fwGetJobById($jobId, $cookieFile, $accessToken);
                                 @unlink($cookieFile);
                                 $debugInfo['patch'] = [
                                     'operations' => $patchOperations,
@@ -1217,6 +1230,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                         'password' => valueOr($fwCredentials, 'password', ''),
                     ],
                     'login' => valueOr($debugInfo, 'login', null),
+                    'auth' => valueOr($debugInfo, 'auth', null),
                     'accounts' => valueOr($debugInfo, 'accounts', null),
                     'create' => valueOr($debugInfo, 'create', null),
                     'patch' => valueOr($debugInfo, 'patch', null),
