@@ -349,22 +349,39 @@ function fwPatchJob($jobId, array $operations, $cookieFile)
 
     $url = FW_JOBS_ENDPOINT . '/' . $jobId;
 
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PATCH');
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($operations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $requestBody = json_encode($operations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $doRequest = static function ($method) use ($url, $cookieFile, $requestBody) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
-    $responseRaw = curl_exec($ch);
-    $curlErr = curl_error($ch);
-    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+        $responseRaw = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        return [$responseRaw, $curlErr, $httpCode];
+    };
+
+    list($responseRaw, $curlErr, $httpCode) = $doRequest('PATCH');
+    $usedMethod = 'PATCH';
 
     if ($responseRaw === false) {
         fwLog('Ошибка CURL при PATCH вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId]);
         return [false, 'Ошибка CURL при PATCH вакансии FriendWork: ' . $curlErr, [], $httpCode, ''];
+    }
+
+    if ($httpCode === 405) {
+        list($responseRaw, $curlErr, $httpCode) = $doRequest('PUT');
+        $usedMethod = 'PUT';
+        if ($responseRaw === false) {
+            fwLog('Ошибка CURL при fallback PUT вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId]);
+            return [false, 'Ошибка CURL при fallback PUT вакансии FriendWork: ' . $curlErr, [], $httpCode, ''];
+        }
     }
 
     $response = json_decode($responseRaw, true);
@@ -373,8 +390,8 @@ function fwPatchJob($jobId, array $operations, $cookieFile)
     }
 
     if ($httpCode >= 400) {
-        fwLog('FriendWork Jobs PATCH HTTP error', ['httpCode' => $httpCode, 'jobId' => $jobId, 'response' => $responseRaw, 'operations' => $operations]);
-        return [false, 'FriendWork PATCH /api/Jobs/' . $jobId . ' вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
+        fwLog('FriendWork Jobs PATCH/PUT HTTP error', ['httpCode' => $httpCode, 'jobId' => $jobId, 'response' => $responseRaw, 'operations' => $operations, 'method' => $usedMethod]);
+        return [false, 'FriendWork ' . $usedMethod . ' /api/Jobs/' . $jobId . ' вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
     return [true, '', $response, $httpCode, $responseRaw];
@@ -433,6 +450,21 @@ function fwExtractAccountId(array $account)
         }
     }
     return 0;
+}
+
+function isDebugRequestEnabled()
+{
+    $debugRaw = strtolower(trim((string)valueOr($_GET, 'debug', '')));
+    if (in_array($debugRaw, ['1', 'true', 'yes', 'y'], true)) {
+        return true;
+    }
+
+    $requestUri = (string)valueOr($_SERVER, 'REQUEST_URI', '');
+    if ($requestUri !== '' && stripos($requestUri, 'debug=true') !== false) {
+        return true;
+    }
+
+    return false;
 }
 
 function findUserRunningTaskForDocument($iblockId, $elementId, $userId)
@@ -766,7 +798,7 @@ $errors = [];
 $warnings = [];
 $success = '';
 $debugInfo = [];
-$isDebugMode = (strtolower((string)valueOr($_GET, 'debug', '')) === 'true');
+$isDebugMode = isDebugRequestEnabled();
 $bizprocCompletion = null;
 $currentUserId = (int)$GLOBALS['USER']->GetID();
 $task = null;
