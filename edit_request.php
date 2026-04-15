@@ -331,6 +331,65 @@ function getGlobalVarUserList($varId) {
     }
     return array_values(array_unique($users));
 }
+function getDocumentIdCandidates(int $iblockId, int $elementId): array
+{
+    return [
+        ['lists',  'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
+        ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
+        ['lists',  'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
+    ];
+}
+function getRunningTasks(int $elementId, int $iblockId = IBLOCK_RECRUIT): array
+{
+    $tasks = [];
+    foreach (getDocumentIdCandidates($iblockId, $elementId) as $docIdCandidate) {
+        try {
+            $rs = \CBPTaskService::GetList(
+                ['ID' => 'ASC'],
+                ['DOCUMENT_ID' => $docIdCandidate, 'STATUS' => \CBPTaskStatus::Running],
+                false,
+                false,
+                ['ID', 'USER_ID']
+            );
+            while ($t = $rs->GetNext()) {
+                $taskId = (int)($t['ID'] ?? 0);
+                if ($taskId <= 0) {
+                    continue;
+                }
+                $tasks[$taskId] = [
+                    'ID' => $taskId,
+                    'USER_ID' => (int)($t['USER_ID'] ?? 0),
+                ];
+            }
+        } catch (\Throwable $e) {}
+    }
+    return array_values($tasks);
+}
+function getBizprocTaskUrl(int $taskId, ?int $userId = null): string
+{
+    $userId = $userId ?: (int)$GLOBALS['USER']->GetID();
+    if (class_exists('\\CBPTaskService')) {
+        if (method_exists('\\CBPTaskService', 'GetTaskUrl')) {
+            try { return (string)\CBPTaskService::GetTaskUrl($taskId, $userId); } catch (\Throwable $e) {}
+        }
+        if (method_exists('\\CBPTaskService', 'GetTaskURL')) {
+            try { return (string)\CBPTaskService::GetTaskURL($taskId, $userId); } catch (\Throwable $e) {}
+        }
+    }
+    return '/company/personal/bizproc/' . $taskId . '/';
+}
+function getReturnUrlAfterEdit(int $elementId, int $userId): string
+{
+    if ($elementId > 0 && $userId > 0) {
+        $tasks = getRunningTasks($elementId, IBLOCK_RECRUIT);
+        foreach ($tasks as $task) {
+            if ((int)($task['USER_ID'] ?? 0) === $userId) {
+                return getBizprocTaskUrl((int)$task['ID'], $userId);
+            }
+        }
+    }
+    return '/forms/staff_recruitment/staffing/list.php';
+}
 function parseMoneyInput($value) {
     $v = trim((string)$value);
     if ($v === '') return 0.0;
@@ -559,6 +618,7 @@ $success = false;
 
 if ($request->isPost() && check_bitrix_sessid()) {
     $post = $request->getPostList()->toArray();
+    $returnUrl = getReturnUrlAfterEdit($elementId, (int)$USER->GetID());
     $isConfirmedSave = (isset($post['confirm_save']) && (string)$post['confirm_save'] === 'Y');
     if (!$isConfirmedSave) {
         $errors[] = 'Сначала подтвердите сохранение изменений в окне проверки.';
@@ -809,7 +869,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
     } elseif (empty($errors) && !$hasWorkflowRelevantChanges) {
         CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, $updates);
         $success = true;
-        LocalRedirect('/forms/staff_recruitment/staffing/list_recruiter.php');
+        LocalRedirect($returnUrl);
         return;
     } elseif (empty($errors)) {
         // История append
@@ -840,7 +900,7 @@ if ($request->isPost() && check_bitrix_sessid()) {
         }
 
         $success = true;
-        LocalRedirect('/forms/staff_recruitment/staffing/list_recruiter.php');
+        LocalRedirect($returnUrl);
         return;
 
         // перечитать свойства
