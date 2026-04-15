@@ -535,6 +535,41 @@ function completeBizprocTaskApprove(array $task, int $userId): array
     }
 
     try {
+        if (method_exists('CBPDocument', 'PostTaskForm')) {
+            $tmpErr = [];
+            CBPDocument::PostTaskForm($taskId, $userId, [
+                'USER_ID' => $userId,
+                'REAL_USER_ID' => $userId,
+                $code => 'Y',
+            ], $tmpErr);
+            if (!empty($tmpErr)) $errors = array_merge($errors, $tmpErr);
+            if (!taskIsRunning($taskId)) return ['OK' => true, 'ERROR' => ''];
+        }
+    } catch (\Throwable $e) {
+        $errors[] = $e->getMessage();
+    }
+
+    try {
+        $workflowId = (string)($task['WORKFLOW_ID'] ?? '');
+        $activity = (string)($task['ACTIVITY_NAME'] ?? $task['NAME'] ?? '');
+        if ($workflowId !== '' && $activity !== '' && method_exists('CBPDocument', 'SendExternalEvent')) {
+            $payloads = [
+                ['APPROVE' => 'Y', 'USER_ID' => $userId, 'REAL_USER_ID' => $userId],
+                ['RESULT' => 'Y', 'USER_ID' => $userId, 'REAL_USER_ID' => $userId],
+            ];
+
+            foreach ($payloads as $payload) {
+                $tmpErr = [];
+                CBPDocument::SendExternalEvent($workflowId, $activity, $payload, $tmpErr);
+                if (!empty($tmpErr)) $errors = array_merge($errors, $tmpErr);
+                if (!taskIsRunning($taskId)) return ['OK' => true, 'ERROR' => ''];
+            }
+        }
+    } catch (\Throwable $e) {
+        $errors[] = $e->getMessage();
+    }
+
+    try {
         if (method_exists('CBPTaskService', 'DoTask')) {
             CBPTaskService::DoTask($taskId, $userId, ['ACTION' => $code, $code => 'Y']);
             if (!taskIsRunning($taskId)) return ['OK' => true, 'ERROR' => ''];
