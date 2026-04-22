@@ -30,6 +30,9 @@ const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 function decodeStatusHistoryHtml(string $raw): string
 {
     $decoded = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (preg_match('/[ÐÑ]/u', $decoded)) {
+        $decoded = mb_convert_encoding($decoded, 'ISO-8859-1', 'UTF-8');
+    }
     $decoded = str_replace(["\\r\\n", "\\n", "\\r"], "\n", $decoded);
     $decoded = preg_replace('/<br\\s*\\/?>/iu', "<br>", $decoded);
     $decoded = strip_tags($decoded, '<br>');
