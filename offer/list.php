@@ -15,6 +15,7 @@ $APPLICATION->SetTitle('Заявки на оффер');
 if (!Loader::includeModule('main')) { ShowError('Модуль main не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
 if (!Loader::includeModule('iblock')) { ShowError('Модуль iblock не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
 if (!Loader::includeModule('bizproc')) { ShowError('Модуль bizproc не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+CJSCore::Init(['popup']);
 
 const IBL_OFFERS = 218;
 const PROP_CANDIDATE_FIO = 'PROPERTY_1157';
@@ -96,40 +97,69 @@ function getGlobalVarUserList(string $varId): array
     return array_values(array_unique($users));
 }
 
-function getDocumentIdCandidates(int $iblockId, int $elementId): array
+function extractElementIdFromDocumentId($documentId, int $iblockId): int
 {
-    return [
-        ['lists', 'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
-        ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
-        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
-    ];
+    if (is_array($documentId)) {
+        $candidate = $documentId[2] ?? '';
+        if (is_numeric($candidate)) return (int)$candidate;
+        $documentId = (string)$candidate;
+    }
+
+    $raw = trim((string)$documentId);
+    if ($raw === '') return 0;
+
+    if (preg_match('/(?:lists|iblock)_' . (int)$iblockId . '_(\d+)/', $raw, $m)) {
+        return (int)$m[1];
+    }
+    if (is_numeric($raw)) {
+        return (int)$raw;
+    }
+    return 0;
 }
 
-function getRunningTasks(int $elementId, int $iblockId): array
+function getCurrentUserRunningTaskMapForOffers(int $userId, int $iblockId): array
 {
-    $tasks = [];
-    foreach (getDocumentIdCandidates($iblockId, $elementId) as $docIdCandidate) {
-        try {
-            $rs = \CBPTaskService::GetList(
-                ['ID' => 'ASC'],
-                ['DOCUMENT_ID' => $docIdCandidate, 'STATUS' => \CBPTaskStatus::Running],
-                false,
-                false,
-                ['ID', 'USER_ID', 'NAME']
-            );
-            while ($t = $rs->GetNext()) {
-                $tid = (int)($t['ID'] ?? 0);
-                if ($tid <= 0) continue;
-                $tasks[$tid] = [
-                    'ID' => $tid,
-                    'USER_ID' => (int)($t['USER_ID'] ?? 0),
-                    'NAME' => (string)($t['NAME'] ?? ''),
-                ];
-            }
-        } catch (\Throwable $e) {
-        }
+    static $cache = [];
+    $cacheKey = $iblockId . ':' . $userId;
+    if (isset($cache[$cacheKey])) {
+        return $cache[$cacheKey];
     }
-    return array_values($tasks);
+
+    $map = [];
+    if ($userId <= 0) {
+        $cache[$cacheKey] = $map;
+        return $map;
+    }
+
+    try {
+        $rs = \CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['USER_ID' => $userId, 'STATUS' => \CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID', 'DOCUMENT_ID']
+        );
+        while ($t = $rs->GetNext()) {
+            $taskId = (int)($t['ID'] ?? 0);
+            if ($taskId <= 0) continue;
+
+            $elementId = extractElementIdFromDocumentId($t['DOCUMENT_ID'] ?? '', $iblockId);
+            if ($elementId <= 0 && !empty($t['DOCUMENT_ID'])) {
+                $docRaw = is_array($t['DOCUMENT_ID']) ? json_encode($t['DOCUMENT_ID'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : (string)$t['DOCUMENT_ID'];
+                if (preg_match('/(?:lists|iblock)_' . (int)$iblockId . '_(\d+)/', $docRaw, $m)) {
+                    $elementId = (int)$m[1];
+                }
+            }
+
+            if ($elementId > 0 && !isset($map[$elementId])) {
+                $map[$elementId] = $taskId;
+            }
+        }
+    } catch (\Throwable $e) {
+    }
+
+    $cache[$cacheKey] = $map;
+    return $map;
 }
 
 function getBizprocTaskUrl(int $taskId, ?int $userId = null): string
@@ -152,7 +182,7 @@ $fRecruiter = (int)$request->get('f_recruiter');
 $fStatus = (int)$request->get('f_status');
 $sort = strtoupper((string)$request->get('sort') ?: 'ID');
 $dir = strtoupper((string)$request->get('dir') ?: 'DESC');
-$pageSize = 50;
+$pageSize = 20;
 
 $sortable = ['ID', 'CANDIDATE_FIO', 'DATE_CREATE', 'STATUS'];
 if (!in_array($sort, $sortable, true)) $sort = 'ID';
@@ -184,6 +214,8 @@ if ($fStatus > 0) $filter[PROP_STATUS] = $fStatus;
 $arOrder = ['ID' => 'DESC'];
 if ($sort === 'ID') $arOrder = ['ID' => $dir];
 if ($sort === 'DATE_CREATE') $arOrder = ['DATE_CREATE' => $dir];
+if ($sort === 'CANDIDATE_FIO') $arOrder = [PROP_CANDIDATE_FIO => $dir, 'ID' => 'DESC'];
+if ($sort === 'STATUS') $arOrder = [PROP_STATUS => $dir, 'ID' => 'DESC'];
 
 $arSelect = [
     'ID', 'DATE_CREATE',
@@ -200,19 +232,14 @@ $res = CIBlockElement::GetList($arOrder, $filter, false, ['nPageSize' => $pageSi
 
 $items = [];
 $userIds = [];
+$currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
 while ($ob = $res->GetNextElement()) {
     $f = $ob->GetFields();
     $id = (int)$f['ID'];
     $recruiterId = userIdFromValue($f[PROP_RECRUITER . '_VALUE'] ?? '');
 
-    $tasks = getRunningTasks($id, IBL_OFFERS);
-    $taskIdForCurrentUser = 0;
-    foreach ($tasks as $t) {
-        if ((int)$t['USER_ID'] === $currentUserId && $taskIdForCurrentUser <= 0) {
-            $taskIdForCurrentUser = (int)$t['ID'];
-        }
-    }
+    $taskIdForCurrentUser = (int)($currentUserTasksMap[$id] ?? 0);
 
     $items[] = [
         'ID' => $id,
@@ -230,16 +257,6 @@ while ($ob = $res->GetNextElement()) {
     ];
 
     if ($recruiterId > 0) $userIds[$recruiterId] = true;
-}
-
-if (in_array($sort, ['CANDIDATE_FIO', 'STATUS'], true)) {
-    usort($items, static function (array $a, array $b) use ($sort, $dir) {
-        $mul = ($dir === 'ASC') ? 1 : -1;
-        return $mul * strcmp(
-            mb_strtolower((string)($a[$sort] ?? ''), 'UTF-8'),
-            mb_strtolower((string)($b[$sort] ?? ''), 'UTF-8')
-        );
-    });
 }
 
 $ids = array_keys($userIds);
@@ -300,9 +317,15 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .btn { display:inline-block; padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .btn-info { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
 .offer-list-page .muted { color:#6b7280; }
+.offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; border:1px solid #94a3b8; color:#334155; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .pagination .active { background:#2563eb; border-color:#2563eb; color:#fff; }
+.offer-list-page .modal-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none; z-index:9998; }
+.offer-list-page .modal-card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:80vh; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(2,6,23,.25); display:none; z-index:9999; }
+.offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e2e8f0; }
+.offer-list-page .modal-title { font-weight:600; }
+.offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(80vh - 60px); }
 </style>
 
 <div class="offer-list-page">
@@ -367,10 +390,16 @@ function navPageUrl(int $pageNum): string
                     <td><?= h($row['ORGANIZATION'] ?: '—') ?></td>
                     <td><?= h(isset($userMap[$recruiterId]) ? formatUserName($userMap[$recruiterId]) : '—') ?></td>
                     <td>
-                        <div><strong><?= h($row['STATUS'] ?: '—') ?></strong></div>
-                        <?php if (trim($row['STATUS_HISTORY']) !== ''): ?>
-                            <div class="muted" style="white-space:pre-line; margin-top:4px;"><?= h($row['STATUS_HISTORY']) ?></div>
-                        <?php endif; ?>
+                        <div>
+                            <strong><?= h($row['STATUS'] ?: '—') ?></strong>
+                            <?php if (trim($row['STATUS_HISTORY']) !== ''): ?>
+                                <a href="#"
+                                   class="info-btn js-status-info"
+                                   title="Показать историю"
+                                   data-history="<?= h($row['STATUS_HISTORY']) ?>"
+                                   data-offer-id="<?= (int)$row['ID'] ?>">i</a>
+                            <?php endif; ?>
+                        </div>
                     </td>
                     <td><?= h($row['DATE_CREATE']) ?></td>
                     <td>
@@ -405,5 +434,52 @@ function navPageUrl(int $pageNum): string
         </div>
     <?php endif; ?>
 </div>
+
+<div class="offer-list-page">
+    <div id="status-history-backdrop" class="modal-backdrop"></div>
+    <div id="status-history-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="status-history-title">
+        <div class="modal-head">
+            <div id="status-history-title" class="modal-title">История статуса</div>
+            <button type="button" class="btn" id="status-history-close">Закрыть</button>
+        </div>
+        <div class="modal-body" id="status-history-content"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+  var backdrop = document.getElementById('status-history-backdrop');
+  var modal = document.getElementById('status-history-modal');
+  var closeBtn = document.getElementById('status-history-close');
+  var content = document.getElementById('status-history-content');
+  var title = document.getElementById('status-history-title');
+
+  function closeModal() {
+    backdrop.style.display = 'none';
+    modal.style.display = 'none';
+    content.textContent = '';
+  }
+
+  function openModal(offerId, history) {
+    title.textContent = 'История статуса (оффер #' + offerId + ')';
+    content.textContent = history || 'История отсутствует.';
+    backdrop.style.display = 'block';
+    modal.style.display = 'block';
+  }
+
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.js-status-info');
+    if (!btn) return;
+    e.preventDefault();
+    openModal(btn.getAttribute('data-offer-id') || '', btn.getAttribute('data-history') || '');
+  });
+
+  backdrop.addEventListener('click', closeModal);
+  closeBtn.addEventListener('click', closeModal);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && modal.style.display === 'block') closeModal();
+  });
+})();
+</script>
 
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php'); ?>
