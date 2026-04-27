@@ -74,6 +74,22 @@ function getUserNamesMap(array $userIds)
     return $map;
 }
 
+function propertyValueById(array $properties, $propertyId, $valueKey = 'VALUE')
+{
+    $propertyId = (int)$propertyId;
+    foreach ($properties as $property) {
+        if (!is_array($property)) {
+            continue;
+        }
+        if ((int)($property['ID'] ?? 0) !== $propertyId) {
+            continue;
+        }
+        return $property[$valueKey] ?? '';
+    }
+
+    return '';
+}
+
 function docIdCandidates($elementId)
 {
     $elementId = (int)$elementId;
@@ -209,7 +225,7 @@ while ($ob = $rs->GetNextElement()) {
     $p = $ob->GetProperties();
 
     $id = (int)$f['ID'];
-    $rid = (int)($p[PROP_RECRUITER]['VALUE'] ?? 0);
+    $rid = (int)propertyValueById($p, PROP_RECRUITER, 'VALUE');
 
     if ($rid > 0) {
         $recruiterIds[$rid] = $rid;
@@ -218,12 +234,12 @@ while ($ob = $rs->GetNextElement()) {
     $rows[] = [
         'ID' => $id,
         'DATE_CREATE' => (string)$f['DATE_CREATE'],
-        'LASTNAME' => (string)($p[PROP_LASTNAME]['VALUE'] ?? ''),
-        'FIRSTNAME' => (string)($p[PROP_FIRSTNAME]['VALUE'] ?? ''),
-        'MIDDLENAME' => (string)($p[PROP_MIDDLENAME]['VALUE'] ?? ''),
-        'TYPE_ID' => (int)($p[PROP_TYPE]['VALUE_ENUM_ID'] ?? 0),
-        'STATUS_ID' => (int)($p[PROP_STATUS]['VALUE_ENUM_ID'] ?? 0),
-        'HISTORY' => (string)($p[PROP_HISTORY]['VALUE'] ?? ''),
+        'LASTNAME' => (string)propertyValueById($p, PROP_LASTNAME, 'VALUE'),
+        'FIRSTNAME' => (string)propertyValueById($p, PROP_FIRSTNAME, 'VALUE'),
+        'MIDDLENAME' => (string)propertyValueById($p, PROP_MIDDLENAME, 'VALUE'),
+        'TYPE_ID' => (int)propertyValueById($p, PROP_TYPE, 'VALUE_ENUM_ID'),
+        'STATUS_ID' => (int)propertyValueById($p, PROP_STATUS, 'VALUE_ENUM_ID'),
+        'HISTORY' => (string)propertyValueById($p, PROP_HISTORY, 'VALUE'),
         'RECRUITER_ID' => $rid,
     ];
 }
