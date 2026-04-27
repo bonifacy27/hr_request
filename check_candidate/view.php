@@ -20,9 +20,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 const CANDIDATE_IBLOCK_ID = 207;
 
 $fieldsByCode = [
-    'FAMILIYA' => ['TYPE' => 'S', 'NAME' => 'Фамилия'],
-    'IMYA' => ['TYPE' => 'S', 'NAME' => 'Имя'],
-    'OTCHESTVO' => ['TYPE' => 'S', 'NAME' => 'Отчество'],
+    'CANDIDATE_FIO' => ['TYPE' => 'FULL_NAME', 'NAME' => 'ФИО кандидата'],
     'MOB_TELEFON_7' => ['TYPE' => 'S', 'NAME' => 'Моб. телефон (+7)'],
     'E_MAIL' => ['TYPE' => 'S', 'NAME' => 'E-mail'],
     'TIP_ANKETY' => ['TYPE' => 'L', 'NAME' => 'Тип анкеты'],
@@ -53,10 +51,10 @@ $fieldsByCode = [
 ];
 
 $blocks = [
-    'Блок 1' => ['FAMILIYA', 'IMYA', 'OTCHESTVO', 'MOB_TELEFON_7', 'E_MAIL', 'TIP_ANKETY', 'STATUS_ANKETY'],
-    'Блок 2' => ['ANKETA_KANDIDATA', 'PASPORT', 'SNILS', 'INN', 'DIPLOM', 'TRUDOVAYA_KNIZHKA', 'STD_R', 'PRICHINA_OTSUTSTVIYA_TRUDOVOY', 'VOENNYY_BILET', 'RESUME', 'COMP_SPEC', 'INTERNET_SPEEDTEST', 'TYPING_SPEED'],
-    'Блок 3' => ['REKRUTER', 'RUKOVODITEL', 'SOGLASOVANIE_KANDIDATA_RUKOVODITELEM'],
-    'Блок 4' => ['STATUS_ANKETY_BLOCK4', 'KOMMENTARIY_SB', 'KOMMENTARIY_SB_PO_OGRANICHENIYAM', 'ROUTE'],
+    'Основная информация' => ['CANDIDATE_FIO', 'MOB_TELEFON_7', 'E_MAIL', 'TIP_ANKETY', 'STATUS_ANKETY'],
+    'Документы кандидата' => ['ANKETA_KANDIDATA', 'PASPORT', 'SNILS', 'INN', 'DIPLOM', 'TRUDOVAYA_KNIZHKA', 'STD_R', 'PRICHINA_OTSUTSTVIYA_TRUDOVOY', 'VOENNYY_BILET', 'COMP_SPEC', 'INTERNET_SPEEDTEST', 'TYPING_SPEED'],
+    'Согласование и ответственные' => ['REKRUTER', 'RUKOVODITEL', 'SOGLASOVANIE_KANDIDATA_RUKOVODITELEM', 'RESUME'],
+    'Служба безопасности' => ['STATUS_ANKETY_BLOCK4', 'KOMMENTARIY_SB', 'KOMMENTARIY_SB_PO_OGRANICHENIYAM', 'ROUTE'],
 ];
 
 function h($value)
@@ -96,6 +94,22 @@ function formatUserNameById($userId)
     return (string)($user['LOGIN'] ?? '');
 }
 
+function fileIconByExt($fileName)
+{
+    $ext = mb_strtolower(pathinfo((string)$fileName, PATHINFO_EXTENSION));
+    $map = [
+        'pdf' => '📕',
+        'jpg' => '🖼️',
+        'jpeg' => '🖼️',
+        'png' => '🖼️',
+        'doc' => '📘',
+        'docx' => '📘',
+        'msg' => '✉️',
+    ];
+
+    return $map[$ext] ?? '📄';
+}
+
 function renderValue(array $property, $type)
 {
     if ($type === 'F') {
@@ -118,7 +132,8 @@ function renderValue(array $property, $type)
 
             $file = CFile::GetFileArray($fileId);
             $fileName = (string)($file['ORIGINAL_NAME'] ?? $file['FILE_NAME'] ?? ('Файл ' . $fileId));
-            $links[] = '<a href="' . h($filePath) . '" target="_blank">Открыть ' . h($fileName) . '</a>';
+            $icon = fileIconByExt($fileName);
+            $links[] = '<a href="' . h($filePath) . '" target="_blank">' . h($icon . ' ' . $fileName) . '</a>';
         }
 
         return $links ? implode('<br>', $links) : '';
@@ -127,6 +142,14 @@ function renderValue(array $property, $type)
     if ($type === 'L') {
         $value = trim((string)($property['VALUE_ENUM'] ?? $property['VALUE'] ?? ''));
         return $value !== '' ? h($value) : '';
+    }
+
+    if ($type === 'FULL_NAME') {
+        $last = trim((string)($property['LAST_NAME'] ?? ''));
+        $first = trim((string)($property['FIRST_NAME'] ?? ''));
+        $middle = trim((string)($property['MIDDLE_NAME'] ?? ''));
+        $full = trim($last . ' ' . $first . ' ' . $middle);
+        return $full !== '' ? h($full) : '';
     }
 
     if ($type === 'U') {
@@ -197,6 +220,13 @@ foreach ($properties as $property) {
     }
     $propertiesByCode[$code] = $property;
 }
+
+
+$propertiesByCode['CANDIDATE_FIO'] = [
+    'LAST_NAME' => (string)(($propertiesByCode['FAMILIYA']['VALUE'] ?? '')),
+    'FIRST_NAME' => (string)(($propertiesByCode['IMYA']['VALUE'] ?? '')),
+    'MIDDLE_NAME' => (string)(($propertiesByCode['OTCHESTVO']['VALUE'] ?? '')),
+];
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
