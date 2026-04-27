@@ -1,7 +1,7 @@
 <?php
 /**
  * list.php — список заявок на оффер (ИБ 218)
- * URL: /forms/staff_recruiting/offer/list.php
+ * URL: /forms/staff_recruitment/offer/list.php
  */
 
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
@@ -26,6 +26,36 @@ const PROP_RECRUITER = 'PROPERTY_1190';
 const PROP_STATUS = 'PROPERTY_1189';
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
+
+function decodeStatusHistoryHtml(string $raw): string
+{
+    $decoded = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (preg_match('/[ÐÑ]/u', $decoded)) {
+        $decoded = mb_convert_encoding($decoded, 'ISO-8859-1', 'UTF-8');
+    }
+    $decoded = str_replace(["\\r\\n", "\\n", "\\r"], "\n", $decoded);
+    $decoded = preg_replace('/<br\\s*\\/?>/iu', "<br>", $decoded);
+    $decoded = strip_tags($decoded, '<br>');
+    return trim($decoded);
+}
+
+function getStatusBadgeColor(string $status): string
+{
+    $map = [
+        'Согласование рук. ОПП' => '#fb923c',
+        'Согласование C&B' => '#fb923c',
+        'Согласование рук. ОМиОР' => '#fb923c',
+        'Согласование HRD' => '#fb923c',
+        'Согласование рук-ля' => '#fb923c',
+        'Доработка' => '#fde047',
+        'Согласовано' => '#86efac',
+        'Оффер сформирован' => '#60a5fa',
+        'Оффер принят' => '#22c55e',
+        'Оффер не принят' => '#ef4444',
+        'Черновик' => '#9ca3af',
+    ];
+    return $map[$status] ?? '#cbd5e1';
+}
 
 function h($s): string
 {
@@ -250,10 +280,10 @@ while ($ob = $res->GetNextElement()) {
         'ORGANIZATION' => (string)($f[PROP_ORGANIZATION . '_VALUE'] ?? ''),
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => (string)($f[PROP_STATUS . '_VALUE'] ?? ''),
-        'STATUS_HISTORY' => (string)($f['PREVIEW_TEXT'] ?? ''),
+        'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
         'TASK_ID_FOR_CURRENT_USER' => $taskIdForCurrentUser,
-        'VIEW_URL' => '/forms/staff_recruiting/offer/view_offer.php?id=' . $id,
-        'EDIT_URL' => '/forms/staff_recruiting/offer/edit_offer.php?id=' . $id,
+        'VIEW_URL' => '/forms/staff_recruitment/offer/view_offer.php?id=' . $id,
+        'EDIT_URL' => '/forms/staff_recruitment/offer/edit_offer.php?id=' . $id,
     ];
 
     if ($recruiterId > 0) $userIds[$recruiterId] = true;
@@ -318,6 +348,7 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .btn-info { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
 .offer-list-page .muted { color:#6b7280; }
 .offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; border:1px solid #94a3b8; color:#334155; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
+.offer-list-page .status-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .pagination .active { background:#2563eb; border-color:#2563eb; color:#fff; }
@@ -330,7 +361,7 @@ function navPageUrl(int $pageNum): string
 
 <div class="offer-list-page">
     <div class="toolbar">
-        <a href="/forms/staff_recruiting/offer/create_offer.php" class="btn-primary">Создать оффер</a>
+        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn-primary">Создать оффер</a>
 
         <form method="get" action="">
             <input type="text" name="q" value="<?= h($q) ?>" placeholder="Поиск по ФИО кандидата">
@@ -391,12 +422,14 @@ function navPageUrl(int $pageNum): string
                     <td><?= h(isset($userMap[$recruiterId]) ? formatUserName($userMap[$recruiterId]) : '—') ?></td>
                     <td>
                         <div>
-                            <strong><?= h($row['STATUS'] ?: '—') ?></strong>
+                            <?php $statusName = (string)($row['STATUS'] ?: '—'); ?>
+                            <span class="status-badge" style="background:<?= h(getStatusBadgeColor($statusName)) ?>;"><?= h($statusName) ?></span>
                             <?php if (trim($row['STATUS_HISTORY']) !== ''): ?>
+                                <?php $historyBase64 = base64_encode($row['STATUS_HISTORY']); ?>
                                 <a href="#"
                                    class="info-btn js-status-info"
                                    title="Показать историю"
-                                   data-history="<?= h($row['STATUS_HISTORY']) ?>"
+                                   data-history-b64="<?= h($historyBase64) ?>"
                                    data-offer-id="<?= (int)$row['ID'] ?>">i</a>
                             <?php endif; ?>
                         </div>
@@ -462,7 +495,7 @@ function navPageUrl(int $pageNum): string
 
   function openModal(offerId, history) {
     title.textContent = 'История статуса (оффер #' + offerId + ')';
-    content.textContent = history || 'История отсутствует.';
+    content.innerHTML = history || 'История отсутствует.';
     backdrop.style.display = 'block';
     modal.style.display = 'block';
   }
@@ -471,7 +504,10 @@ function navPageUrl(int $pageNum): string
     var btn = e.target.closest('.js-status-info');
     if (!btn) return;
     e.preventDefault();
-    openModal(btn.getAttribute('data-offer-id') || '', btn.getAttribute('data-history') || '');
+    var encoded = btn.getAttribute('data-history-b64') || '';
+    var decoded = '';
+    try { decoded = encoded ? window.atob(encoded) : ''; } catch (err) {}
+    openModal(btn.getAttribute('data-offer-id') || '', decoded);
   });
 
   backdrop.addEventListener('click', closeModal);
