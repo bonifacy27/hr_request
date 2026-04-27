@@ -314,12 +314,12 @@ function buildQueryUrl(array $override = [])
 
 $search = trim((string)($_GET['q'] ?? ''));
 $statusFilter = (int)($_GET['status'] ?? 0);
+$orgFilter = (int)($_GET['org'] ?? 0);
 $inWorkOnly = (string)($_GET['in_work'] ?? '') === 'Y';
 
 $allowedSorts = [
     'id' => 'ID',
     'fio' => 'EMPLOYEE_FIO',
-    'date_create' => 'DATE_CREATE_TS',
     'organization' => 'ORGANIZATION_NAME',
     'position' => 'POSITION',
     'hire_date' => 'HIRE_DATE_TS',
@@ -328,9 +328,9 @@ $allowedSorts = [
     'manager' => 'MANAGER_FIO',
     'status' => 'STATUS_NAME',
 ];
-$sort = (string)($_GET['sort'] ?? 'date_create');
+$sort = (string)($_GET['sort'] ?? 'id');
 if (!isset($allowedSorts[$sort])) {
-    $sort = 'date_create';
+    $sort = 'id';
 }
 $order = mb_strtolower((string)($_GET['order'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 $page = max(1, (int)($_GET['page'] ?? 1));
@@ -348,7 +348,7 @@ $organizationIds = [];
 $statusIds = [];
 
 $rs = CIBlockElement::GetList(
-    ['DATE_CREATE' => 'DESC', 'ID' => 'DESC'],
+    ['ID' => 'DESC'],
     $filter,
     false,
     false,
@@ -380,14 +380,11 @@ while ($ob = $rs->GetNextElement()) {
         $statusIds[$statusId] = $statusId;
     }
 
-    $dateCreate = (string)$fields['DATE_CREATE'];
     $hireDate = (string)getPropertyValue($properties, PROP_DATA_PRIEMA, 'VALUE');
     $probationEndDate = (string)getPropertyValue($properties, PROP_DATA_OKONCHANIYA_IS, 'VALUE');
 
     $rows[] = [
         'ID' => $id,
-        'DATE_CREATE' => $dateCreate,
-        'DATE_CREATE_TS' => strtotime($dateCreate) ?: 0,
         'FAMILIYA' => (string)getPropertyValue($properties, PROP_FAMILIYA, 'VALUE'),
         'IMYA' => (string)getPropertyValue($properties, PROP_IMYA, 'VALUE'),
         'OTCHESTVO' => (string)getPropertyValue($properties, PROP_OTCHESTVO, 'VALUE'),
@@ -408,6 +405,8 @@ $userMap = getUserNamesMap($userIds);
 $organizationMap = getElementNamesMap($organizationIds);
 $statusMetaMap = getStatusMetaMap($statusIds);
 $statusFilterMap = getStatusMetaMap(array_keys($statusIds));
+$orgFilterMap = $organizationMap;
+asort($orgFilterMap, SORT_NATURAL | SORT_FLAG_CASE);
 
 foreach ($rows as &$row) {
     $row['EMPLOYEE_FIO'] = fullName($row['FAMILIYA'], $row['IMYA'], $row['OTCHESTVO']);
@@ -422,6 +421,12 @@ unset($row);
 if ($statusFilter > 0) {
     $rows = array_values(array_filter($rows, static function ($row) use ($statusFilter) {
         return (int)$row['STATUS_ID'] === $statusFilter;
+    }));
+}
+
+if ($orgFilter > 0) {
+    $rows = array_values(array_filter($rows, static function ($row) use ($orgFilter) {
+        return (int)$row['ORGANIZATION_ID'] === $orgFilter;
     }));
 }
 
@@ -482,30 +487,143 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     }
 
     $url = h(buildQueryUrl(['sort' => $sortKey, 'order' => $nextOrder, 'page' => 1]));
-
     return '<a class="sort-link" href="' . $url . '">' . h($label) . ($caret !== '' ? ' <span class="sort-caret">' . $caret . '</span>' : '') . '</a>';
 }
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
-.page-wrap { padding:16px 24px; }
-.table thead th { white-space:nowrap; vertical-align:middle; }
-.sort-link { color:#fff; text-decoration:none; }
-.sort-link:hover { color:#fff; text-decoration:underline; }
-.sort-caret { margin-left:4px; font-weight:700; }
-.status-pill { display:inline-block; padding:5px 10px; border-radius:999px; color:#fff; font-size:12px; font-weight:600; }
-.history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
-.history-btn:hover { background:#5a6268; }
-.status-open-btn { border:0; background:transparent; padding:0; }
-.actions-cell { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-.history-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:9999; }
-.history-modal { background:#fff; border-radius:10px; max-width:900px; width:92%; max-height:82vh; box-shadow:0 10px 30px rgba(0,0,0,.25); display:flex; flex-direction:column; overflow:hidden; }
-.history-modal-header { padding:12px 16px; border-bottom:1px solid #e5e5e5; display:flex; justify-content:space-between; align-items:center; }
-.history-modal-body { padding:16px; overflow-y:auto; }
-.history-modal-close { border:0; background:transparent; font-size:24px; line-height:1; cursor:pointer; }
-.filter-toolbar { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; padding:12px 14px; }
-.filter-item { flex:0 0 auto; min-width:180px; }
-.filter-item.search-item { width:390px; }
+.page-wrap { padding: 16px 24px; }
+.table thead th { white-space: nowrap; vertical-align: middle; }
+.main-table td { vertical-align: top; }
+.sort-link { color: #fff; text-decoration: none; }
+.sort-link:hover { color: #fff; text-decoration: underline; }
+.sort-caret { margin-left: 4px; font-weight: 700; }
+.nowrap { white-space: nowrap; }
+
+.number-link {
+    font-weight: 700;
+    color: #0d6efd;
+    text-decoration: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+.number-link:hover { text-decoration: underline; }
+
+.status-pill {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.history-btn {
+    border: 0;
+    background: #6c757d;
+    color: #fff;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    line-height: 22px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 6px;
+    cursor: pointer;
+}
+.history-btn:hover { background: #5a6268; }
+
+.history-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.history-modal {
+    background: #fff;
+    border-radius: 10px;
+    max-width: 900px;
+    width: 92%;
+    max-height: 82vh;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.history-modal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e5e5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.status-open-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+
+.history-modal-body {
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.history-modal-close {
+    border: 0;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 12px 14px;
+}
+
+.filter-item {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.filter-item.search-item { width: 340px; }
+.filter-item .form-control { min-width: 0; }
+
+.filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
+.actions-cell {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
 </style>
 
 <div class="container-fluid page-wrap">
@@ -518,14 +636,21 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <form method="get" class="card mb-3">
         <div class="filter-toolbar">
             <div class="filter-item search-item">
-                <label class="mb-1">Поиск (ФИО сотрудника / рекрутера / руководителя)</label>
-                <input type="text" name="q" value="<?=h($search)?>" class="form-control form-control-sm" placeholder="Введите ФИО">
+                <input type="text" name="q" value="<?=h($search)?>" class="form-control form-control-sm" placeholder="Поиск: ФИО сотрудника / рекрутера / руководителя">
             </div>
 
             <div class="filter-item">
-                <label class="mb-1">Статус</label>
+                <select name="org" class="form-control form-control-sm">
+                    <option value="0">ЮЛ: все</option>
+                    <?php foreach ($orgFilterMap as $orgId => $orgName): ?>
+                        <option value="<?=$orgId?>" <?=$orgFilter === (int)$orgId ? 'selected' : ''?>><?=h($orgName)?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
+            <div class="filter-item">
                 <select name="status" class="form-control form-control-sm">
-                    <option value="0">Все</option>
+                    <option value="0">Статус: все</option>
                     <?php foreach ($statusFilterMap as $statusId => $statusMeta): ?>
                         <option value="<?=$statusId?>" <?=$statusFilter === (int)$statusId ? 'selected' : ''?>><?=h($statusMeta['NAME'])?></option>
                     <?php endforeach; ?>
@@ -533,13 +658,13 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
             </div>
 
             <div class="filter-item">
-                <label class="d-flex align-items-center mt-4">
+                <label class="mb-0" style="display:flex;align-items:center;gap:8px;">
                     <input type="checkbox" name="in_work" value="Y" <?=$inWorkOnly ? 'checked' : ''?>>
-                    <span class="ml-2">В работе</span>
+                    <span>В работе</span>
                 </label>
             </div>
 
-            <div class="ml-auto d-flex" style="gap:8px;">
+            <div class="filter-actions">
                 <button type="submit" class="btn btn-primary btn-sm">Применить</button>
                 <a href="list.php" class="btn btn-secondary btn-sm">Сбросить</a>
             </div>
@@ -549,25 +674,24 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <div class="mb-2 text-muted">Найдено: <?=$totalRows?>, страница <?=$page?> из <?=$totalPages?></div>
 
     <div class="table-responsive">
-        <table class="table table-sm table-bordered table-hover">
+        <table class="table table-sm table-bordered table-hover main-table">
             <thead class="thead-dark">
             <tr>
                 <th><?=sortLink('ID', 'id', $sort, $order)?></th>
                 <th><?=sortLink('ФИО сотрудника', 'fio', $sort, $order)?></th>
-                <th><?=sortLink('Дата создания', 'date_create', $sort, $order)?></th>
                 <th><?=sortLink('ЮЛ', 'organization', $sort, $order)?></th>
                 <th><?=sortLink('Должность', 'position', $sort, $order)?></th>
                 <th><?=sortLink('Дата приема', 'hire_date', $sort, $order)?></th>
                 <th><?=sortLink('Дата окончания ИС', 'probation_end', $sort, $order)?></th>
                 <th><?=sortLink('Рекрутер', 'recruiter', $sort, $order)?></th>
                 <th><?=sortLink('Руководитель', 'manager', $sort, $order)?></th>
-                <th><?=sortLink('Статус + История', 'status', $sort, $order)?></th>
+                <th><?=sortLink('Статус + история', 'status', $sort, $order)?></th>
                 <th>Действия</th>
             </tr>
             </thead>
             <tbody>
             <?php if (!$rowsPage): ?>
-                <tr><td colspan="11" class="text-center text-muted">Ничего не найдено</td></tr>
+                <tr><td colspan="10" class="text-center text-muted">Ничего не найдено</td></tr>
             <?php endif; ?>
 
             <?php foreach ($rowsPage as $row):
@@ -575,27 +699,28 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                 $statusName = $row['STATUS_NAME'] !== '' ? $row['STATUS_NAME'] : 'Без статуса';
                 $badgeColor = $row['STATUS_COLOR'] !== '' ? $row['STATUS_COLOR'] : '#6c757d';
                 $executors = $executorsMap[$id] ?? [];
-                $executorsText = $executors ? implode("\n", $executors) : 'Активных исполнителей нет';
+                $executorsHtml = $executors ? '<ul class="mb-0"><li>' . implode('</li><li>', array_map('h', $executors)) . '</li></ul>' : '<div class="text-muted">Активные исполнители не найдены.</div>';
+                $historyText = trim((string)$row['HISTORY']);
+                $historyHtml = $historyText !== '' ? nl2br(h($historyText)) : '<div class="text-muted">История отсутствует.</div>';
                 $taskId = (int)($myTasksMap[$id] ?? 0);
                 $taskUrl = $taskId > 0 ? '/company/personal/bizproc/' . $taskId . '/?back_url=' . rawurlencode($APPLICATION->GetCurPageParam()) : '';
                 ?>
                 <tr>
-                    <td><?= $id ?></td>
+                    <td class="nowrap"><button type="button" class="number-link js-request-btn" data-request="<?=h($row['EMPLOYEE_FIO'])?>">#<?=$id?></button></td>
                     <td><?=h($row['EMPLOYEE_FIO'])?></td>
-                    <td><?=h($row['DATE_CREATE'])?></td>
                     <td><?=h($row['ORGANIZATION_NAME'])?></td>
                     <td><?=h($row['POSITION'])?></td>
-                    <td><?=h($row['HIRE_DATE'])?></td>
-                    <td><?=h($row['PROBATION_END'])?></td>
+                    <td class="nowrap"><?=h($row['HIRE_DATE'])?></td>
+                    <td class="nowrap"><?=h($row['PROBATION_END'])?></td>
                     <td><?=h($row['RECRUITER_FIO'])?></td>
                     <td><?=h($row['MANAGER_FIO'])?></td>
                     <td>
-                        <button type="button" class="status-open-btn js-executors-btn" data-executors="<?=h(nl2br($executorsText))?>" data-id="<?=$id?>">
+                        <button type="button" class="status-open-btn js-executors-btn" data-executors="<?=h($executorsHtml)?>" data-id="<?=$id?>">
                             <span class="status-pill" style="background:<?=$badgeColor?>;"><?=h($statusName)?></span>
                         </button>
-                        <button type="button" class="history-btn js-history-btn" data-history="<?=h(nl2br($row['HISTORY'] !== '' ? $row['HISTORY'] : 'История отсутствует'))?>" data-id="<?=$id?>">i</button>
+                        <button type="button" class="history-btn js-history-btn" data-history="<?=h($historyHtml)?>" data-id="<?=$id?>" title="Показать историю">i</button>
                     </td>
-                    <td>
+                    <td class="nowrap">
                         <div class="actions-cell">
                             <a href="<?=h(VIEW_URL . $id)?>" target="_blank">Открыть</a>
                             <?php if ($taskId > 0): ?>
@@ -638,6 +763,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     var bodyEl = document.getElementById('history-modal-body');
     var titleEl = document.getElementById('history-modal-title');
 
+    if (!backdrop || !bodyEl || !titleEl) {
+        return;
+    }
+
     function openModal(title, html) {
         titleEl.textContent = title;
         bodyEl.innerHTML = html;
@@ -661,6 +790,12 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         var executorsBtn = e.target.closest ? e.target.closest('.js-executors-btn') : null;
         if (executorsBtn) {
             openModal('Текущие исполнители (анкета #' + executorsBtn.getAttribute('data-id') + ')', executorsBtn.getAttribute('data-executors') || '');
+            return;
+        }
+
+        var requestBtn = e.target.closest ? e.target.closest('.js-request-btn') : null;
+        if (requestBtn) {
+            openModal('Сведения об анкете #' + requestBtn.textContent.replace('#', ''), '<strong>Сотрудник:</strong> ' + (requestBtn.getAttribute('data-request') || ''));
             return;
         }
 
