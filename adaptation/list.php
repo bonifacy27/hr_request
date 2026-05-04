@@ -2,7 +2,7 @@
 use Bitrix\Main\Loader;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
-$APPLICATION->SetTitle('Анкеты кандидатов');
+$APPLICATION->SetTitle('Анкеты новых сотрудников');
 
 if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
     ShowError('Не удалось подключить модули iblock/bizproc.');
@@ -17,32 +17,54 @@ if (!$USER || !$USER->IsAuthorized()) {
     return;
 }
 
-const CANDIDATE_IBLOCK_ID = 207;
+const ANKETA_IBLOCK_ID = 196;
+const STATUS_IBLOCK_ID = 374;
 const VIEW_URL = 'view.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const PER_PAGE = 20;
 
-const PROP_LASTNAME = 1083;
-const PROP_FIRSTNAME = 1084;
-const PROP_MIDDLENAME = 1085;
-const PROP_STATUS = 1092;
-const PROP_TYPE = 1093;
-const PROP_HISTORY = 1276;
-const PROP_RECRUITER = 1323;
+const PROP_FAMILIYA = 951;
+const PROP_IMYA = 952;
+const PROP_OTCHESTVO = 953;
+const PROP_ORGANIZATSIYA = 1835;
+const PROP_DOLZHNOST = 958;
+const PROP_DATA_PRIEMA = 963;
+const PROP_DATA_OKONCHANIYA_IS = 964;
+const PROP_RECRUITER = 961;
+const PROP_RUKOVODITEL = 959;
+const PROP_STATUS = 2930;
+const PROP_HISTORY = 2861;
+
+const STATUS_COLOR_PROP_ID = 3138;
 
 function h($value)
 {
     return htmlspecialcharsbx((string)$value);
 }
 
-function fullName($last, $first, $middle)
+function fullName($last, $first, $middle = '')
 {
     return trim(implode(' ', array_filter([(string)$last, (string)$first, (string)$middle])));
 }
 
-function propertyValueById(array $properties, $propertyId, $valueKey = 'VALUE')
+function shortUserName(array $user)
+{
+    $name = trim((string)($user['NAME'] ?? ''));
+    $lastName = trim((string)($user['LAST_NAME'] ?? ''));
+    $login = trim((string)($user['LOGIN'] ?? ''));
+
+    $fio = trim($lastName . ' ' . $name);
+    if ($fio !== '') {
+        return $fio;
+    }
+
+    return $login;
+}
+
+function getPropertyValue(array $properties, $propertyId, $valueKey = 'VALUE')
 {
     $propertyId = (int)$propertyId;
+
     foreach ($properties as $property) {
         if (!is_array($property)) {
             continue;
@@ -50,20 +72,35 @@ function propertyValueById(array $properties, $propertyId, $valueKey = 'VALUE')
         if ((int)($property['ID'] ?? 0) !== $propertyId) {
             continue;
         }
+
         return $property[$valueKey] ?? '';
     }
 
     return '';
 }
 
-function getEnumMap($propertyId)
+function getPropertyValues(array $properties, $propertyId, $valueKey = 'VALUE')
 {
-    $map = [];
-    $rs = CIBlockPropertyEnum::GetList(['SORT' => 'ASC'], ['PROPERTY_ID' => (int)$propertyId]);
-    while ($enum = $rs->Fetch()) {
-        $map[(int)$enum['ID']] = (string)$enum['VALUE'];
+    $propertyId = (int)$propertyId;
+
+    foreach ($properties as $property) {
+        if (!is_array($property)) {
+            continue;
+        }
+        if ((int)($property['ID'] ?? 0) !== $propertyId) {
+            continue;
+        }
+
+        $value = $property[$valueKey] ?? [];
+        if (is_array($value)) {
+            return array_values(array_filter(array_map('intval', $value)));
+        }
+
+        $single = (int)$value;
+        return $single > 0 ? [$single] : [];
     }
-    return $map;
+
+    return [];
 }
 
 function getUserNamesMap(array $userIds)
@@ -78,13 +115,85 @@ function getUserNamesMap(array $userIds)
         $by = 'ID',
         $order = 'ASC',
         ['ID' => implode(' | ', $userIds)],
-        ['FIELDS' => ['ID', 'LOGIN', 'NAME', 'LAST_NAME', 'SECOND_NAME']]
+        ['FIELDS' => ['ID', 'LOGIN', 'NAME', 'LAST_NAME']]
     );
 
     while ($user = $rsUsers->Fetch()) {
-        $id = (int)$user['ID'];
-        $name = trim($user['LAST_NAME'] . ' ' . $user['NAME'] . ' ' . $user['SECOND_NAME']);
-        $map[$id] = $name !== '' ? $name : (string)$user['LOGIN'];
+        $map[(int)$user['ID']] = shortUserName($user);
+    }
+
+    return $map;
+}
+
+function getElementNamesMap(array $elementIds)
+{
+    $elementIds = array_values(array_unique(array_filter(array_map('intval', $elementIds))));
+    if (!$elementIds) {
+        return [];
+    }
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        ['ID' => $elementIds, 'CHECK_PERMISSIONS' => 'N'],
+        false,
+        false,
+        ['ID', 'NAME']
+    );
+
+    while ($item = $rs->Fetch()) {
+        $map[(int)$item['ID']] = (string)$item['NAME'];
+    }
+
+    return $map;
+}
+
+function getStatusMetaMap(array $statusElementIds)
+{
+    $statusElementIds = array_values(array_unique(array_filter(array_map('intval', $statusElementIds))));
+    if (!$statusElementIds) {
+        return [];
+    }
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['SORT' => 'ASC', 'ID' => 'ASC'],
+        ['IBLOCK_ID' => STATUS_IBLOCK_ID, 'ID' => $statusElementIds, 'CHECK_PERMISSIONS' => 'N'],
+        false,
+        false,
+        ['ID', 'NAME', 'IBLOCK_ID']
+    );
+
+    while ($item = $rs->Fetch()) {
+        $statusId = (int)$item['ID'];
+        $color = '';
+
+        $rsColor = CIBlockElement::GetProperty(
+            (int)$item['IBLOCK_ID'],
+            $statusId,
+            ['SORT' => 'ASC'],
+            ['ID' => STATUS_COLOR_PROP_ID]
+        );
+        if ($prop = $rsColor->Fetch()) {
+            $color = trim((string)($prop['VALUE'] ?? ''));
+        }
+
+        if ($color === '') {
+            $rsColorByCode = CIBlockElement::GetProperty(
+                (int)$item['IBLOCK_ID'],
+                $statusId,
+                ['SORT' => 'ASC'],
+                ['CODE' => 'COLOR']
+            );
+            if ($propByCode = $rsColorByCode->Fetch()) {
+                $color = trim((string)($propByCode['VALUE'] ?? ''));
+            }
+        }
+
+        $map[$statusId] = [
+            'NAME' => (string)$item['NAME'],
+            'COLOR' => $color,
+        ];
     }
 
     return $map;
@@ -98,8 +207,8 @@ function docIdCandidates($elementId)
     }
 
     return [
-        ['lists', 'BizprocDocument', 'lists_' . CANDIDATE_IBLOCK_ID . '_' . $elementId],
-        ['iblock', 'CIBlockDocument', 'iblock_' . CANDIDATE_IBLOCK_ID . '_' . $elementId],
+        ['lists', 'BizprocDocument', 'lists_' . ANKETA_IBLOCK_ID . '_' . $elementId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . ANKETA_IBLOCK_ID . '_' . $elementId],
         ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
     ];
 }
@@ -203,46 +312,43 @@ function buildQueryUrl(array $override = [])
     return 'list.php' . ($params ? ('?' . http_build_query($params)) : '');
 }
 
-$typeEnumMap = getEnumMap(PROP_TYPE);
-$statusEnumMap = getEnumMap(PROP_STATUS);
-
 $search = trim((string)($_GET['q'] ?? ''));
-$typeFilter = (int)($_GET['type'] ?? 0);
 $statusFilter = (int)($_GET['status'] ?? 0);
+$orgFilter = (int)($_GET['org'] ?? 0);
 $inWorkOnly = (string)($_GET['in_work'] ?? '') === 'Y';
 
 $allowedSorts = [
     'id' => 'ID',
-    'fio' => 'CANDIDATE_FIO',
-    'date_create' => 'DATE_CREATE_TS',
-    'type' => 'TYPE_NAME',
+    'fio' => 'EMPLOYEE_FIO',
+    'organization' => 'ORGANIZATION_NAME',
+    'position' => 'POSITION',
+    'hire_date' => 'HIRE_DATE_TS',
+    'probation_end' => 'PROBATION_END_TS',
     'recruiter' => 'RECRUITER_FIO',
+    'manager' => 'MANAGER_FIO',
     'status' => 'STATUS_NAME',
 ];
-$sort = (string)($_GET['sort'] ?? 'date_create');
+$sort = (string)($_GET['sort'] ?? 'id');
 if (!isset($allowedSorts[$sort])) {
-    $sort = 'date_create';
+    $sort = 'id';
 }
 $order = mb_strtolower((string)($_GET['order'] ?? 'desc')) === 'asc' ? 'asc' : 'desc';
 $page = max(1, (int)($_GET['page'] ?? 1));
 
 $filter = [
-    'IBLOCK_ID' => CANDIDATE_IBLOCK_ID,
+    'IBLOCK_ID' => ANKETA_IBLOCK_ID,
     'ACTIVE' => 'Y',
     'CHECK_PERMISSIONS' => 'Y',
     'MIN_PERMISSION' => 'R',
 ];
-if ($typeFilter > 0) {
-    $filter['PROPERTY_' . PROP_TYPE] = $typeFilter;
-}
-if ($statusFilter > 0) {
-    $filter['PROPERTY_' . PROP_STATUS] = $statusFilter;
-}
 
 $rows = [];
-$recruiterIds = [];
+$userIds = [];
+$organizationIds = [];
+$statusIds = [];
+
 $rs = CIBlockElement::GetList(
-    ['DATE_CREATE' => 'DESC', 'ID' => 'DESC'],
+    ['ID' => 'DESC'],
     $filter,
     false,
     false,
@@ -250,45 +356,86 @@ $rs = CIBlockElement::GetList(
 );
 
 while ($ob = $rs->GetNextElement()) {
-    $f = $ob->GetFields();
-    $p = $ob->GetProperties();
+    $fields = $ob->GetFields();
+    $properties = $ob->GetProperties();
 
-    $id = (int)$f['ID'];
-    $rid = (int)propertyValueById($p, PROP_RECRUITER, 'VALUE');
-    if ($rid > 0) {
-        $recruiterIds[$rid] = $rid;
+    $id = (int)$fields['ID'];
+    $recruiterId = (int)getPropertyValue($properties, PROP_RECRUITER, 'VALUE');
+    $managerId = (int)getPropertyValue($properties, PROP_RUKOVODITEL, 'VALUE');
+    $organizationId = (int)getPropertyValue($properties, PROP_ORGANIZATSIYA, 'VALUE');
+
+    $statusElementIds = getPropertyValues($properties, PROP_STATUS, 'VALUE');
+    $statusId = $statusElementIds ? (int)$statusElementIds[0] : 0;
+
+    if ($recruiterId > 0) {
+        $userIds[$recruiterId] = $recruiterId;
+    }
+    if ($managerId > 0) {
+        $userIds[$managerId] = $managerId;
+    }
+    if ($organizationId > 0) {
+        $organizationIds[$organizationId] = $organizationId;
+    }
+    if ($statusId > 0) {
+        $statusIds[$statusId] = $statusId;
     }
 
-    $dateCreate = (string)$f['DATE_CREATE'];
+    $hireDate = (string)getPropertyValue($properties, PROP_DATA_PRIEMA, 'VALUE');
+    $probationEndDate = (string)getPropertyValue($properties, PROP_DATA_OKONCHANIYA_IS, 'VALUE');
+
     $rows[] = [
         'ID' => $id,
-        'DATE_CREATE' => $dateCreate,
-        'DATE_CREATE_TS' => strtotime($dateCreate) ?: 0,
-        'LASTNAME' => (string)propertyValueById($p, PROP_LASTNAME, 'VALUE'),
-        'FIRSTNAME' => (string)propertyValueById($p, PROP_FIRSTNAME, 'VALUE'),
-        'MIDDLENAME' => (string)propertyValueById($p, PROP_MIDDLENAME, 'VALUE'),
-        'TYPE_ID' => (int)propertyValueById($p, PROP_TYPE, 'VALUE_ENUM_ID'),
-        'STATUS_ID' => (int)propertyValueById($p, PROP_STATUS, 'VALUE_ENUM_ID'),
-        'HISTORY' => (string)propertyValueById($p, PROP_HISTORY, 'VALUE'),
-        'RECRUITER_ID' => $rid,
+        'FAMILIYA' => (string)getPropertyValue($properties, PROP_FAMILIYA, 'VALUE'),
+        'IMYA' => (string)getPropertyValue($properties, PROP_IMYA, 'VALUE'),
+        'OTCHESTVO' => (string)getPropertyValue($properties, PROP_OTCHESTVO, 'VALUE'),
+        'ORGANIZATION_ID' => $organizationId,
+        'POSITION' => (string)getPropertyValue($properties, PROP_DOLZHNOST, 'VALUE'),
+        'HIRE_DATE' => $hireDate,
+        'HIRE_DATE_TS' => strtotime($hireDate) ?: 0,
+        'PROBATION_END' => $probationEndDate,
+        'PROBATION_END_TS' => strtotime($probationEndDate) ?: 0,
+        'RECRUITER_ID' => $recruiterId,
+        'MANAGER_ID' => $managerId,
+        'STATUS_ID' => $statusId,
+        'HISTORY' => (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE'),
     ];
 }
 
-$recruiterMap = getUserNamesMap($recruiterIds);
+$userMap = getUserNamesMap($userIds);
+$organizationMap = getElementNamesMap($organizationIds);
+$statusMetaMap = getStatusMetaMap($statusIds);
+$statusFilterMap = getStatusMetaMap(array_keys($statusIds));
+$orgFilterMap = $organizationMap;
+asort($orgFilterMap, SORT_NATURAL | SORT_FLAG_CASE);
 
 foreach ($rows as &$row) {
-    $row['CANDIDATE_FIO'] = fullName($row['LASTNAME'], $row['FIRSTNAME'], $row['MIDDLENAME']);
-    $row['RECRUITER_FIO'] = $row['RECRUITER_ID'] > 0 ? (string)($recruiterMap[$row['RECRUITER_ID']] ?? '') : '';
-    $row['TYPE_NAME'] = (string)($typeEnumMap[$row['TYPE_ID']] ?? '');
-    $row['STATUS_NAME'] = (string)($statusEnumMap[$row['STATUS_ID']] ?? '');
+    $row['EMPLOYEE_FIO'] = fullName($row['FAMILIYA'], $row['IMYA'], $row['OTCHESTVO']);
+    $row['RECRUITER_FIO'] = $row['RECRUITER_ID'] > 0 ? (string)($userMap[$row['RECRUITER_ID']] ?? '') : '';
+    $row['MANAGER_FIO'] = $row['MANAGER_ID'] > 0 ? (string)($userMap[$row['MANAGER_ID']] ?? '') : '';
+    $row['ORGANIZATION_NAME'] = $row['ORGANIZATION_ID'] > 0 ? (string)($organizationMap[$row['ORGANIZATION_ID']] ?? '') : '';
+    $row['STATUS_NAME'] = $row['STATUS_ID'] > 0 ? (string)($statusMetaMap[$row['STATUS_ID']]['NAME'] ?? '') : '';
+    $row['STATUS_COLOR'] = $row['STATUS_ID'] > 0 ? trim((string)($statusMetaMap[$row['STATUS_ID']]['COLOR'] ?? '')) : '';
 }
 unset($row);
+
+if ($statusFilter > 0) {
+    $rows = array_values(array_filter($rows, static function ($row) use ($statusFilter) {
+        return (int)$row['STATUS_ID'] === $statusFilter;
+    }));
+}
+
+if ($orgFilter > 0) {
+    $rows = array_values(array_filter($rows, static function ($row) use ($orgFilter) {
+        return (int)$row['ORGANIZATION_ID'] === $orgFilter;
+    }));
+}
 
 if ($search !== '') {
     $needle = mb_strtolower($search);
     $rows = array_values(array_filter($rows, static function ($row) use ($needle) {
-        return mb_strpos(mb_strtolower((string)$row['CANDIDATE_FIO']), $needle) !== false
-            || mb_strpos(mb_strtolower((string)$row['RECRUITER_FIO']), $needle) !== false;
+        return mb_strpos(mb_strtolower((string)$row['EMPLOYEE_FIO']), $needle) !== false
+            || mb_strpos(mb_strtolower((string)$row['RECRUITER_FIO']), $needle) !== false
+            || mb_strpos(mb_strtolower((string)$row['MANAGER_FIO']), $needle) !== false;
     }));
 }
 
@@ -300,28 +447,8 @@ if ($inWorkOnly) {
     }));
     $elementIds = array_column($rows, 'ID');
 }
-$executorsMap = loadExecutorsMap($elementIds);
 
-$statusColorMap = [
-    'Черновик' => '#6c757d',
-    'Первичная ссылка' => '#b8860b',
-    'Ожидание анкеты и документов' => '#facc15',
-    'Вторичная ссылка' => '#f97316',
-    'Ожидание доп. файлов' => '#f97316',
-    'Доработка' => '#7c3aed',
-    'Проверка документов' => '#2563eb',
-    'Согласовано СБ' => '#16a34a',
-    'Отклонена' => '#dc3545',
-    'Предварительная проверка' => '#7dd3fc',
-    'Ожидание анкеты' => '#facc15',
-    'Сформирован оффер' => '#16a34a',
-    'Согласовано СБ с ограничениями' => '#86efac',
-    'Повторная ссылка' => '#c4b5fd',
-    'Ожидание документов' => '#b8860b',
-    'На проверке рекрутером' => '#38bdf8',
-    'На согласовании СБ' => '#1e3a8a',
-    'Согласовано СБ, документы получены' => '#166534',
-];
+$executorsMap = loadExecutorsMap($elementIds);
 
 $sortField = $allowedSorts[$sort];
 usort($rows, static function ($a, $b) use ($sortField, $order) {
@@ -354,6 +481,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     $isActive = $currentSort === $sortKey;
     $nextOrder = $isActive && $currentOrder === 'asc' ? 'desc' : 'asc';
     $caret = '';
+
     if ($isActive) {
         $caret = $currentOrder === 'asc' ? '▲' : '▼';
     }
@@ -364,28 +492,142 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
-.page-wrap { padding:16px 24px; }
-.table thead th { white-space:nowrap; vertical-align:middle; }
-.sort-link { color:#fff; text-decoration:none; }
-.sort-link:hover { color:#fff; text-decoration:underline; }
-.sort-caret { margin-left:4px; font-weight:700; }
-.status-pill { display:inline-block; padding:5px 10px; border-radius:999px; color:#fff; font-size:12px; font-weight:600; }
-.history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
-.history-btn:hover { background:#5a6268; }
-.status-open-btn { border:0; background:transparent; padding:0; }
-.actions-cell { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-.history-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:9999; }
-.history-modal { background:#fff; border-radius:10px; max-width:900px; width:92%; max-height:82vh; box-shadow:0 10px 30px rgba(0,0,0,.25); display:flex; flex-direction:column; overflow:hidden; }
-.history-modal-header { padding:12px 16px; border-bottom:1px solid #e5e5e5; display:flex; justify-content:space-between; align-items:center; }
-.history-modal-body { padding:16px; overflow-y:auto; }
-.history-modal-close { border:0; background:transparent; font-size:24px; line-height:1; cursor:pointer; }
-.filter-toolbar { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; padding:12px 14px; }
-.filter-item { flex:0 0 auto; min-width:180px; }
-.filter-item.search-item { width:320px; }
+.page-wrap { padding: 16px 24px; }
+.table thead th { white-space: nowrap; vertical-align: middle; }
+.main-table td { vertical-align: top; }
+.sort-link { color: #fff; text-decoration: none; }
+.sort-link:hover { color: #fff; text-decoration: underline; }
+.sort-caret { margin-left: 4px; font-weight: 700; }
+.nowrap { white-space: nowrap; }
+
+.number-link {
+    font-weight: 700;
+    color: #0d6efd;
+    text-decoration: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+.number-link:hover { text-decoration: underline; }
+
+.status-pill {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.history-btn {
+    border: 0;
+    background: #6c757d;
+    color: #fff;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    line-height: 22px;
+    padding: 0;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 6px;
+    cursor: pointer;
+}
+.history-btn:hover { background: #5a6268; }
+
+.history-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+}
+
+.history-modal {
+    background: #fff;
+    border-radius: 10px;
+    max-width: 900px;
+    width: 92%;
+    max-height: 82vh;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.history-modal-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e5e5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.history-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.status-open-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+
+.history-modal-body {
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.history-modal-close {
+    border: 0;
+    background: transparent;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.filter-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 12px 14px;
+}
+
+.filter-item {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.filter-item.search-item { width: 340px; }
+.filter-item .form-control { min-width: 0; }
+
+.filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex: 0 0 auto;
+}
+
+.actions-cell {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
 </style>
 
 <div class="container-fluid page-wrap">
-    <h2 class="mb-3">Анкеты кандидатов</h2>
+    <h2 class="mb-3">Анкеты новых сотрудников</h2>
 
     <div class="d-flex flex-wrap align-items-center mb-3">
         <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
@@ -394,38 +636,35 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <form method="get" class="card mb-3">
         <div class="filter-toolbar">
             <div class="filter-item search-item">
-                <label class="mb-1">Поиск (ФИО кандидата / рекрутера)</label>
-                <input type="text" name="q" value="<?=h($search)?>" class="form-control form-control-sm" placeholder="Введите ФИО">
+                <input type="text" name="q" value="<?=h($search)?>" class="form-control form-control-sm" placeholder="Поиск: ФИО сотрудника / рекрутера / руководителя">
             </div>
 
             <div class="filter-item">
-                <label class="mb-1">Тип анкеты</label>
-                <select name="type" class="form-control form-control-sm">
-                    <option value="0">Все</option>
-                    <?php foreach ($typeEnumMap as $enumId => $enumName): ?>
-                        <option value="<?=$enumId?>" <?=$typeFilter === (int)$enumId ? 'selected' : ''?>><?=h($enumName)?></option>
+                <select name="org" class="form-control form-control-sm">
+                    <option value="0">ЮЛ: все</option>
+                    <?php foreach ($orgFilterMap as $orgId => $orgName): ?>
+                        <option value="<?=$orgId?>" <?=$orgFilter === (int)$orgId ? 'selected' : ''?>><?=h($orgName)?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
 
             <div class="filter-item">
-                <label class="mb-1">Статус</label>
                 <select name="status" class="form-control form-control-sm">
-                    <option value="0">Все</option>
-                    <?php foreach ($statusEnumMap as $enumId => $enumName): ?>
-                        <option value="<?=$enumId?>" <?=$statusFilter === (int)$enumId ? 'selected' : ''?>><?=h($enumName)?></option>
+                    <option value="0">Статус: все</option>
+                    <?php foreach ($statusFilterMap as $statusId => $statusMeta): ?>
+                        <option value="<?=$statusId?>" <?=$statusFilter === (int)$statusId ? 'selected' : ''?>><?=h($statusMeta['NAME'])?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
 
             <div class="filter-item">
-                <label class="d-flex align-items-center mt-4">
+                <label class="mb-0" style="display:flex;align-items:center;gap:8px;">
                     <input type="checkbox" name="in_work" value="Y" <?=$inWorkOnly ? 'checked' : ''?>>
-                    <span class="ml-2">В работе</span>
+                    <span>В работе</span>
                 </label>
             </div>
 
-            <div class="ml-auto d-flex" style="gap:8px;">
+            <div class="filter-actions">
                 <button type="submit" class="btn btn-primary btn-sm">Применить</button>
                 <a href="list.php" class="btn btn-secondary btn-sm">Сбросить</a>
             </div>
@@ -435,45 +674,53 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <div class="mb-2 text-muted">Найдено: <?=$totalRows?>, страница <?=$page?> из <?=$totalPages?></div>
 
     <div class="table-responsive">
-        <table class="table table-sm table-bordered table-hover">
+        <table class="table table-sm table-bordered table-hover main-table">
             <thead class="thead-dark">
             <tr>
                 <th><?=sortLink('ID', 'id', $sort, $order)?></th>
-                <th><?=sortLink('ФИО кандидата', 'fio', $sort, $order)?></th>
-                <th><?=sortLink('Дата создания', 'date_create', $sort, $order)?></th>
-                <th><?=sortLink('Тип анкеты', 'type', $sort, $order)?></th>
+                <th><?=sortLink('ФИО сотрудника', 'fio', $sort, $order)?></th>
+                <th><?=sortLink('ЮЛ', 'organization', $sort, $order)?></th>
+                <th><?=sortLink('Должность', 'position', $sort, $order)?></th>
+                <th><?=sortLink('Дата приема', 'hire_date', $sort, $order)?></th>
+                <th><?=sortLink('Дата окончания ИС', 'probation_end', $sort, $order)?></th>
                 <th><?=sortLink('Рекрутер', 'recruiter', $sort, $order)?></th>
-                <th><?=sortLink('Статус + История', 'status', $sort, $order)?></th>
+                <th><?=sortLink('Руководитель', 'manager', $sort, $order)?></th>
+                <th><?=sortLink('Статус + история', 'status', $sort, $order)?></th>
                 <th>Действия</th>
             </tr>
             </thead>
             <tbody>
             <?php if (!$rowsPage): ?>
-                <tr><td colspan="7" class="text-center text-muted">Ничего не найдено</td></tr>
+                <tr><td colspan="10" class="text-center text-muted">Ничего не найдено</td></tr>
             <?php endif; ?>
 
             <?php foreach ($rowsPage as $row):
                 $id = (int)$row['ID'];
                 $statusName = $row['STATUS_NAME'] !== '' ? $row['STATUS_NAME'] : 'Без статуса';
-                $badgeColor = $statusColorMap[$statusName] ?? '#6c757d';
+                $badgeColor = $row['STATUS_COLOR'] !== '' ? $row['STATUS_COLOR'] : '#6c757d';
                 $executors = $executorsMap[$id] ?? [];
-                $executorsText = $executors ? implode("\n", $executors) : 'Активных исполнителей нет';
+                $executorsHtml = $executors ? '<ul class="mb-0"><li>' . implode('</li><li>', array_map('h', $executors)) . '</li></ul>' : '<div class="text-muted">Активные исполнители не найдены.</div>';
+                $historyText = trim((string)$row['HISTORY']);
+                $historyHtml = $historyText !== '' ? nl2br(h($historyText)) : '<div class="text-muted">История отсутствует.</div>';
                 $taskId = (int)($myTasksMap[$id] ?? 0);
                 $taskUrl = $taskId > 0 ? '/company/personal/bizproc/' . $taskId . '/?back_url=' . rawurlencode($APPLICATION->GetCurPageParam()) : '';
                 ?>
                 <tr>
-                    <td><?= $id ?></td>
-                    <td><?=h($row['CANDIDATE_FIO'])?></td>
-                    <td><?=h($row['DATE_CREATE'])?></td>
-                    <td><?=h($row['TYPE_NAME'])?></td>
+                    <td class="nowrap"><button type="button" class="number-link js-request-btn" data-request="<?=h($row['EMPLOYEE_FIO'])?>">#<?=$id?></button></td>
+                    <td><?=h($row['EMPLOYEE_FIO'])?></td>
+                    <td><?=h($row['ORGANIZATION_NAME'])?></td>
+                    <td><?=h($row['POSITION'])?></td>
+                    <td class="nowrap"><?=h($row['HIRE_DATE'])?></td>
+                    <td class="nowrap"><?=h($row['PROBATION_END'])?></td>
                     <td><?=h($row['RECRUITER_FIO'])?></td>
+                    <td><?=h($row['MANAGER_FIO'])?></td>
                     <td>
-                        <button type="button" class="status-open-btn js-executors-btn" data-executors="<?=h(nl2br($executorsText))?>" data-id="<?=$id?>">
-                            <span class="status-pill" style="background:<?=$badgeColor?>;<?=in_array($badgeColor, ['#facc15','#7dd3fc','#86efac','#c4b5fd','#38bdf8'], true) ? 'color:#111;' : ''?>"><?=h($statusName)?></span>
+                        <button type="button" class="status-open-btn js-executors-btn" data-executors="<?=h($executorsHtml)?>" data-id="<?=$id?>">
+                            <span class="status-pill" style="background:<?=$badgeColor?>;"><?=h($statusName)?></span>
                         </button>
-                        <button type="button" class="history-btn js-history-btn" data-history="<?=h(nl2br($row['HISTORY'] !== '' ? $row['HISTORY'] : 'История отсутствует'))?>" data-id="<?=$id?>">i</button>
+                        <button type="button" class="history-btn js-history-btn" data-history="<?=h($historyHtml)?>" data-id="<?=$id?>" title="Показать историю">i</button>
                     </td>
-                    <td>
+                    <td class="nowrap">
                         <div class="actions-cell">
                             <a href="<?=h(VIEW_URL . $id)?>" target="_blank">Открыть</a>
                             <?php if ($taskId > 0): ?>
@@ -516,6 +763,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     var bodyEl = document.getElementById('history-modal-body');
     var titleEl = document.getElementById('history-modal-title');
 
+    if (!backdrop || !bodyEl || !titleEl) {
+        return;
+    }
+
     function openModal(title, html) {
         titleEl.textContent = title;
         bodyEl.innerHTML = html;
@@ -539,6 +790,12 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         var executorsBtn = e.target.closest ? e.target.closest('.js-executors-btn') : null;
         if (executorsBtn) {
             openModal('Текущие исполнители (анкета #' + executorsBtn.getAttribute('data-id') + ')', executorsBtn.getAttribute('data-executors') || '');
+            return;
+        }
+
+        var requestBtn = e.target.closest ? e.target.closest('.js-request-btn') : null;
+        if (requestBtn) {
+            openModal('Сведения об анкете #' + requestBtn.textContent.replace('#', ''), '<strong>Сотрудник:</strong> ' + (requestBtn.getAttribute('data-request') || ''));
             return;
         }
 
