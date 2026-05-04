@@ -7,6 +7,7 @@
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\UI\Extension;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Создание анкеты нового сотрудника');
@@ -17,7 +18,14 @@ if (!Loader::includeModule('iblock')) {
     return;
 }
 
+Extension::load(['main.core', 'ui.entity-selector']);
+
 const IBL_ADAPTATION = 196;
+const IBL_ORGANIZATION = 308;
+const IBL_WORK_FORMAT = 234;
+const IBL_OFFICE = 233;
+const IBL_LOCATION = 224;
+const IBL_WORK_START = 237;
 
 function h($s): string
 {
@@ -66,21 +74,21 @@ $fields = [
     ['id' => 952, 'code' => 'IMYA', 'label' => 'Имя', 'type' => 'S'],
     ['id' => 953, 'code' => 'OTCHESTVO', 'label' => 'Отчество', 'type' => 'S'],
     ['id' => 954, 'code' => 'STATUS_SOTRUDNIKA', 'label' => 'Статус сотрудника', 'type' => 'L'],
-    ['id' => 1835, 'code' => 'ORGANIZATSIYA', 'label' => 'Организация', 'type' => 'E', 'link_iblock' => 293],
+    ['id' => 1835, 'code' => 'ORGANIZATSIYA', 'label' => 'Организация', 'type' => 'E', 'link_iblock' => IBL_ORGANIZATION],
     ['id' => 955, 'code' => 'POL', 'label' => 'Пол', 'type' => 'L'],
     ['id' => 956, 'code' => 'DIREKTSIYA', 'label' => 'Дирекция', 'type' => 'S'],
     ['id' => 957, 'code' => 'OTDEL', 'label' => 'Отдел', 'type' => 'S'],
     ['id' => 958, 'code' => 'DOLZHNOST', 'label' => 'Должность', 'type' => 'S'],
-    ['id' => 959, 'code' => 'RUKOVODITEL', 'label' => 'Руководитель (ID сотрудника)', 'type' => 'S'],
-    ['id' => 961, 'code' => 'OTVETSTVENNYY_MENEDZHER_OPIA', 'label' => 'Рекрутер (ID сотрудника)', 'type' => 'S'],
+    ['id' => 959, 'code' => 'RUKOVODITEL', 'label' => 'Руководитель', 'type' => 'USER'],
+    ['id' => 961, 'code' => 'OTVETSTVENNYY_MENEDZHER_OPIA', 'label' => 'Рекрутер', 'type' => 'USER'],
     ['id' => 963, 'code' => 'DATA_PRIEMA', 'label' => 'Дата приема', 'type' => 'DATE'],
     ['id' => 964, 'code' => 'DATA_OKONCHANIYA_IS', 'label' => 'Дата окончания ИС', 'type' => 'DATE'],
     ['id' => 1059, 'code' => 'KONTAKTNYY_NOMER_TELEFONA', 'label' => 'Контактный номер телефона', 'type' => 'S'],
-    ['id' => 1421, 'code' => 'FORMAT_RABOTY_', 'label' => 'Формат работы', 'type' => 'E', 'link_iblock' => 293],
-    ['id' => 1420, 'code' => 'ADRES_OFISA_LST', 'label' => 'Офис', 'type' => 'E', 'link_iblock' => 293],
-    ['id' => 1198, 'code' => 'KABINET_SPISOK', 'label' => 'Местоположение сотрудника', 'type' => 'E', 'link_iblock' => 293],
+    ['id' => 1421, 'code' => 'FORMAT_RABOTY_', 'label' => 'Формат работы', 'type' => 'E', 'link_iblock' => IBL_WORK_FORMAT],
+    ['id' => 1420, 'code' => 'ADRES_OFISA_LST', 'label' => 'Офис', 'type' => 'E', 'link_iblock' => IBL_OFFICE],
+    ['id' => 1198, 'code' => 'KABINET_SPISOK', 'label' => 'Местоположение сотрудника', 'type' => 'E', 'link_iblock' => IBL_LOCATION],
     ['id' => 967, 'code' => 'NOMER_KABINETA', 'label' => 'Номер кабинета', 'type' => 'S'],
-    ['id' => 1623, 'code' => 'NACHALO_RABOCHEGO_DNYA', 'label' => 'Начало рабочего дня', 'type' => 'E', 'link_iblock' => 293],
+    ['id' => 1623, 'code' => 'NACHALO_RABOCHEGO_DNYA', 'label' => 'Начало рабочего дня', 'type' => 'E', 'link_iblock' => IBL_WORK_START],
     ['id' => 989, 'code' => 'EST_LI_OBYAZATELSTVO_LST', 'label' => 'Есть ли обязательство?', 'type' => 'L'],
     ['id' => 1076, 'code' => 'SODERZHANIE_OBYAZATELSTV', 'label' => 'Содержание обязательств', 'type' => 'S'],
     ['id' => 3108, 'code' => 'PRINYAT_PO_REKOMENDATSII', 'label' => 'Принят по рекомендации', 'type' => 'S'],
@@ -118,6 +126,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $value = parseCheckbox($value);
         } elseif ($f['type'] === 'DATE') {
             $value = normalizeDate((string)$value);
+        } elseif ($f['type'] === 'USER') {
+            $value = trim((string)$value);
+            if ($value !== '' && stripos($value, 'user_') !== 0) {
+                $value = 'user_' . preg_replace('/\D+/', '', $value);
+            }
         } else {
             $value = trim((string)$value);
         }
@@ -199,6 +212,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         </select>
                     <?php elseif ($f['type'] === 'DATE'): ?>
                         <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
+                    <?php elseif ($f['type'] === 'USER'): ?>
+                        <input type="hidden" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
+                        <div id="<?= h($code) ?>_selector"></div>
                     <?php elseif ($f['type'] === 'CHK'): ?>
                         <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
                     <?php else: ?>
@@ -212,4 +228,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         </div>
     </form>
 </div>
+<script>
+BX.ready(function () {
+    function initUserSelector(code) {
+        const hidden = BX(code);
+        const container = BX(code + '_selector');
+        if (!hidden || !container || !BX.UI || !BX.UI.EntitySelector) {
+            return;
+        }
+        const preselected = [];
+        if (hidden.value) {
+            const userId = parseInt(String(hidden.value).replace('user_', ''), 10);
+            if (userId > 0) {
+                preselected.push(['user', userId]);
+            }
+        }
+        const tagSelector = new BX.UI.EntitySelector.TagSelector({
+            dialogOptions: {
+                context: code + '_context',
+                entities: [{id: 'user'}],
+                multiple: false,
+                preselectedItems: preselected
+            },
+            events: {
+                onAfterTagAdd: function () {
+                    const tags = tagSelector.getTags();
+                    hidden.value = (tags.length > 0) ? 'user_' + tags[0].getId() : '';
+                },
+                onAfterTagRemove: function () {
+                    hidden.value = '';
+                }
+            }
+        });
+        tagSelector.renderTo(container);
+    }
+
+    initUserSelector('RUKOVODITEL');
+    initUserSelector('OTVETSTVENNYY_MENEDZHER_OPIA');
+});
+</script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
