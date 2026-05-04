@@ -26,6 +26,9 @@ const IBL_WORK_FORMAT = 234;
 const IBL_OFFICE = 233;
 const IBL_LOCATION = 224;
 const IBL_WORK_START = 237;
+const IBL_REQUESTS = 201;
+const IBL_OFFERS = 218;
+const IBL_CANDIDATES = 207;
 
 function h($s): string
 {
@@ -69,6 +72,24 @@ function getPropertyEnums(int $iblockId, string $propertyCode): array
     return $res;
 }
 
+
+function decodeName(string $name): string
+{
+    return html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
+function getElementById(int $iblockId, int $id, array $select): ?array
+{
+    $row = CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $id, 'ACTIVE' => 'Y'], false, ['nTopCount' => 1], $select)->GetNext();
+    return $row ?: null;
+}
+
+function splitFio(string $fio): array
+{
+    $parts = preg_split('/\s+/', trim($fio));
+    return [$parts[0] ?? '', $parts[1] ?? '', $parts[2] ?? ''];
+}
+
 $fields = [
     ['id' => 951, 'code' => 'FAMILIYA', 'label' => 'Фамилия', 'type' => 'S'],
     ['id' => 952, 'code' => 'IMYA', 'label' => 'Имя', 'type' => 'S'],
@@ -108,6 +129,18 @@ $fields = [
     ['id' => 1108, 'code' => 'LICHNAYA_POCHTA_KANDIDATA', 'label' => 'Личная почта кандидата', 'type' => 'S'],
 ];
 
+$mode = 'manual';
+$selectedOfferId = (int)($_GET['id_offer'] ?? 0);
+$selectedRequestId = (int)($_GET['id_request'] ?? 0);
+if ($selectedOfferId > 0) { $mode = 'offer'; }
+elseif ($selectedRequestId > 0) { $mode = 'request'; }
+
+if (isset($_POST['MODE'])) {
+    $mode = in_array($_POST['MODE'], ['manual','offer','request'], true) ? $_POST['MODE'] : 'manual';
+    $selectedOfferId = (int)($_POST['SOURCE_OFFER_ID'] ?? $selectedOfferId);
+    $selectedRequestId = (int)($_POST['SOURCE_REQUEST_ID'] ?? $selectedRequestId);
+}
+
 $formData = [];
 foreach ($fields as $f) {
     $formData[$f['code']] = ($f['type'] === 'CHK') ? 'N' : '';
@@ -115,6 +148,54 @@ foreach ($fields as $f) {
 
 $errors = [];
 $saveMessage = null;
+$offerList = getIblockElementsById(IBL_OFFERS);
+$requestList = getIblockElementsById(IBL_REQUESTS);
+
+
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $fromRequest = [];
+    if ($mode === 'request' && $selectedRequestId > 0) {
+        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1323','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO']);
+        if ($rq) {
+            $fromRequest = [
+                'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
+                'OTDEL' => (string)($rq['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
+                'DOLZHNOST' => (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
+                'RUKOVODITEL' => (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
+                'FORMAT_RABOTY_' => (string)($rq['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+                'ADRES_OFISA_LST' => (string)($rq['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
+                'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
+                'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
+                'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
+            ];
+        }
+    }
+    if ($mode === 'offer' && $selectedOfferId > 0) {
+        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_KONTAKTNYY_TELEFON_KANDIDATA_7_','PROPERTY_PLANIRUEMAYA_DATA_VYKHODA_NA_RABOTU','PROPERTY_ID_ZAYAVKI_NA_PODBOR','PROPERTY_ID_ANKETY_KANDIDATA']);
+        if ($of) {
+            $selectedRequestId = (int)($of['PROPERTY_ID_ZAYAVKI_NA_PODBOR_VALUE'] ?? $selectedRequestId);
+            if ($selectedRequestId > 0 && !$fromRequest) { $_GET['id_request']=$selectedRequestId; }
+            $fio = splitFio((string)($of['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
+            $formData['FAMILIYA'] = $fio[0]; $formData['IMYA'] = $fio[1]; $formData['OTCHESTVO'] = $fio[2];
+            $formData['DIREKTSIYA'] = (string)($of['PROPERTY_DIREKTSIYA_VALUE'] ?? '');
+            $formData['OTDEL'] = (string)($of['PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
+            $formData['DOLZHNOST'] = (string)($of['PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
+            $formData['RUKOVODITEL'] = (string)($of['PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA_VALUE'] ?? '');
+            $formData['OTVETSTVENNYY_MENEDZHER_OPIA'] = (string)($of['PROPERTY_REKRUTER_VALUE'] ?? '');
+            $formData['FORMAT_RABOTY_'] = (string)($of['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? '');
+            $formData['ADRES_OFISA_LST'] = (string)($of['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? '');
+            $formData['NACHALO_RABOCHEGO_DNYA'] = (string)($of['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? '');
+            $formData['KONTAKTNYY_NOMER_TELEFONA'] = (string)($of['PROPERTY_KONTAKTNYY_TELEFON_KANDIDATA_7__VALUE'] ?? '');
+            $date = (string)($of['PROPERTY_PLANIRUEMAYA_DATA_VYKHODA_NA_RABOTU_VALUE'] ?? '');
+            $formData['DATA_PRIEMA'] = $date;
+            if ($date) { $formData['DATA_OKONCHANIYA_IS'] = date('d.m.Y', strtotime($date.' +90 days')); }
+        }
+    }
+    foreach ($fromRequest as $k => $v) {
+        if (empty($formData[$k])) { $formData[$k] = $v; }
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $propertyValues = [];
@@ -191,6 +272,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 
     <form method="post" enctype="multipart/form-data">
         <?= bitrix_sessid_post() ?>
+        <div class="anketa-field anketa-full">
+            <label>Режим создания</label>
+            <div>
+                <label><input type="radio" name="MODE" value="manual" <?= $mode === 'manual' ? 'checked' : '' ?>> Создать без заявок</label>
+                <label style="margin-left:12px"><input type="radio" name="MODE" value="offer" <?= $mode === 'offer' ? 'checked' : '' ?>> Создать из оффера</label>
+                <label style="margin-left:12px"><input type="radio" name="MODE" value="request" <?= $mode === 'request' ? 'checked' : '' ?>> Создать из заявки на подбор</label>
+            </div>
+        </div>
+        <div class="anketa-field anketa-full" id="offer_block" style="display:<?= $mode === 'offer' ? 'block':'none' ?>">
+            <label for="SOURCE_OFFER_ID">Оффер</label>
+            <input list="offer_list" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID" value="<?= h($selectedOfferId) ?>">
+            <datalist id="offer_list"><?php foreach ($offerList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
+        </div>
+        <div class="anketa-field anketa-full" id="request_block" style="display:<?= $mode === 'request' ? 'block':'none' ?>">
+            <label for="SOURCE_REQUEST_ID">Заявка на подбор</label>
+            <input list="request_list" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID" value="<?= h($selectedRequestId) ?>">
+            <datalist id="request_list"><?php foreach ($requestList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
+        </div>
         <div class="anketa-grid">
             <?php foreach ($fields as $f): $code = $f['code']; ?>
                 <div class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
@@ -208,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         <select name="<?= h($code) ?>" id="<?= h($code) ?>">
                             <option value="">— не выбрано —</option>
                             <?php foreach ($options as $opt): ?>
-                                <option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['NAME']) ?></option>
+                                <option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h(decodeName($opt['NAME'])) ?></option>
                             <?php endforeach; ?>
                         </select>
                     <?php elseif ($f['type'] === 'DATE'): ?>
@@ -266,6 +365,13 @@ BX.ready(function () {
 
     initUserSelector('RUKOVODITEL');
     initUserSelector('OTVETSTVENNYY_MENEDZHER_OPIA');
+
+    document.querySelectorAll('input[name="MODE"]').forEach(function (el) {
+        el.addEventListener('change', function () {
+            BX('offer_block').style.display = (this.value === 'offer') ? 'block' : 'none';
+            BX('request_block').style.display = (this.value === 'request') ? 'block' : 'none';
+        });
+    });
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
