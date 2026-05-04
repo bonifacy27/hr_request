@@ -372,6 +372,39 @@ BX.ready(function () {
             BX('request_block').style.display = (this.value === 'request') ? 'block' : 'none';
         });
     });
+
+    function redirectWithSource(mode, id) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('id_offer');
+        url.searchParams.delete('id_request');
+        if (mode === 'offer' && id > 0) {
+            url.searchParams.set('id_offer', String(id));
+        }
+        if (mode === 'request' && id > 0) {
+            url.searchParams.set('id_request', String(id));
+        }
+        window.location.href = url.toString();
+    }
+
+    const offerInput = BX('SOURCE_OFFER_ID');
+    if (offerInput) {
+        offerInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            if (id > 0) {
+                redirectWithSource('offer', id);
+            }
+        });
+    }
+
+    const requestInput = BX('SOURCE_REQUEST_ID');
+    if (requestInput) {
+        requestInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            if (id > 0) {
+                redirectWithSource('request', id);
+            }
+        });
+    }
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
