@@ -128,8 +128,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $value = normalizeDate((string)$value);
         } elseif ($f['type'] === 'USER') {
             $value = trim((string)$value);
-            if ($value !== '' && stripos($value, 'user_') !== 0) {
-                $value = 'user_' . preg_replace('/\D+/', '', $value);
+            $value = (string)(int)preg_replace('/\D+/', '', $value);
+            if ($value === '0') {
+                $value = '';
             }
         } else {
             $value = trim((string)$value);
@@ -253,7 +254,7 @@ BX.ready(function () {
             events: {
                 onAfterTagAdd: function () {
                     const tags = tagSelector.getTags();
-                    hidden.value = (tags.length > 0) ? 'user_' + tags[0].getId() : '';
+                    hidden.value = (tags.length > 0) ? String(tags[0].getId()) : '';
                 },
                 onAfterTagRemove: function () {
                     hidden.value = '';
