@@ -112,6 +112,7 @@ $fields = [
     ['id' => 1623, 'code' => 'NACHALO_RABOCHEGO_DNYA', 'label' => 'Начало рабочего дня', 'type' => 'E', 'link_iblock' => IBL_WORK_START],
     ['id' => 989, 'code' => 'EST_LI_OBYAZATELSTVO_LST', 'label' => 'Есть ли обязательство?', 'type' => 'L'],
     ['id' => 1076, 'code' => 'SODERZHANIE_OBYAZATELSTV', 'label' => 'Содержание обязательств', 'type' => 'S'],
+    ['id' => 969, 'code' => 'FOTO_SOTRUDNIKA', 'label' => 'Фото сотрудника (jpg, png)', 'type' => 'FILE'],
     ['id' => 3108, 'code' => 'PRINYAT_PO_REKOMENDATSII', 'label' => 'Принят по рекомендации', 'type' => 'S'],
     ['id' => 970, 'code' => 'FIO_V_DATELNOM_PADEZHE', 'label' => 'ФИО в дательном падеже', 'type' => 'S'],
     ['id' => 971, 'code' => 'FIO_V_RODITELNOM_PADEZHE', 'label' => 'ФИО в винительном падеже', 'type' => 'S'],
@@ -127,6 +128,21 @@ $fields = [
     ['id' => 1901, 'code' => 'DOSTUPY', 'label' => 'Доступы', 'type' => 'L'],
     ['id' => 1109, 'code' => 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE', 'label' => 'VDI: версия ОС на личном ПК/ноутбуке', 'type' => 'L'],
     ['id' => 1108, 'code' => 'LICHNAYA_POCHTA_KANDIDATA', 'label' => 'Личная почта кандидата', 'type' => 'S'],
+];
+
+
+$requiredFields = [
+    'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','OTVETSTVENNYY_MENEDZHER_OPIA',
+    'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
+    'KONTAKTNYY_NOMER_TELEFONA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','NEOBKHODIMAYA_MEBEL'
+];
+
+$sections = [
+ '1'=>['title'=>'1. Основные данные','fields'=>['FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','OTVETSTVENNYY_MENEDZHER_OPIA']],
+ '2'=>['title'=>'2. Условия выхода','fields'=>['DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA']],
+ '3'=>['title'=>'3. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
+ '4'=>['title'=>'4. Новость и ФИО','fields'=>['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
+ '5'=>['title'=>'5. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
 $mode = 'manual';
@@ -204,6 +220,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     foreach ($fields as $f) {
         $code = $f['code'];
         $value = $_POST[$code] ?? '';
+        if ($f['type'] === 'FILE') {
+            $value = $_FILES[$code] ?? null;
+        }
 
         if ($f['type'] === 'CHK') {
             $value = parseCheckbox($value);
@@ -220,7 +239,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         }
 
         $formData[$code] = $value;
-        if ($value !== '') {
+        if ($f['type'] === 'FILE') {
+            if (is_array($value) && !empty($value['name'])) {
+                $propertyValues[$code] = $value;
+            }
+        } elseif ($value !== '') {
             $propertyValues[$code] = $value;
         }
     }
@@ -232,6 +255,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 
     if ($name === '') {
         $errors[] = 'Заполните минимум Фамилию и Имя.';
+    }
+    foreach ($requiredFields as $rf) {
+        if (trim((string)($formData[$rf] ?? '')) === '') {
+            $errors[] = 'Не заполнено обязательное поле: ' . $rf;
+        }
     }
 
     if (!$errors) {
@@ -262,7 +290,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
 .anketa-source-select{max-width:560px;width:100%}
-.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}
+.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.req{color:#d95757}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -302,45 +330,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             </div>
         </div>
         <div class="anketa-grid">
-            <?php foreach ($fields as $f): $code = $f['code']; ?>
-                <div class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
-                    <label for="<?= h($code) ?>"><?= h($f['label']) ?></label>
-                    <?php if ($f['type'] === 'L'): ?>
-                        <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
-                        <select name="<?= h($code) ?>" id="<?= h($code) ?>">
-                            <option value="">— не выбрано —</option>
-                            <?php foreach ($options as $opt): ?>
-                                <option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['VALUE']) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    <?php elseif ($f['type'] === 'E'): ?>
-                        <?php $options = getIblockElementsById((int)$f['link_iblock']); ?>
-                        <select name="<?= h($code) ?>" id="<?= h($code) ?>">
-                            <option value="">— не выбрано —</option>
-                            <?php foreach ($options as $opt): ?>
-                                <option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h(decodeName($opt['NAME'])) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    <?php elseif ($f['type'] === 'DATE'): ?>
-                        <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
-                    <?php elseif ($f['type'] === 'USER'): ?>
-                        <input type="hidden" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
-                        <div id="<?= h($code) ?>_selector"></div>
-                    <?php elseif ($f['type'] === 'CHK'): ?>
-                        <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
-                    <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
-                        <div style="display:flex; gap:8px; align-items:center;">
+            <?php $fieldMap = []; foreach ($fields as $ff) { $fieldMap[$ff['code']] = $ff; } ?>
+            <?php foreach ($sections as $sec): ?>
+                <div class="anketa-section anketa-full">
+                    <h3 class="anketa-section-title"><?= h($sec['title']) ?></h3>
+                    <div class="anketa-grid">
+                    <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
+                        <div class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
+                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= in_array($code, $requiredFields, true) ? '<span class="req">*</span>' : '' ?></label>
+                        <?php if ($f['type'] === 'L'): ?>
+                            <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
+                            <select name="<?= h($code) ?>" id="<?= h($code) ?>">
+                                <option value="">— не выбрано —</option>
+                                <?php foreach ($options as $opt): ?><option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['VALUE']) ?></option><?php endforeach; ?>
+                            </select>
+                        <?php elseif ($f['type'] === 'E'): ?>
+                            <?php $options = getIblockElementsById((int)$f['link_iblock']); ?>
+                            <select name="<?= h($code) ?>" id="<?= h($code) ?>" <?= $code === 'KABINET_SPISOK' ? 'data-role="location"' : '' ?>>
+                                <option value="">— не выбрано —</option>
+                                <?php foreach ($options as $opt): ?><option value="<?= h($opt['ID']) ?>" data-name="<?= h(decodeName($opt['NAME'])) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h(decodeName($opt['NAME'])) ?></option><?php endforeach; ?>
+                            </select>
+                        <?php elseif ($f['type'] === 'DATE'): ?>
+                            <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
+                        <?php elseif ($f['type'] === 'USER'): ?>
+                            <input type="hidden" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>"><div id="<?= h($code) ?>_selector"></div>
+                        <?php elseif ($f['type'] === 'CHK'): ?>
+                            <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
+                        <?php elseif ($f['type'] === 'FILE'): ?>
+                            <input type="file" name="<?= h($code) ?>" id="<?= h($code) ?>" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                        <?php elseif ($code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'): ?>
+                            <textarea name="<?= h($code) ?>" id="<?= h($code) ?>" style="min-height:120px;padding:8px;border:1px solid #c6cdd3;border-radius:6px;"><?= h($formData[$code]) ?></textarea>
+                        <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
+                            <div style="display:flex; gap:8px; align-items:center;"><input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>"><?php if ($code === 'FIO_V_DATELNOM_PADEZHE'): ?><button type="button" id="fill_fio_cases_btn" class="ui-btn ui-btn-light-border ui-btn-xs">Заполнить склонения ФИО</button><?php endif; ?></div>
+                        <?php else: ?>
                             <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
-                            <?php if ($code === 'FIO_V_DATELNOM_PADEZHE'): ?>
-                                <button type="button" id="fill_fio_cases_btn" class="ui-btn ui-btn-light-border ui-btn-xs">Заполнить склонения ФИО</button>
-                            <?php endif; ?>
+                        <?php endif; ?>
                         </div>
-                    <?php else: ?>
-                        <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
-                    <?php endif; ?>
+                    <?php endforeach; ?>
+                    </div>
                 </div>
             <?php endforeach; ?>
-        </div>
+        </div></div>
         <div class="anketa-actions">
             <button class="ui-btn ui-btn-success" type="submit">Сохранить</button>
         </div>
@@ -438,6 +468,16 @@ BX.ready(function () {
     }
     const startInput = BX('DATA_PRIEMA');
     if (startInput) { startInput.addEventListener('change', addThreeMonths); }
+
+    const locationSelect = document.querySelector('select[data-role="location"]');
+    if (locationSelect) {
+        locationSelect.addEventListener('change', function () {
+            const opt = this.options[this.selectedIndex];
+            const text = (opt && opt.dataset && opt.dataset.name) ? opt.dataset.name : '';
+            const m = text.match(/каб\.?\s*([^|,\s]+[а-яa-z0-9-]*)/i);
+            if (m && BX('NOMER_KABINETA')) { BX('NOMER_KABINETA').value = m[1]; }
+        });
+    }
 
     function detectGender(last, first, middle) {
         const m = (middle || '').toLowerCase();
