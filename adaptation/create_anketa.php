@@ -156,13 +156,14 @@ $requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $fromRequest = [];
     if ($mode === 'request' && $selectedRequestId > 0) {
-        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1323','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO']);
+            $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO']);
         if ($rq) {
             $fromRequest = [
                 'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
                 'OTDEL' => (string)($rq['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
                 'DOLZHNOST' => (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
                 'RUKOVODITEL' => (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
+                'OTVETSTVENNYY_MENEDZHER_OPIA' => (string)($rq['PROPERTY_1035_VALUE'] ?? ''),
                 'FORMAT_RABOTY_' => (string)($rq['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
                 'ADRES_OFISA_LST' => (string)($rq['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
                 'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
@@ -172,9 +173,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         }
     }
     if ($mode === 'offer' && $selectedOfferId > 0) {
-        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_KONTAKTNYY_TELEFON_KANDIDATA_7_','PROPERTY_PLANIRUEMAYA_DATA_VYKHODA_NA_RABOTU','PROPERTY_ID_ZAYAVKI_NA_PODBOR','PROPERTY_ID_ANKETY_KANDIDATA']);
+        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753']);
         if ($of) {
-            $selectedRequestId = (int)($of['PROPERTY_ID_ZAYAVKI_NA_PODBOR_VALUE'] ?? $selectedRequestId);
+            $selectedRequestId = (int)($of['PROPERTY_1601_VALUE'] ?? $selectedRequestId);
             if ($selectedRequestId > 0 && !$fromRequest) { $_GET['id_request']=$selectedRequestId; }
             $fio = splitFio((string)($of['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
             $formData['FAMILIYA'] = $fio[0]; $formData['IMYA'] = $fio[1]; $formData['OTCHESTVO'] = $fio[2];
@@ -186,8 +187,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $formData['FORMAT_RABOTY_'] = (string)($of['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? '');
             $formData['ADRES_OFISA_LST'] = (string)($of['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? '');
             $formData['NACHALO_RABOCHEGO_DNYA'] = (string)($of['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? '');
-            $formData['KONTAKTNYY_NOMER_TELEFONA'] = (string)($of['PROPERTY_KONTAKTNYY_TELEFON_KANDIDATA_7__VALUE'] ?? '');
-            $date = (string)($of['PROPERTY_PLANIRUEMAYA_DATA_VYKHODA_NA_RABOTU_VALUE'] ?? '');
+            $formData['KONTAKTNYY_NOMER_TELEFONA'] = (string)($of['PROPERTY_1158_VALUE'] ?? '');
+            $formData['ORGANIZATSIYA'] = (string)($of['PROPERTY_2753_VALUE'] ?? '');
+            $date = (string)($of['PROPERTY_1174_VALUE'] ?? '');
             $formData['DATA_PRIEMA'] = $date;
             if ($date) { $formData['DATA_OKONCHANIYA_IS'] = date('d.m.Y', strtotime($date.' +90 days')); }
         }
@@ -259,7 +261,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-full{grid-column:1/-1}.anketa-actions{margin-top:18px}.anketa-msg{padding:10px 12px;border-radius:6px;margin-bottom:14px}
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
-.anketa-source-input{max-width:100%;width:100%;min-width:760px}
+.anketa-source-select{max-width:560px;width:100%}
+.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -281,16 +284,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                 <label style="margin-left:12px"><input type="radio" name="MODE" value="offer" <?= $mode === 'offer' ? 'checked' : '' ?>> Создать из оффера</label>
                 <label style="margin-left:12px"><input type="radio" name="MODE" value="request" <?= $mode === 'request' ? 'checked' : '' ?>> Создать из заявки на подбор</label>
             </div>
-        </div>
-        <div class="anketa-field anketa-full" id="offer_block" style="display:<?= $mode === 'offer' ? 'block':'none' ?>">
-            <label for="SOURCE_OFFER_ID">Оффер</label>
-            <input class="anketa-source-input" list="offer_list" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID" value="<?= h($selectedOfferId) ?>">
-            <datalist id="offer_list"><?php foreach ($offerList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
-        </div>
-        <div class="anketa-field anketa-full" id="request_block" style="display:<?= $mode === 'request' ? 'block':'none' ?>">
-            <label for="SOURCE_REQUEST_ID">Заявка на подбор</label>
-            <input class="anketa-source-input" list="request_list" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID" value="<?= h($selectedRequestId) ?>">
-            <datalist id="request_list"><?php foreach ($requestList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
+            <div class="anketa-mode-row">
+                <div id="offer_block" style="display:<?= $mode === 'offer' ? 'block':'none' ?>">
+                    <label for="SOURCE_OFFER_ID">Оффер</label>
+                    <select class="anketa-source-select" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID">
+                        <option value="">— выбрать оффер —</option>
+                        <?php foreach ($offerList as $it): ?><option value="<?= h($it['ID']) ?>" <?= ((string)$selectedOfferId === (string)$it['ID'])?'selected':'' ?>><?= h($it['ID'].' — '.decodeName($it['NAME'])) ?></option><?php endforeach; ?>
+                    </select>
+                </div>
+                <div id="request_block" style="display:<?= $mode === 'request' ? 'block':'none' ?>">
+                    <label for="SOURCE_REQUEST_ID">Заявка на подбор</label>
+                    <select class="anketa-source-select" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID">
+                        <option value="">— выбрать заявку —</option>
+                        <?php foreach ($requestList as $it): ?><option value="<?= h($it['ID']) ?>" <?= ((string)$selectedRequestId === (string)$it['ID'])?'selected':'' ?>><?= h($it['ID'].' — '.decodeName($it['NAME'])) ?></option><?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
         </div>
         <div class="anketa-grid">
             <?php foreach ($fields as $f): $code = $f['code']; ?>
@@ -319,6 +328,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         <div id="<?= h($code) ?>_selector"></div>
                     <?php elseif ($f['type'] === 'CHK'): ?>
                         <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
+                    <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
+                            <button type="button" class="ui-btn ui-btn-light-border ui-btn-xs js-fill-fio-cases">Заполнить склонения ФИО</button>
+                        </div>
                     <?php else: ?>
                         <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
                     <?php endif; ?>
@@ -407,6 +421,34 @@ BX.ready(function () {
             }
         });
     }
+
+    function addThreeMonths() {
+        const start = BX('DATA_PRIEMA');
+        const end = BX('DATA_OKONCHANIYA_IS');
+        if (!start || !end || !start.value) { return; }
+        const date = new Date(start.value);
+        if (isNaN(date.getTime())) { return; }
+        date.setMonth(date.getMonth() + 3);
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        end.value = `${y}-${m}-${d}`;
+    }
+    const startInput = BX('DATA_PRIEMA');
+    if (startInput) { startInput.addEventListener('change', addThreeMonths); }
+
+    function toDative(full) { return full; }
+    function toAccusative(full) { return full; }
+    function composeFio() {
+        return [BX('FAMILIYA')?.value || '', BX('IMYA')?.value || '', BX('OTCHESTVO')?.value || ''].join(' ').trim();
+    }
+    document.querySelectorAll('.js-fill-fio-cases').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const fio = composeFio();
+            BX('FIO_V_DATELNOM_PADEZHE').value = toDative(fio);
+            BX('FIO_V_RODITELNOM_PADEZHE').value = toAccusative(fio);
+        });
+    });
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
