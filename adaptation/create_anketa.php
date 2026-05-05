@@ -52,10 +52,10 @@ function parseCheckbox($value): string
     return in_array((string)$value, ['Y', '1', 'on'], true) ? 'Y' : 'N';
 }
 
-function getIblockElementsById(int $iblockId): array
+function getIblockElementsById(int $iblockId, array $sort = ['SORT' => 'ASC', 'NAME' => 'ASC']): array
 {
     $res = [];
-    $rs = CIBlockElement::GetList(['SORT' => 'ASC', 'NAME' => 'ASC'], ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME']);
+    $rs = CIBlockElement::GetList($sort, ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME']);
     while ($row = $rs->GetNext()) {
         $res[] = ['ID' => (string)$row['ID'], 'NAME' => (string)$row['NAME']];
     }
@@ -148,8 +148,8 @@ foreach ($fields as $f) {
 
 $errors = [];
 $saveMessage = null;
-$offerList = getIblockElementsById(IBL_OFFERS);
-$requestList = getIblockElementsById(IBL_REQUESTS);
+$offerList = getIblockElementsById(IBL_OFFERS, ['ID' => 'DESC']);
+$requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
 
 
 
@@ -258,6 +258,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-field label{font-size:13px;color:#525c69}.anketa-field input,.anketa-field select{height:38px;padding:0 10px;border:1px solid #c6cdd3;border-radius:6px}
 .anketa-full{grid-column:1/-1}.anketa-actions{margin-top:18px}.anketa-msg{padding:10px 12px;border-radius:6px;margin-bottom:14px}
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
+.anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
+.anketa-source-input{max-width:100%;width:100%;min-width:760px}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -272,7 +274,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 
     <form method="post" enctype="multipart/form-data">
         <?= bitrix_sessid_post() ?>
-        <div class="anketa-field anketa-full">
+        <div class="anketa-field anketa-full anketa-mode-box">
             <label>Режим создания</label>
             <div>
                 <label><input type="radio" name="MODE" value="manual" <?= $mode === 'manual' ? 'checked' : '' ?>> Создать без заявок</label>
@@ -282,12 +284,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         </div>
         <div class="anketa-field anketa-full" id="offer_block" style="display:<?= $mode === 'offer' ? 'block':'none' ?>">
             <label for="SOURCE_OFFER_ID">Оффер</label>
-            <input list="offer_list" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID" value="<?= h($selectedOfferId) ?>">
+            <input class="anketa-source-input" list="offer_list" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID" value="<?= h($selectedOfferId) ?>">
             <datalist id="offer_list"><?php foreach ($offerList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
         </div>
         <div class="anketa-field anketa-full" id="request_block" style="display:<?= $mode === 'request' ? 'block':'none' ?>">
             <label for="SOURCE_REQUEST_ID">Заявка на подбор</label>
-            <input list="request_list" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID" value="<?= h($selectedRequestId) ?>">
+            <input class="anketa-source-input" list="request_list" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID" value="<?= h($selectedRequestId) ?>">
             <datalist id="request_list"><?php foreach ($requestList as $it): ?><option value="<?= h($it['ID']) ?>"><?= h($it['ID'].' - '.decodeName($it['NAME'])) ?></option><?php endforeach; ?></datalist>
         </div>
         <div class="anketa-grid">
