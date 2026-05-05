@@ -331,7 +331,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                     <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
                         <div style="display:flex; gap:8px; align-items:center;">
                             <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
-                            <button type="button" class="ui-btn ui-btn-light-border ui-btn-xs js-fill-fio-cases">Заполнить склонения ФИО</button>
+                            <?php if ($code === 'FIO_V_DATELNOM_PADEZHE'): ?>
+                                <button type="button" id="fill_fio_cases_btn" class="ui-btn ui-btn-light-border ui-btn-xs">Заполнить склонения ФИО</button>
+                            <?php endif; ?>
                         </div>
                     <?php else: ?>
                         <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
@@ -437,18 +439,91 @@ BX.ready(function () {
     const startInput = BX('DATA_PRIEMA');
     if (startInput) { startInput.addEventListener('change', addThreeMonths); }
 
-    function toDative(full) { return full; }
-    function toAccusative(full) { return full; }
+    function detectGender(last, first, middle) {
+        const m = (middle || '').toLowerCase();
+        if (m.endsWith('ич')) { return 'm'; }
+        if (m.endsWith('на')) { return 'f'; }
+        const f = (first || '').toLowerCase();
+        if (f.endsWith('а') || f.endsWith('я')) { return 'f'; }
+        return 'm';
+    }
+    function inflectFirstName(name, gramCase, gender) {
+        const n = (name || '').trim();
+        if (!n) return '';
+        const low = n.toLowerCase();
+        if (gramCase === 'dat') {
+            if (low.endsWith('й')) return n.slice(0, -1) + 'ю';
+            if (low.endsWith('ь')) return n.slice(0, -1) + (gender === 'f' ? 'и' : 'ю');
+            if (low.endsWith('а')) return n.slice(0, -1) + 'е';
+            if (low.endsWith('я')) return n.slice(0, -1) + 'е';
+            return n + 'у';
+        }
+        if (gramCase === 'acc') {
+            if (low.endsWith('а')) return n.slice(0, -1) + 'у';
+            if (low.endsWith('я')) return n.slice(0, -1) + 'ю';
+            return n;
+        }
+        return n;
+    }
+    function inflectMiddleName(name, gramCase) {
+        const n = (name || '').trim();
+        if (!n) return '';
+        const low = n.toLowerCase();
+        if (gramCase === 'dat') {
+            if (low.endsWith('ич')) return n + 'у';
+            if (low.endsWith('на')) return n.slice(0, -1) + 'е';
+        }
+        if (gramCase === 'acc') { return n; }
+        return n;
+    }
+    function inflectLastName(name, gramCase, gender) {
+        const n = (name || '').trim();
+        if (!n) return '';
+        const low = n.toLowerCase();
+        if (gramCase === 'dat') {
+            if (low.endsWith('ов') || low.endsWith('ев') || low.endsWith('ин')) return n + 'у';
+            if (low.endsWith('ий') || low.endsWith('ый') || low.endsWith('ой')) return n.slice(0, -2) + 'ому';
+            if (low.endsWith('а')) return n.slice(0, -1) + 'ой';
+            if (low.endsWith('я')) return n.slice(0, -1) + 'е';
+            if (gender === 'm' && /[бвгджзклмнпрстфхцчшщ]$/i.test(low)) return n + 'у';
+            return n;
+        }
+        if (gramCase === 'acc') {
+            if (gender === 'f') {
+                if (low.endsWith('а')) return n.slice(0, -1) + 'у';
+                if (low.endsWith('я')) return n.slice(0, -1) + 'ю';
+            }
+            if (gender === 'm') {
+                if (low.endsWith('ий') || low.endsWith('ый') || low.endsWith('ой')) return n.slice(0, -2) + 'ого';
+                if (low.endsWith('ов') || low.endsWith('ев') || low.endsWith('ин')) return n + 'а';
+                if (/[бвгджзклмнпрстфхцчшщ]$/i.test(low)) return n + 'а';
+            }
+            return n;
+        }
+        return n;
+    }
     function composeFio() {
         return [BX('FAMILIYA')?.value || '', BX('IMYA')?.value || '', BX('OTCHESTVO')?.value || ''].join(' ').trim();
     }
-    document.querySelectorAll('.js-fill-fio-cases').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            const fio = composeFio();
-            BX('FIO_V_DATELNOM_PADEZHE').value = toDative(fio);
-            BX('FIO_V_RODITELNOM_PADEZHE').value = toAccusative(fio);
+    const fillBtn = BX('fill_fio_cases_btn');
+    if (fillBtn) {
+        fillBtn.addEventListener('click', function () {
+            const last = BX('FAMILIYA')?.value || '';
+            const first = BX('IMYA')?.value || '';
+            const middle = BX('OTCHESTVO')?.value || '';
+            const gender = detectGender(last, first, middle);
+            BX('FIO_V_DATELNOM_PADEZHE').value = [
+                inflectLastName(last, 'dat', gender),
+                inflectFirstName(first, 'dat', gender),
+                inflectMiddleName(middle, 'dat')
+            ].join(' ').replace(/\s+/g, ' ').trim();
+            BX('FIO_V_RODITELNOM_PADEZHE').value = [
+                inflectLastName(last, 'acc', gender),
+                inflectFirstName(first, 'acc', gender),
+                inflectMiddleName(middle, 'acc')
+            ].join(' ').replace(/\s+/g, ' ').trim();
         });
-    });
+    }
 });
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
