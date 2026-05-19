@@ -94,6 +94,20 @@ function appendHistoryLine(string $history, string $line): string
     return $history === '' ? $line : ($history . "\n" . $line);
 }
 
+function getElementPropertyString(int $iblockId, int $elementId, int $propertyId): string
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+    while ($property = $rs->Fetch()) {
+        $value = trim((string)($property['VALUE'] ?? ''));
+        if ($value !== '') {
+            $values[] = $value;
+        }
+    }
+
+    return implode("\n", $values);
+}
+
 function findActiveTaskIdForUser(int $elementId, int $userId): int
 {
     if ($elementId <= 0 || $userId <= 0 || !class_exists('CBPTaskService')) {
@@ -320,7 +334,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $oldName = formatUserNameById($oldRecruiterId);
         $newName = formatUserNameById($newRecruiterId);
 
-        $history = (string)propertyValueById($props, PROP_HISTORY, 'VALUE');
+        $history = getElementPropertyString(CANDIDATE_IBLOCK_ID, $elementId, PROP_HISTORY);
         $line = $now . ': ' . $actorName . ' сменил рекрутера ' . $oldName . ' на ' . $newName . '. Комментарий: ' . $comment;
         $newHistory = appendHistoryLine($history, $line);
 
