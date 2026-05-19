@@ -179,8 +179,8 @@ $fields = [
     ['id' => 1596, 'code' => 'ID_ZAYAVKI_NA_PODBOR', 'label' => 'ID заявки на подбор', 'type' => 'N', 'required' => false, 'hidden' => true],
     ['id' => 2854, 'code' => 'ROUTE', 'label' => 'Маршрут', 'type' => 'S', 'required' => false, 'hidden' => true],
     ['id' => 1093, 'code' => 'TIP_ANKETY', 'label' => 'Тип анкеты', 'type' => 'L', 'required' => false, 'hidden' => true],
-    ['id' => 1689, 'code' => 'REZYUME', 'label' => 'Резюме', 'type' => 'FILE', 'required' => false, 'hidden' => false],
-    ['id' => 1726, 'code' => 'SOGLASOVANIE_KANDIDATA', 'label' => 'Согласование кандидата руководителем', 'type' => 'FILE', 'required' => false, 'hidden' => false],
+    ['id' => 1689, 'code' => 'REZYUME', 'label' => 'Резюме', 'type' => 'FILE', 'required' => true, 'hidden' => false],
+    ['id' => 1726, 'code' => 'SOGLASOVANIE_KANDIDATA', 'label' => 'Согласование кандидата руководителем', 'type' => 'FILE', 'required' => true, 'hidden' => false],
 ];
 
 $formData = [];
