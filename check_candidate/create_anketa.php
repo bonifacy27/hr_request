@@ -66,7 +66,7 @@ function getElementById(int $iblockId, int $id, array $select): ?array
 
 function startListWorkflow(int $templateId, int $elementId, array &$errors): bool
 {
-    $documentId = ['lists', 'BizprocDocument', 'iblock_' . IBL_CANDIDATES . '_' . $elementId];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $elementId];
     return CBPDocument::StartWorkflow($templateId, $documentId, [], $errors) !== false;
 }
 
