@@ -25,6 +25,10 @@ const IBL_REQUESTS = 201;
 const BP_TEMPLATE_1 = 466;
 const BP_TEMPLATE_2 = 328;
 const TIP_ANKETY_PROF_VALUE = 814;
+const FW_API_INTERNAL  = 'https://app.friend.work/api';
+const FW_LOGIN_CONST_ID = 'Constant1698403240866';
+const FW_PASS_CONST_ID  = 'Constant1698403290839';
+const FW_STATUS_APPROVED_INTERVIEW_DONE = 127730;
 
 function h($s): string
 {
@@ -70,8 +74,87 @@ function startListWorkflow(int $templateId, int $elementId, array &$errors): boo
     return CBPDocument::StartWorkflow($templateId, $documentId, [], $errors) !== false;
 }
 
+function decodeGlobalConstValue(string $raw): string
+{
+    $raw = trim($raw);
+    if ($raw === '') return '';
+    $unserialized = @unserialize($raw, ['allowed_classes' => false]);
+    if (is_array($unserialized)) {
+        if (isset($unserialized['value'])) return trim((string)$unserialized['value']);
+        if (isset($unserialized[0])) return trim((string)$unserialized[0]);
+    }
+    if (is_string($unserialized)) return trim($unserialized);
+    return trim($raw);
+}
+
+function fwGetCredentials(): array
+{
+    global $DB;
+    $ids = [FW_LOGIN_CONST_ID, FW_PASS_CONST_ID];
+    $map = [];
+    $rs = $DB->Query("SELECT ID, PROPERTY_VALUE FROM b_bp_global_const WHERE ID IN ('" . implode("','", $ids) . "')");
+    while ($row = $rs->Fetch()) {
+        $map[$row['ID']] = (string)$row['PROPERTY_VALUE'];
+    }
+    return [
+        'username' => decodeGlobalConstValue((string)($map[FW_LOGIN_CONST_ID] ?? '')),
+        'password' => decodeGlobalConstValue((string)($map[FW_PASS_CONST_ID] ?? '')),
+    ];
+}
+
+function fwInternalAuth(string $cookieFile): string
+{
+    $cfg = fwGetCredentials();
+    if ($cfg['username'] === '' || $cfg['password'] === '') {
+        return 'Не удалось получить логин/пароль Friendwork.';
+    }
+    $loginUrl = FW_API_INTERNAL . "/Accounts/LogIn?username=" . urlencode($cfg['username']) . "&password=" . urlencode($cfg['password']);
+    $ch = curl_init();
+    curl_setopt_array($ch, [CURLOPT_URL => $loginUrl, CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEJAR => $cookieFile, CURLOPT_SSL_VERIFYPEER => false, CURLOPT_SSL_VERIFYHOST => false]);
+    curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($httpCode !== 200) {
+        return 'Ошибка авторизации Friendwork: HTTP ' . $httpCode . ($err ? ' (' . $err . ')' : '');
+    }
+    return '';
+}
+
+function fwInternalCandidatesByVacancy(int $vacancyId, string $cookieFile): array
+{
+    $all = [];
+    $page = 1;
+    while (true) {
+        $payload = ["page" => $page, "perPageCount" => 20, "statuses" => [FW_STATUS_APPROVED_INTERVIEW_DONE], "jobId" => $vacancyId];
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => FW_API_INTERNAL . '/Candidates',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_COOKIEFILE => $cookieFile,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_POST => true,
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_POSTFIELDS => json_encode($payload, JSON_UNESCAPED_UNICODE),
+        ]);
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($code !== 200) return ['error' => 'Ошибка запроса кандидатов Friendwork (HTTP '.$code.').', 'data' => []];
+        $data = json_decode((string)$raw, true);
+        $chunk = $data['candidates'] ?? [];
+        if (!is_array($chunk) || count($chunk) === 0) break;
+        $all = array_merge($all, $chunk);
+        if (count($chunk) < 20) break;
+        $page++;
+    }
+    return ['error' => '', 'data' => $all];
+}
+
 $mode = 'manual';
 $selectedRequestId = (int)($_GET['id_request'] ?? 0);
+$selectedCandidateId = (int)($_GET['candidate_id'] ?? 0);
 if ($selectedRequestId > 0) {
     $mode = 'request';
 }
@@ -108,13 +191,52 @@ foreach ($fields as $f) {
 $requestList = getIblockElementsById(IBL_REQUESTS);
 $errors = [];
 $saveMessage = null;
+$warnings = [];
+$fwCandidates = [];
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $mode === 'request' && $selectedRequestId > 0) {
-    $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID', 'PROPERTY_DOLZHNOST', 'PROPERTY_1035', 'PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL']);
+    $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID', 'PROPERTY_DOLZHNOST', 'PROPERTY_1035', 'PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL', 'PROPERTY_1593']);
     if ($rq) {
         $formData['DOLZHNOST'] = (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? '');
         $formData['REKRUTER'] = (string)($rq['PROPERTY_1035_VALUE'] ?? '');
         $formData['RUKOVODITEL'] = (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? '');
+        $fwVacancyId = (int)($rq['PROPERTY_1593_VALUE'] ?? 0);
+        if ($fwVacancyId <= 0) {
+            $warnings[] = 'В заявке не указана вакансия Friendwork (PROPERTY_1593).';
+        } else {
+            $cookieFile = __DIR__ . '/fw_cookie_create_anketa.txt';
+            $authErr = fwInternalAuth($cookieFile);
+            if ($authErr !== '') {
+                $warnings[] = $authErr;
+            } else {
+                $fwRes = fwInternalCandidatesByVacancy($fwVacancyId, $cookieFile);
+                if ($fwRes['error'] !== '') {
+                    $warnings[] = $fwRes['error'];
+                } else {
+                    $fwCandidates = $fwRes['data'];
+                    if (count($fwCandidates) === 0) {
+                        $warnings[] = 'По привязанной к заявке на подбор вакансии не найден кандидат.';
+                    } else {
+                        $selected = $fwCandidates[0];
+                        if ($selectedCandidateId > 0) {
+                            foreach ($fwCandidates as $cand) {
+                                if ((int)($cand['candidateId'] ?? 0) === $selectedCandidateId) {
+                                    $selected = $cand;
+                                    break;
+                                }
+                            }
+                        }
+                        $fio = trim((string)($selected['lastName'] ?? '') . ' ' . (string)($selected['firstName'] ?? '') . ' ' . (string)($selected['middleName'] ?? ''));
+                        $parts = preg_split('/\s+/', trim($fio));
+                        $formData['FAMILIYA'] = (string)($parts[0] ?? '');
+                        $formData['IMYA'] = (string)($parts[1] ?? '');
+                        $formData['OTCHESTVO'] = (string)($parts[2] ?? '');
+                        $formData['KONTAKTNYY_TELEFON'] = (string)($selected['communicationChannels']['phone'][0] ?? '');
+                        $formData['EMAIL'] = (string)($selected['communicationChannels']['email'][0] ?? '');
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -217,6 +339,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     <?php if ($errors): ?>
         <div class="anketa-msg anketa-msg-err"><?= h(implode("\n", $errors)) ?></div>
     <?php endif; ?>
+    <?php if ($warnings): ?>
+        <div class="anketa-msg anketa-msg-err"><?= h(implode("\n", $warnings)) ?></div>
+    <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data">
         <?= bitrix_sessid_post() ?>
@@ -238,6 +363,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <?php if ($mode === 'request' && count($fwCandidates) > 1): ?>
+                    <div>
+                        <label for="SOURCE_CANDIDATE_ID">Кандидат из Friendwork</label>
+                        <select class="anketa-source-select" id="SOURCE_CANDIDATE_ID">
+                            <?php foreach ($fwCandidates as $cand): $cid = (int)($cand['candidateId'] ?? 0); ?>
+                                <?php $fio = trim((string)($cand['lastName'] ?? '') . ' ' . (string)($cand['firstName'] ?? '') . ' ' . (string)($cand['middleName'] ?? '')); ?>
+                                <option value="<?= h($cid) ?>" <?= $selectedCandidateId === $cid ? 'selected' : '' ?>><?= h(($cid ?: '-') . ' — ' . ($fio ?: 'Без ФИО')) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -321,6 +457,18 @@ BX.ready(function () {
             url.searchParams.delete('id_request');
             if (id > 0) {
                 url.searchParams.set('id_request', String(id));
+            }
+            window.location.href = url.toString();
+        });
+    }
+    const candidateInput = BX('SOURCE_CANDIDATE_ID');
+    if (candidateInput) {
+        candidateInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            const url = new URL(window.location.href);
+            url.searchParams.delete('candidate_id');
+            if (id > 0) {
+                url.searchParams.set('candidate_id', String(id));
             }
             window.location.href = url.toString();
         });
