@@ -118,8 +118,8 @@ $GROUP_MAP = [
     'OKLAD' => 'Мотивация',
     'PROTSENT_PREMII_' => 'Мотивация',
     'ISN_RUB_GROSS' => 'Мотивация',
-    'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_' => 'Мотивация',
-    'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL' => 'Мотивация',
+    'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS' => 'Мотивация',
+    'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS' => 'Мотивация',
     'UROVEN_DOKHODA_MEDIANA' => 'Мотивация',
     'VAKANSIYA_PODTVERZHDENA_C_B' => 'Мотивация',
     'PRIZNAK_PO_DOLZHNOSTI_TEKST' => 'Мотивация',
@@ -187,11 +187,11 @@ $FIELDS = [
     ["CODE" => "DOPOLNITELNYE_TREBOVANIYA", "NAME" => "Дополнительные требования", "EDITABLE" => false],
 
     ["CODE" => "PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA", "NAME" => "Предполагаемый тип премирования (привязка)", "EDITABLE" => true],
-    ["CODE" => "OKLAD", "NAME" => "Оклад", "EDITABLE" => true],
+    ["CODE" => "OKLAD", "NAME" => "Оклад, руб., Гросс", "EDITABLE" => true],
     ["CODE" => "PROTSENT_PREMII_", "NAME" => "Процент премии", "EDITABLE" => true],
-    ["CODE" => "ISN_RUB_GROSS", "NAME" => "ИСН (руб., gross)", "EDITABLE" => true],
-    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_", "NAME" => "Доход в месяц в среднем при выполнении KPI (руб.)", "EDITABLE" => true],
-    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL", "NAME" => "Доход в месяц в среднем (руб.) после вычета НДФЛ", "EDITABLE" => true],
+    ["CODE" => "ISN_RUB_GROSS", "NAME" => "ИСН, руб., Гросс", "EDITABLE" => true],
+    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS", "NAME" => "Доход в месяц в среднем при выполнении KPI, руб., Гросс", "EDITABLE" => true],
+    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS", "NAME" => "Доход в месяц в среднем, руб., Гросс", "EDITABLE" => true],
 
     ["CODE" => "TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA", "NAME" => "Тип договора с сотрудником (привязка)", "EDITABLE" => true],
     ["CODE" => "OFIS_PRIVYAZKA", "NAME" => "Офис (привязка)", "EDITABLE" => true],
@@ -440,8 +440,8 @@ function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $i
     }
 
     return [
-        'kpi' => ($kpiGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
-        'net' => ($netGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
+        'kpi' => ($kpiGross === null) ? '' : (string)round($kpiGross),
+        'net' => ($netGross === null) ? '' : (string)round($netGross),
     ];
 }
 function splitResponsibilitiesToItems($text) {
@@ -707,8 +707,8 @@ if ($request->isPost() && check_bitrix_sessid()) {
         }
 
         $calculatedIncome = calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $isnGross);
-        $post['DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_'] = $calculatedIncome['kpi'];
-        $post['DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL'] = $calculatedIncome['net'];
+        $post['DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS'] = $calculatedIncome['kpi'];
+        $post['DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS'] = $calculatedIncome['net'];
 
         if (empty($post['PRIZNAK_PO_DOLZHNOSTI_TEKST'])) {
             $post['PRIZNAK_PO_DOLZHNOSTI_TEKST'] = 'Массовая должность';
@@ -997,10 +997,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $requiredAttr = $isHtmlRequired ? 'required' : '';
     $requiredMark = $isRequiredField ? ' <span style="color:#d42626">*</span>' : '';
 
-    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
     }
-    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL') {
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_net"></div>';
     }
     if ($code === 'OBYAZANNOSTI') {
@@ -1156,8 +1156,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
 
     $isCalculatedIncomeField = in_array($code, [
-        'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_',
-        'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL',
+        'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS',
+        'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS',
     ], true);
     if ($isCalculatedIncomeField) {
         $readonlyAttr = 'readonly';
@@ -1345,16 +1345,16 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
   const salary = document.getElementById('field_OKLAD');
   const bonusPercent = document.getElementById('field_PROTSENT_PREMII_');
   const isn = document.getElementById('field_ISN_RUB_GROSS');
-  const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
-  const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const kpiIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS');
+  const netIncome = document.getElementById('field_DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS');
   const bonusPercentRow = document.getElementById('row_PROTSENT_PREMII_');
   const managerResponsibilities = document.getElementById('field_OBYAZANNOSTI');
   const responsibilities1c = document.getElementById('field_DOLZHNOSTNYE_OBYAZANNOSTI_1C');
   const responsibilitiesDiff = document.getElementById('field_RAZNITSA_TEKSTOV');
   const managerEditedNote = document.getElementById('manager_edited_note');
   const diffRow = document.getElementById('row_RAZNITSA_TEKSTOV');
-  const kpiRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_');
-  const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL');
+  const kpiRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS');
+  const netRow = document.getElementById('row_DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS');
   const kpiRate = document.getElementById('ndfl_rate_kpi');
   const netRate = document.getElementById('ndfl_rate_net');
   const initialFieldValues = {};
@@ -1573,11 +1573,11 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     if (bonusPercentRow) bonusPercentRow.style.display = (isMonthly || isQuarterly) ? '' : 'none';
     if (bonusPercent) bonusPercent.required = (isMonthly || isQuarterly);
 
-    kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(kpiGross)));
-    netIncome.value = (netGross === null) ? '' : String(Math.round(monthlyNetByProgressiveNdfl(netGross)));
+    kpiIncome.value = (kpiGross === null) ? '' : String(Math.round(kpiGross));
+    netIncome.value = (netGross === null) ? '' : String(Math.round(netGross));
 
-    if (kpiRate) kpiRate.textContent = formatRate(ndflDetails(kpiGross));
-    if (netRate) netRate.textContent = formatRate(ndflDetails(netGross));
+    if (kpiRate) kpiRate.textContent = "";
+    if (netRate) netRate.textContent = "";
   };
 
   [bonusType, salary, bonusPercent, isn].forEach((el) => {

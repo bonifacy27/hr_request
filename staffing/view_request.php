@@ -112,8 +112,8 @@ $GROUP_MAP = [
     'OKLAD' => 'Мотивация',
     'PROTSENT_PREMII_' => 'Мотивация',
     'ISN_RUB_GROSS' => 'Мотивация',
-    'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_' => 'Мотивация',
-    'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL' => 'Мотивация',
+    'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS' => 'Мотивация',
+    'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS' => 'Мотивация',
     'UROVEN_DOKHODA_MEDIANA' => 'Мотивация',
     'VAKANSIYA_PODTVERZHDENA_C_B' => 'Мотивация',
     'PRIZNAK_PO_DOLZHNOSTI_TEKST' => 'Мотивация',
@@ -180,11 +180,11 @@ $FIELDS = [
     ["CODE" => "DOPOLNITELNYE_TREBOVANIYA", "NAME" => "Дополнительные требования", "EDITABLE" => false],
 
     ["CODE" => "PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA", "NAME" => "Предполагаемый тип премирования (привязка)", "EDITABLE" => true],
-    ["CODE" => "OKLAD", "NAME" => "Оклад", "EDITABLE" => true],
+    ["CODE" => "OKLAD", "NAME" => "Оклад, руб., Гросс", "EDITABLE" => true],
     ["CODE" => "PROTSENT_PREMII_", "NAME" => "Процент премии", "EDITABLE" => true],
-    ["CODE" => "ISN_RUB_GROSS", "NAME" => "ИСН (руб., gross)", "EDITABLE" => true],
-    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_", "NAME" => "Доход в месяц в среднем при выполнении KPI (руб.)", "EDITABLE" => true],
-    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL", "NAME" => "Доход в месяц в среднем (руб.) после вычета НДФЛ", "EDITABLE" => true],
+    ["CODE" => "ISN_RUB_GROSS", "NAME" => "ИСН, руб., Гросс", "EDITABLE" => true],
+    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS", "NAME" => "Доход в месяц в среднем при выполнении KPI, руб., Гросс", "EDITABLE" => true],
+    ["CODE" => "DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS", "NAME" => "Доход в месяц в среднем, руб., Гросс", "EDITABLE" => true],
 
     ["CODE" => "TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA", "NAME" => "Тип договора с сотрудником (привязка)", "EDITABLE" => true],
     ["CODE" => "OFIS_PRIVYAZKA", "NAME" => "Офис (привязка)", "EDITABLE" => true],
@@ -358,8 +358,8 @@ function calcMonthlyIncomeFields($bonusTypeName, $salaryGross, $bonusPercent, $i
     }
 
     return [
-        'kpi' => ($kpiGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($kpiGross)),
-        'net' => ($netGross === null) ? '' : (string)round(calcMonthlyNetByProgressiveNdfl($netGross)),
+        'kpi' => ($kpiGross === null) ? '' : (string)round($kpiGross),
+        'net' => ($netGross === null) ? '' : (string)round($netGross),
     ];
 }
 function splitResponsibilitiesToItems($text) {
@@ -548,10 +548,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     $requiredAttr = '';
     $requiredMark = '';
 
-    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_') {
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_kpi"></div>';
     }
-    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL') {
+    if ($code === 'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS') {
         $labelNoteHtml = '<div class="req-ndfl-note" id="ndfl_rate_net"></div>';
     }
     if ($code === 'OBYAZANNOSTI') {
@@ -700,8 +700,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     }
 
     $isCalculatedIncomeField = in_array($code, [
-        'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_RUB_',
-        'DOKHOD_V_MESYATS_V_SREDNEM_RUB_POSLE_VYCHETA_NDFL',
+        'DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS',
+        'DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS',
     ], true);
     if ($isCalculatedIncomeField) {
         $readonlyAttr = 'readonly';
