@@ -439,6 +439,10 @@ if ((string)($_GET['ajax'] ?? '') === 'create_region') {
 
 $request = Context::getCurrent()->getRequest();
 $selectedMode = 'manual';
+$modeFromQuery = (string)$request->getQuery('mode');
+if (in_array($modeFromQuery, ['manual', 'candidate', 'request'], true)) {
+    $selectedMode = $modeFromQuery;
+}
 $candidateId = (int)$request->getQuery('id_ankety');
 $requestId = (int)$request->getQuery('id_request');
 if ($candidateId > 0) {
@@ -1265,6 +1269,7 @@ BX.ready(function () {
             BX('request_block').style.display = (mode === 'request') ? 'block' : 'none';
 
             const url = new URL(window.location.href);
+            url.searchParams.set('mode', mode);
             url.searchParams.delete('id_ankety');
             url.searchParams.delete('id_request');
             if (mode === 'candidate') {
@@ -1287,6 +1292,7 @@ BX.ready(function () {
         candidateInput.addEventListener('change', function () {
             const id = parseInt(this.value, 10) || 0;
             const url = new URL(window.location.href);
+            url.searchParams.set('mode', 'candidate');
             url.searchParams.delete('id_ankety');
             if (id > 0) {
                 url.searchParams.set('id_ankety', String(id));
@@ -1300,6 +1306,7 @@ BX.ready(function () {
         requestInput.addEventListener('change', function () {
             const id = parseInt(this.value, 10) || 0;
             const url = new URL(window.location.href);
+            url.searchParams.set('mode', 'request');
             url.searchParams.delete('id_request');
             if (id > 0) {
                 url.searchParams.set('id_request', String(id));
