@@ -24,6 +24,7 @@ const VIEW_URL = 'view.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const PER_PAGE = 20;
 const BP_TEMPLATE_ON_RECRUITER_CHANGE = 844;
+const BP_TEMPLATE_ON_CANCEL_CHECK = 1343;
 
 const PROP_LASTNAME = 1083;
 const PROP_FIRSTNAME = 1084;
@@ -32,6 +33,7 @@ const PROP_STATUS = 1092;
 const PROP_TYPE = 1093;
 const PROP_HISTORY = 1276;
 const PROP_RECRUITER = 1323;
+const PROP_RECRUIT_REQUEST_ID = 1596;
 
 function h($value)
 {
@@ -297,6 +299,12 @@ function startListWorkflowByElementId(int $templateId, int $elementId, array &$e
     return CBPDocument::StartWorkflow($templateId, $documentId, [], $errors) !== false;
 }
 
+function startListWorkflowByElementIdWithParameters(int $templateId, int $elementId, array $parameters, array &$errors): bool
+{
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
+    return CBPDocument::StartWorkflow($templateId, $documentId, $parameters, $errors) !== false;
+}
+
 function buildQueryUrl(array $override = [])
 {
     $params = $_GET;
@@ -370,6 +378,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         }
 
         LocalRedirect(buildQueryUrl(['msg' => 'success', 'text' => 'Рекрутер успешно изменён.']));
+    }
+    if ($action === 'cancel_check') {
+        $elementId = (int)($_POST['element_id'] ?? 0);
+        $comment = trim((string)($_POST['cancel_comment'] ?? ''));
+
+        if ($elementId <= 0 || $comment === '') {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
+        }
+
+        $el = CIBlockElement::GetList([], ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId], false, false, ['ID'])->GetNextElement();
+        $props = $el ? $el->GetProperties() : [];
+        $recruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+
+        $canCancel = $isAdmin || $isRecruitHead || ($recruiterId > 0 && $recruiterId === $currentUserId);
+        if (!$canCancel) {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Недостаточно прав для отмены проверки.']));
+        }
+
+        $bpErrors = [];
+        $ok = startListWorkflowByElementIdWithParameters(
+            BP_TEMPLATE_ON_CANCEL_CHECK,
+            $elementId,
+            ['par_Comments' => $comment],
+            $bpErrors
+        );
+        if (!$ok || !empty($bpErrors)) {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Не удалось запустить БП отмены проверки.']));
+        }
+
+        LocalRedirect(buildQueryUrl(['msg' => 'success', 'text' => 'БП отмены проверки успешно запущен.']));
     }
 }
 
@@ -448,6 +486,7 @@ while ($ob = $rs->GetNextElement()) {
         'STATUS_ID' => (int)propertyValueById($p, PROP_STATUS, 'VALUE_ENUM_ID'),
         'HISTORY' => (string)propertyValueById($p, PROP_HISTORY, 'VALUE'),
         'RECRUITER_ID' => $rid,
+        'RECRUIT_REQUEST_ID' => (string)propertyValueById($p, PROP_RECRUIT_REQUEST_ID, 'VALUE'),
     ];
 }
 
@@ -670,6 +709,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                                 $actions[] = ['type' => 'link', 'title' => 'Открыть', 'href' => VIEW_URL . $id];
                                 if ($canChangeRecruiter) {
                                     $actions[] = ['type' => 'change_recruiter', 'title' => 'Сменить рекрутера'];
+                                    $actions[] = ['type' => 'cancel_check', 'title' => 'Отменить проверку'];
                                 }
                                 if ($taskId > 0) {
                                     $actions[] = ['type' => 'link', 'title' => 'Задание БП', 'href' => $taskUrl];
@@ -686,6 +726,16 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                                                 <a class="actions-menu-item" href="<?=h($action['href'])?>" target="_blank"><?=h($action['title'])?></a>
                                             <?php elseif ($action['type'] === 'change_recruiter'): ?>
                                                 <button type="button" class="actions-menu-item js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>"><?=h($action['title'])?></button>
+                                            <?php elseif ($action['type'] === 'cancel_check'): ?>
+                                                <button
+                                                    type="button"
+                                                    class="actions-menu-item js-cancel-check-btn"
+                                                    data-id="<?=$id?>"
+                                                    data-fio="<?=h($row['CANDIDATE_FIO'])?>"
+                                                    data-status="<?=h($statusName)?>"
+                                                    data-create-path="<?=h($row['TYPE_NAME'])?>"
+                                                    data-recruit-request-id="<?=h((string)$row['RECRUIT_REQUEST_ID'])?>"
+                                                ><?=h($action['title'])?></button>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
                                     </div>
@@ -695,6 +745,8 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                                     <a href="<?=h($actions[0]['href'])?>" target="_blank"><?=h($actions[0]['title'])?></a>
                                 <?php elseif ($actions[0]['type'] === 'change_recruiter'): ?>
                                     <button type="button" class="btn btn-outline-secondary btn-sm js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>"><?=h($actions[0]['title'])?></button>
+                                <?php elseif ($actions[0]['type'] === 'cancel_check'): ?>
+                                    <button type="button" class="btn btn-outline-danger btn-sm js-cancel-check-btn" data-id="<?=$id?>" data-fio="<?=h($row['CANDIDATE_FIO'])?>" data-status="<?=h($statusName)?>" data-create-path="<?=h($row['TYPE_NAME'])?>" data-recruit-request-id="<?=h((string)$row['RECRUIT_REQUEST_ID'])?>"><?=h($actions[0]['title'])?></button>
                                 <?php endif; ?>
                             <?php endif; ?>
                         </div>
@@ -752,11 +804,30 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
   </div>
 </div>
 
+<div id="cancel-check-modal-template" style="display:none;">
+  <div class="popup-form-wrap">
+    <div class="popup-form-title">Отменить проверку</div>
+    <form method="post" id="cancel-check-form">
+      <?= bitrix_sessid_post(); ?>
+      <input type="hidden" name="action" value="cancel_check">
+      <input type="hidden" name="element_id" id="cancel-element-id" value="">
+      <div class="popup-form-field">
+        <div id="cancel-check-info" style="font-size:14px; line-height:1.5;"></div>
+      </div>
+      <div class="popup-form-field" style="margin-top:12px;">
+        <label>Комментарий <span style="color:#dc3545;">*</span></label>
+        <textarea class="form-control" name="cancel_comment" id="cancel-comment" rows="4" placeholder="Укажите причину отмены проверки"></textarea>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function() {
     var backdrop = document.getElementById('history-modal-backdrop');
     var changePopup = null;
     var changeSelector = null;
+    var cancelPopup = null;
 
     function notify(text){ if (BX && BX.UI && BX.UI.Notification) BX.UI.Notification.Center.notify({content:text}); else alert(text); }
 
@@ -765,6 +836,8 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     function ensureChangeSelector(targetNode,onPick){ if(changeSelector){try{changeSelector.destroy();}catch(e){} changeSelector=null;} changeSelector=new BX.UI.EntitySelector.Dialog({targetNode:targetNode,context:'change-recruiter',multiple:false,dropdownMode:true,enableSearch:true,zIndex:21000,popupOptions:{zIndex:21000},entities:[{id:'user',options:{inviteEmployeeLink:false}}],events:{'Item:onSelect':function(event){var item=event.getData().item; if(!item) return; var rawId=item.getId(); var uid=(typeof rawId==='number')?rawId:parseInt(String(rawId).replace(/[^\d]/g,''),10)||0; if(item.getEntityId()!=='user'||!uid) return; onPick(uid,item.getTitle()||('ID '+uid)); try{changeSelector.hide();}catch(e){}}}}); return changeSelector;}
 
     function openChangeRecruiterPopup(elementId,currentRecruiterId){ var p=ensureChangePopup(); p.show(); var elId=p.contentContainer.querySelector('#change-element-id'); var elUid=p.contentContainer.querySelector('#change-new-recruiter-id'); var elPick=p.contentContainer.querySelector('#change-pick-recruiter'); var elSel=p.contentContainer.querySelector('#change-selected-recruiter'); var elComment=p.contentContainer.querySelector('#change-comment'); if(!elId||!elUid||!elPick||!elSel||!elComment){notify('Ошибка окна смены рекрутера.');return;} elId.value=String(elementId||''); elUid.value=''; elSel.textContent='Сотрудник не выбран'; elSel.classList.add('text-muted'); elComment.value=''; var newBtn=elPick.cloneNode(true); elPick.parentNode.replaceChild(newBtn,elPick); newBtn.addEventListener('click',function(){ var d=ensureChangeSelector(newBtn,function(uid,title){ if(currentRecruiterId>0 && uid===currentRecruiterId){notify('Выбран текущий рекрутер. Укажите другого сотрудника.'); return;} elUid.value=String(uid); elSel.textContent=title; elSel.classList.remove('text-muted');}); d.show(); }); }
+    function ensureCancelPopup(){ if(cancelPopup) return cancelPopup; var tpl=document.getElementById('cancel-check-modal-template'); var content=tpl?tpl.innerHTML:'<div>Ошибка шаблона</div>'; cancelPopup=BX.PopupWindowManager.create('cancel_check_popup', null, {content:content,closeIcon:{right:'12px',top:'10px'},autoHide:false,overlay:{opacity:30},draggable:true,closeByEsc:true,titleBar:'Отменить проверку',zIndex:20000,buttons:[new BX.PopupWindowButton({text:'Закрыть',className:'popup-window-button-link-cancel',events:{click:function(){cancelPopup.close();}}}),new BX.PopupWindowButton({text:'Отменить проверку',className:'popup-window-button-accept',events:{click:function(){var c=cancelPopup.contentContainer.querySelector('#cancel-comment'); var f=cancelPopup.contentContainer.querySelector('#cancel-check-form'); if(!c||!c.value.trim()){notify('Комментарий обязателен.');return;} if(f) f.submit();}}})]}); return cancelPopup;}
+    function openCancelCheckPopup(data){ var p=ensureCancelPopup(); p.show(); var elId=p.contentContainer.querySelector('#cancel-element-id'); var info=p.contentContainer.querySelector('#cancel-check-info'); var comment=p.contentContainer.querySelector('#cancel-comment'); if(!elId||!info||!comment){notify('Ошибка окна отмены проверки.');return;} elId.value=String(data.id||''); comment.value=''; var html='<div><b>ФИО:</b> '+(data.fio||'—')+'</div>'+'<div><b>Статус анкеты:</b> '+(data.status||'—')+'</div>'+'<div><b>Путь создания анкеты:</b> '+(data.createPath||'—')+'</div>'; if(data.recruitRequestId){ html+='<div style=\"margin-top:8px; color:#b45309;\"><b>Внимание:</b> анкета создана из заявки на подбор #'+data.recruitRequestId+'. По этой заявке на подбор будет возобновлён поиск кандидатов.</div>'; } info.innerHTML=html; }
     var bodyEl = document.getElementById('history-modal-body');
     var titleEl = document.getElementById('history-modal-title');
 
@@ -815,6 +888,21 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
             var currentRid = parseInt(changeBtn.getAttribute('data-current-recruiter-id') || '0', 10);
             if (!elementId) { notify('Не удалось определить ID анкеты.'); return; }
             openChangeRecruiterPopup(elementId, currentRid);
+            return;
+        }
+        var cancelBtn = e.target.closest ? e.target.closest('.js-cancel-check-btn') : null;
+        if (cancelBtn) {
+            var menuOpened = cancelBtn.closest ? cancelBtn.closest('.actions-menu') : null;
+            if (menuOpened) menuOpened.classList.remove('open');
+            var cancelId = parseInt(cancelBtn.getAttribute('data-id') || '0', 10);
+            if (!cancelId) { notify('Не удалось определить ID анкеты.'); return; }
+            openCancelCheckPopup({
+                id: cancelId,
+                fio: cancelBtn.getAttribute('data-fio') || '',
+                status: cancelBtn.getAttribute('data-status') || '',
+                createPath: cancelBtn.getAttribute('data-create-path') || '',
+                recruitRequestId: cancelBtn.getAttribute('data-recruit-request-id') || ''
+            });
             return;
         }
 
