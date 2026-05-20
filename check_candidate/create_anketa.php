@@ -24,6 +24,7 @@ const IBL_CANDIDATES = 207;
 const IBL_REQUESTS = 201;
 const BP_TEMPLATE_1 = 466;
 const BP_TEMPLATE_2 = 328;
+const BP_TEMPLATE_3 = 844;
 const TIP_ANKETY_PROF_VALUE = 814;
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
 const FW_LOGIN_CONST_ID = 'Constant1698403240866';
@@ -310,9 +311,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         } else {
             $bpErrors1 = [];
             $bpErrors2 = [];
+            $bpErrors3 = [];
             startListWorkflow(BP_TEMPLATE_1, (int)$newId, $bpErrors1);
             startListWorkflow(BP_TEMPLATE_2, (int)$newId, $bpErrors2);
-            if (!empty($bpErrors1) || !empty($bpErrors2)) {
+            startListWorkflow(BP_TEMPLATE_3, (int)$newId, $bpErrors3);
+            if (!empty($bpErrors1) || !empty($bpErrors2) || !empty($bpErrors3)) {
                 $errors[] = 'Анкета создана, но запуск БП завершился с ошибками.';
             }
             $saveMessage = 'Анкета кандидата создана. ID: ' . (int)$newId;

@@ -23,6 +23,7 @@ const CANDIDATE_IBLOCK_ID = 207;
 const VIEW_URL = 'view.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const PER_PAGE = 20;
+const BP_TEMPLATE_ON_RECRUITER_CHANGE = 844;
 
 const PROP_LASTNAME = 1083;
 const PROP_FIRSTNAME = 1084;
@@ -289,6 +290,13 @@ function loadExecutorsMap(array $elementIds)
     return $map;
 }
 
+
+function startListWorkflowByElementId(int $templateId, int $elementId, array &$errors): bool
+{
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
+    return CBPDocument::StartWorkflow($templateId, $documentId, [], $errors) !== false;
+}
+
 function buildQueryUrl(array $override = [])
 {
     $params = $_GET;
@@ -354,6 +362,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             (string)PROP_RECRUITER => $newRecruiterId,
             (string)PROP_HISTORY => $newHistory,
         ]);
+
+        $bpErrors = [];
+        startListWorkflowByElementId(BP_TEMPLATE_ON_RECRUITER_CHANGE, $elementId, $bpErrors);
+        if (!empty($bpErrors)) {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Рекрутер изменён, но запуск БП завершился с ошибками.']));
+        }
 
         LocalRedirect(buildQueryUrl(['msg' => 'success', 'text' => 'Рекрутер успешно изменён.']));
     }
