@@ -4,11 +4,13 @@ use Bitrix\Main\Loader;
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Анкеты кандидатов');
 
-if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
-    ShowError('Не удалось подключить модули iblock/bizproc.');
+if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc') || !Loader::includeModule('main')) {
+    ShowError('Не удалось подключить модули iblock/bizproc/main.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
+
+CJSCore::Init(['popup', 'ui.entity-selector', 'ui.notification']);
 
 global $USER;
 if (!$USER || !$USER->IsAuthorized()) {
@@ -33,6 +35,104 @@ const PROP_RECRUITER = 1323;
 function h($value)
 {
     return htmlspecialcharsbx((string)$value);
+}
+
+
+const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
+
+function formatUserNameById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '—';
+    }
+
+    $rsUsers = CUser::GetList(
+        $by = 'ID',
+        $order = 'ASC',
+        ['ID' => (string)$userId],
+        ['FIELDS' => ['ID', 'LOGIN', 'NAME', 'LAST_NAME', 'SECOND_NAME']]
+    );
+
+    if ($user = $rsUsers->Fetch()) {
+        $name = trim(($user['LAST_NAME'] ?? '') . ' ' . ($user['NAME'] ?? '') . ' ' . ($user['SECOND_NAME'] ?? ''));
+        return $name !== '' ? $name : (string)($user['LOGIN'] ?? ('user#' . $userId));
+    }
+
+    return 'user#' . $userId;
+}
+
+function getGlobalVarUserList($varId): array
+{
+    $users = [];
+    try {
+        $conn = \Bitrix\Main\Application::getConnection();
+        $sqlVarId = $conn->getSqlHelper()->forSql((string)$varId);
+        $row = $conn->query("SELECT PROPERTY_VALUE FROM b_bp_global_var WHERE ID = '{$sqlVarId}' LIMIT 1")->fetch();
+        if ($row && !empty($row['PROPERTY_VALUE'])) {
+            $decoded = @unserialize($row['PROPERTY_VALUE'], ['allowed_classes' => false]);
+            if (is_array($decoded)) {
+                foreach ($decoded as $item) {
+                    $item = trim((string)$item);
+                    if ($item !== '') $users[] = mb_strtolower($item);
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        return [];
+    }
+
+    return array_values(array_unique($users));
+}
+
+function appendHistoryLine(string $history, string $line): string
+{
+    $history = trim($history);
+    $line = trim($line);
+    if ($line === '') {
+        return $history;
+    }
+    return $history === '' ? $line : ($history . "\n" . $line);
+}
+
+function getElementPropertyString(int $iblockId, int $elementId, int $propertyId): string
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+    while ($property = $rs->Fetch()) {
+        $value = trim((string)($property['VALUE'] ?? ''));
+        if ($value !== '') {
+            $values[] = $value;
+        }
+    }
+
+    return implode("\n", $values);
+}
+
+function findActiveTaskIdForUser(int $elementId, int $userId): int
+{
+    if ($elementId <= 0 || $userId <= 0 || !class_exists('CBPTaskService')) {
+        return 0;
+    }
+
+    foreach (docIdCandidates($elementId) as $docId) {
+        $rs = CBPTaskService::GetList(
+            ['ID' => 'DESC'],
+            [
+                'DOCUMENT_ID' => $docId,
+                'USER_ID' => $userId,
+                'USER_STATUS' => CBPTaskUserStatus::Waiting,
+            ],
+            false,
+            false,
+            ['ID']
+        );
+
+        if ($task = $rs->GetNext()) {
+            return (int)$task['ID'];
+        }
+    }
+
+    return 0;
 }
 
 function fullName($last, $first, $middle)
@@ -202,6 +302,67 @@ function buildQueryUrl(array $override = [])
 
     return 'list.php' . ($params ? ('?' . http_build_query($params)) : '');
 }
+
+$currentUserId = (int)$USER->GetID();
+$currentUserTagLower = mb_strtolower('user_' . $currentUserId);
+$recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
+$isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
+    $action = (string)($_POST['action'] ?? '');
+
+    if ($action === 'change_recruiter') {
+        $elementId = (int)($_POST['element_id'] ?? 0);
+        $newRecruiterId = (int)($_POST['new_recruiter_id'] ?? 0);
+        $comment = trim((string)($_POST['change_comment'] ?? ''));
+
+        $el = CIBlockElement::GetList([], ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId], false, false, ['ID'])->GetNextElement();
+        $props = $el ? $el->GetProperties() : [];
+        $oldRecruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+
+        $canChange = $isRecruitHead || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
+
+        if ($elementId <= 0 || $newRecruiterId <= 0 || $comment === '') {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
+        }
+        if (!$canChange) {
+            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Недостаточно прав для смены рекрутера.']));
+        }
+
+        $now = date('d.m.Y H:i');
+        $actorName = formatUserNameById($currentUserId);
+        $oldName = formatUserNameById($oldRecruiterId);
+        $newName = formatUserNameById($newRecruiterId);
+
+        $history = getElementPropertyString(CANDIDATE_IBLOCK_ID, $elementId, PROP_HISTORY);
+        $line = $now . ': ' . $actorName . ' сменил рекрутера ' . $oldName . ' на ' . $newName . '. Комментарий: ' . $comment;
+        $newHistory = appendHistoryLine($history, $line);
+
+        $taskId = findActiveTaskIdForUser($elementId, $oldRecruiterId);
+        if ($taskId > 0 && $oldRecruiterId !== $newRecruiterId) {
+            try {
+                CBPTaskService::DelegateTask($taskId, $oldRecruiterId, $newRecruiterId);
+                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $oldName . ' на ' . $newName . '.');
+            } catch (\Throwable $e) {
+                $newHistory = appendHistoryLine($newHistory, $now . ': Не удалось делегировать задание БП #' . $taskId . ' — ' . $e->getMessage());
+            }
+        }
+
+        CIBlockElement::SetPropertyValuesEx($elementId, CANDIDATE_IBLOCK_ID, [
+            (string)PROP_RECRUITER => $newRecruiterId,
+            (string)PROP_HISTORY => $newHistory,
+        ]);
+
+        LocalRedirect(buildQueryUrl(['msg' => 'success', 'text' => 'Рекрутер успешно изменён.']));
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !check_bitrix_sessid()) {
+    LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Сессия истекла. Обновите страницу.']));
+}
+
+$msgType = trim((string)($_GET['msg'] ?? ''));
+$msgText = trim((string)($_GET['text'] ?? ''));
 
 $typeEnumMap = getEnumMap(PROP_TYPE);
 $statusEnumMap = getEnumMap(PROP_STATUS);
@@ -382,10 +543,17 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 .filter-toolbar { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; padding:12px 14px; }
 .filter-item { flex:0 0 auto; min-width:180px; }
 .filter-item.search-item { width:320px; }
+.recruiter-change-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 </style>
 
 <div class="container-fluid page-wrap">
     <h2 class="mb-3">Анкеты кандидатов</h2>
+
+    <?php if ($msgText !== ''): ?>
+        <div class="alert alert-<?=h($msgType === 'success' ? 'success' : 'danger')?>">
+            <?=h($msgText)?>
+        </div>
+    <?php endif; ?>
 
     <div class="d-flex flex-wrap align-items-center mb-3">
         <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
@@ -476,6 +644,12 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                     <td>
                         <div class="actions-cell">
                             <a href="<?=h(VIEW_URL . $id)?>" target="_blank">Открыть</a>
+                            <?php
+                                $canChangeRecruiter = $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
+                            ?>
+                            <?php if ($canChangeRecruiter): ?>
+                                <button type="button" class="btn btn-outline-secondary btn-sm js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>">Сменить рекрутера</button>
+                            <?php endif; ?>
                             <?php if ($taskId > 0): ?>
                                 <a class="btn btn-outline-primary btn-sm" href="<?=h($taskUrl)?>" target="_blank">Задание БП</a>
                             <?php endif; ?>
@@ -510,9 +684,43 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     </div>
 </div>
 
+
+<div id="change-recruiter-modal-template" style="display:none;">
+  <div class="popup-form-wrap">
+    <div class="popup-form-title">Сменить рекрутера</div>
+    <form method="post" id="change-recruiter-form">
+      <?= bitrix_sessid_post(); ?>
+      <input type="hidden" name="action" value="change_recruiter">
+      <input type="hidden" name="element_id" id="change-element-id" value="">
+      <input type="hidden" name="new_recruiter_id" id="change-new-recruiter-id" value="">
+      <div class="popup-form-field">
+        <label>Новый рекрутер <span style="color:#dc3545;">*</span></label>
+        <div class="recruiter-change-row">
+          <button type="button" class="btn btn-outline-primary btn-sm" id="change-pick-recruiter">Выбрать сотрудника</button>
+          <span class="text-muted" id="change-selected-recruiter">Сотрудник не выбран</span>
+        </div>
+      </div>
+      <div class="popup-form-field" style="margin-top:12px;">
+        <label>Комментарий <span style="color:#dc3545;">*</span></label>
+        <textarea class="form-control" name="change_comment" id="change-comment" rows="3" placeholder="Укажите причину смены"></textarea>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 (function() {
     var backdrop = document.getElementById('history-modal-backdrop');
+    var changePopup = null;
+    var changeSelector = null;
+
+    function notify(text){ if (BX && BX.UI && BX.UI.Notification) BX.UI.Notification.Center.notify({content:text}); else alert(text); }
+
+    function ensureChangePopup(){ if(changePopup) return changePopup; var tpl=document.getElementById('change-recruiter-modal-template'); var content=tpl?tpl.innerHTML:'<div>Ошибка шаблона</div>'; changePopup=BX.PopupWindowManager.create('change_recruiter_popup', null, {content:content,closeIcon:{right:'12px',top:'10px'},autoHide:false,overlay:{opacity:30},draggable:true,closeByEsc:true,titleBar:'Сменить рекрутера',zIndex:20000,buttons:[new BX.PopupWindowButton({text:'Отмена',className:'popup-window-button-link-cancel',events:{click:function(){changePopup.close();}}}),new BX.PopupWindowButton({text:'Сменить рекрутера',className:'popup-window-button-accept',events:{click:function(){var uid=changePopup.contentContainer.querySelector('#change-new-recruiter-id'); var c=changePopup.contentContainer.querySelector('#change-comment'); var f=changePopup.contentContainer.querySelector('#change-recruiter-form'); if(!uid||!uid.value){notify('Выберите нового рекрутера.');return;} if(!c||!c.value.trim()){notify('Комментарий обязателен.');return;} if(f) f.submit();}}})]}); return changePopup;}
+
+    function ensureChangeSelector(targetNode,onPick){ if(changeSelector){try{changeSelector.destroy();}catch(e){} changeSelector=null;} changeSelector=new BX.UI.EntitySelector.Dialog({targetNode:targetNode,context:'change-recruiter',multiple:false,dropdownMode:true,enableSearch:true,zIndex:21000,popupOptions:{zIndex:21000},entities:[{id:'user',options:{inviteEmployeeLink:false}}],events:{'Item:onSelect':function(event){var item=event.getData().item; if(!item) return; var rawId=item.getId(); var uid=(typeof rawId==='number')?rawId:parseInt(String(rawId).replace(/[^\d]/g,''),10)||0; if(item.getEntityId()!=='user'||!uid) return; onPick(uid,item.getTitle()||('ID '+uid)); try{changeSelector.hide();}catch(e){}}}}); return changeSelector;}
+
+    function openChangeRecruiterPopup(elementId,currentRecruiterId){ var p=ensureChangePopup(); p.show(); var elId=p.contentContainer.querySelector('#change-element-id'); var elUid=p.contentContainer.querySelector('#change-new-recruiter-id'); var elPick=p.contentContainer.querySelector('#change-pick-recruiter'); var elSel=p.contentContainer.querySelector('#change-selected-recruiter'); var elComment=p.contentContainer.querySelector('#change-comment'); if(!elId||!elUid||!elPick||!elSel||!elComment){notify('Ошибка окна смены рекрутера.');return;} elId.value=String(elementId||''); elUid.value=''; elSel.textContent='Сотрудник не выбран'; elSel.classList.add('text-muted'); elComment.value=''; var newBtn=elPick.cloneNode(true); elPick.parentNode.replaceChild(newBtn,elPick); newBtn.addEventListener('click',function(){ var d=ensureChangeSelector(newBtn,function(uid,title){ if(currentRecruiterId>0 && uid===currentRecruiterId){notify('Выбран текущий рекрутер. Укажите другого сотрудника.'); return;} elUid.value=String(uid); elSel.textContent=title; elSel.classList.remove('text-muted');}); d.show(); }); }
     var bodyEl = document.getElementById('history-modal-body');
     var titleEl = document.getElementById('history-modal-title');
 
@@ -539,6 +747,15 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         var executorsBtn = e.target.closest ? e.target.closest('.js-executors-btn') : null;
         if (executorsBtn) {
             openModal('Текущие исполнители (анкета #' + executorsBtn.getAttribute('data-id') + ')', executorsBtn.getAttribute('data-executors') || '');
+            return;
+        }
+
+        var changeBtn = e.target.closest ? e.target.closest('.js-change-recruiter-btn') : null;
+        if (changeBtn) {
+            var elementId = parseInt(changeBtn.getAttribute('data-id') || '0', 10);
+            var currentRid = parseInt(changeBtn.getAttribute('data-current-recruiter-id') || '0', 10);
+            if (!elementId) { notify('Не удалось определить ID анкеты.'); return; }
+            openChangeRecruiterPopup(elementId, currentRid);
             return;
         }
 
