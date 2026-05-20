@@ -536,7 +536,12 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 .history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
 .history-btn:hover { background:#5a6268; }
 .status-open-btn { border:0; background:transparent; padding:0; }
-.actions-cell { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.actions-cell { display:flex; gap:6px; align-items:center; flex-wrap:wrap; position:relative; }
+.actions-menu { position:relative; }
+.actions-menu-list { display:none; position:absolute; right:0; top:calc(100% + 4px); min-width:180px; background:#fff; border:1px solid #d8dbe0; border-radius:6px; box-shadow:0 8px 18px rgba(0,0,0,.12); z-index:50; padding:4px 0; }
+.actions-menu.open .actions-menu-list { display:block; }
+.actions-menu-item { display:block; width:100%; text-align:left; padding:7px 12px; border:0; background:transparent; color:#212529; text-decoration:none; font-size:13px; cursor:pointer; }
+.actions-menu-item:hover { background:#f1f3f5; color:#212529; text-decoration:none; }
 .history-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:9999; }
 .history-modal { background:#fff; border-radius:10px; max-width:900px; width:92%; max-height:82vh; box-shadow:0 10px 30px rgba(0,0,0,.25); display:flex; flex-direction:column; overflow:hidden; }
 .history-modal-header { padding:12px 16px; border-bottom:1px solid #e5e5e5; display:flex; justify-content:space-between; align-items:center; }
@@ -648,25 +653,35 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                             <?php
                                 $canChangeRecruiter = $isAdmin || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $actions = [];
-                                $actions[] = '<a class="dropdown-item" href="' . h(VIEW_URL . $id) . '" target="_blank">Открыть</a>';
+                                $actions[] = ['type' => 'link', 'title' => 'Открыть', 'href' => VIEW_URL . $id];
                                 if ($canChangeRecruiter) {
-                                    $actions[] = '<button type="button" class="dropdown-item js-change-recruiter-btn" data-id="' . $id . '" data-current-recruiter-id="' . (int)$row['RECRUITER_ID'] . '">Сменить рекрутера</button>';
+                                    $actions[] = ['type' => 'change_recruiter', 'title' => 'Сменить рекрутера'];
                                 }
                                 if ($taskId > 0) {
-                                    $actions[] = '<a class="dropdown-item" href="' . h($taskUrl) . '" target="_blank">Задание БП</a>';
+                                    $actions[] = ['type' => 'link', 'title' => 'Задание БП', 'href' => $taskUrl];
                                 }
                             ?>
                             <?php if (count($actions) > 1): ?>
-                                <div class="dropdown">
-                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                <div class="actions-menu">
+                                    <button class="btn btn-outline-secondary btn-sm js-actions-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
                                         Действия
                                     </button>
-                                    <div class="dropdown-menu dropdown-menu-right">
-                                        <?=implode('', $actions)?>
+                                    <div class="actions-menu-list">
+                                        <?php foreach ($actions as $action): ?>
+                                            <?php if ($action['type'] === 'link'): ?>
+                                                <a class="actions-menu-item" href="<?=h($action['href'])?>" target="_blank"><?=h($action['title'])?></a>
+                                            <?php elseif ($action['type'] === 'change_recruiter'): ?>
+                                                <button type="button" class="actions-menu-item js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>"><?=h($action['title'])?></button>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
                                     </div>
                                 </div>
                             <?php else: ?>
-                                <?= $actions[0] ?>
+                                <?php if ($actions[0]['type'] === 'link'): ?>
+                                    <a href="<?=h($actions[0]['href'])?>" target="_blank"><?=h($actions[0]['title'])?></a>
+                                <?php elseif ($actions[0]['type'] === 'change_recruiter'): ?>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>"><?=h($actions[0]['title'])?></button>
+                                <?php endif; ?>
                             <?php endif; ?>
                         </div>
                     </td>
@@ -753,6 +768,19 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     }
 
     document.addEventListener('click', function(e) {
+        var menuToggle = e.target.closest ? e.target.closest('.js-actions-menu-toggle') : null;
+        if (menuToggle) {
+            var menu = menuToggle.closest('.actions-menu');
+            if (!menu) return;
+            var isOpen = menu.classList.contains('open');
+            var allMenus = document.querySelectorAll('.actions-menu.open');
+            for (var i = 0; i < allMenus.length; i++) allMenus[i].classList.remove('open');
+            if (!isOpen) {
+                menu.classList.add('open');
+            }
+            return;
+        }
+
         var historyBtn = e.target.closest ? e.target.closest('.js-history-btn') : null;
         if (historyBtn) {
             openModal('История (анкета #' + historyBtn.getAttribute('data-id') + ')', historyBtn.getAttribute('data-history') || '');
@@ -767,11 +795,19 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 
         var changeBtn = e.target.closest ? e.target.closest('.js-change-recruiter-btn') : null;
         if (changeBtn) {
+            var openMenu = changeBtn.closest ? changeBtn.closest('.actions-menu') : null;
+            if (openMenu) openMenu.classList.remove('open');
             var elementId = parseInt(changeBtn.getAttribute('data-id') || '0', 10);
             var currentRid = parseInt(changeBtn.getAttribute('data-current-recruiter-id') || '0', 10);
             if (!elementId) { notify('Не удалось определить ID анкеты.'); return; }
             openChangeRecruiterPopup(elementId, currentRid);
             return;
+        }
+
+        var insideMenu = e.target.closest ? e.target.closest('.actions-menu') : null;
+        if (!insideMenu) {
+            var openedMenus = document.querySelectorAll('.actions-menu.open');
+            for (var j = 0; j < openedMenus.length; j++) openedMenus[j].classList.remove('open');
         }
 
         if (e.target === backdrop || (e.target.closest && e.target.closest('.js-history-close'))) {
