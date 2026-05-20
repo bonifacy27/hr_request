@@ -927,24 +927,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>Режим</label>
-                        <select class="form-control" name="MODE" onchange="this.form.submit()">
-                            <option value="manual" <?=$selectedMode === 'manual' ? 'selected' : ''?>>Создать без заявок</option>
-                            <option value="candidate" <?=$selectedMode === 'candidate' ? 'selected' : ''?>>Создать из анкеты кандидата</option>
-                            <option value="request" <?=$selectedMode === 'request' ? 'selected' : ''?>>Создать из заявки на подбор</option>
-                        </select>
+                        <div>
+                            <label><input type="radio" name="MODE" value="manual" <?=$selectedMode === 'manual' ? 'checked' : ''?>> Создать без заявок</label><br>
+                            <label><input type="radio" name="MODE" value="candidate" <?=$selectedMode === 'candidate' ? 'checked' : ''?>> Создать из анкеты кандидата</label><br>
+                            <label><input type="radio" name="MODE" value="request" <?=$selectedMode === 'request' ? 'checked' : ''?>> Создать из заявки на подбор</label>
+                        </div>
                     </div>
-                    <div class="form-group col-md-4" style="<?=$selectedMode === 'candidate' ? '' : 'display:none;'?>">
+                    <div class="form-group col-md-4" id="candidate_block" style="<?=$selectedMode === 'candidate' ? '' : 'display:none;'?>">
                         <label>Анкета кандидата</label>
-                        <select class="form-control" name="SOURCE_CANDIDATE_ID" onchange="this.form.submit()">
+                        <select class="form-control" name="SOURCE_CANDIDATE_ID" id="SOURCE_CANDIDATE_ID">
                             <option value="">— Выберите —</option>
                             <?php foreach ($candidateList as $c): ?>
                                 <option value="<?=h($c['ID'])?>" <?=$candidateId === (int)$c['ID'] ? 'selected' : ''?>><?=h($c['ID'] . ' — ' . $c['NAME'])?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="form-group col-md-4" style="<?=$selectedMode === 'request' ? '' : 'display:none;'?>">
+                    <div class="form-group col-md-4" id="request_block" style="<?=$selectedMode === 'request' ? '' : 'display:none;'?>">
                         <label>Заявка на подбор</label>
-                        <select class="form-control" name="SOURCE_REQUEST_ID" onchange="this.form.submit()">
+                        <select class="form-control" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID">
                             <option value="">— Выберите —</option>
                             <?php foreach ($requestList as $r): ?>
                                 <option value="<?=h($r['ID'])?>" <?=$requestId === (int)$r['ID'] ? 'selected' : ''?>><?=h($r['ID'] . ' — ' . $r['NAME'])?></option>
@@ -1258,6 +1258,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 </div>
 <script>
 BX.ready(function () {
+    document.querySelectorAll('input[name="MODE"]').forEach(function (el) {
+        el.addEventListener('change', function () {
+            const mode = this.value;
+            BX('candidate_block').style.display = (mode === 'candidate') ? 'block' : 'none';
+            BX('request_block').style.display = (mode === 'request') ? 'block' : 'none';
+
+            const url = new URL(window.location.href);
+            url.searchParams.delete('id_ankety');
+            url.searchParams.delete('id_request');
+            if (mode === 'candidate') {
+                const cid = parseInt((BX('SOURCE_CANDIDATE_ID') || {}).value || '0', 10) || 0;
+                if (cid > 0) {
+                    url.searchParams.set('id_ankety', String(cid));
+                }
+            } else if (mode === 'request') {
+                const rid = parseInt((BX('SOURCE_REQUEST_ID') || {}).value || '0', 10) || 0;
+                if (rid > 0) {
+                    url.searchParams.set('id_request', String(rid));
+                }
+            }
+            window.location.href = url.toString();
+        });
+    });
+
+    const candidateInput = BX('SOURCE_CANDIDATE_ID');
+    if (candidateInput) {
+        candidateInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            const url = new URL(window.location.href);
+            url.searchParams.delete('id_ankety');
+            if (id > 0) {
+                url.searchParams.set('id_ankety', String(id));
+            }
+            window.location.href = url.toString();
+        });
+    }
+
+    const requestInput = BX('SOURCE_REQUEST_ID');
+    if (requestInput) {
+        requestInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            const url = new URL(window.location.href);
+            url.searchParams.delete('id_request');
+            if (id > 0) {
+                url.searchParams.set('id_request', String(id));
+            }
+            window.location.href = url.toString();
+        });
+    }
+
     var searchInput = document.getElementById('regionLocationSearch');
     var regionSelect = document.querySelector('select[name=\"region_location\"]');
     var regionNotInListCheckbox = document.getElementById('regionNotInList');
