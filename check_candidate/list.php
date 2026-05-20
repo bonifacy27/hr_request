@@ -304,6 +304,8 @@ function buildQueryUrl(array $override = [])
 }
 
 $currentUserId = (int)$USER->GetID();
+$currentUserGroups = CUser::GetUserGroup($currentUserId);
+$isAdmin = in_array(1, array_map('intval', (array)$currentUserGroups), true);
 $currentUserTagLower = mb_strtolower('user_' . $currentUserId);
 $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
@@ -320,7 +322,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $props = $el ? $el->GetProperties() : [];
         $oldRecruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
 
-        $canChange = $isRecruitHead || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
+        $canChange = $isAdmin || $isRecruitHead || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
 
         if ($elementId <= 0 || $newRecruiterId <= 0 || $comment === '') {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
@@ -643,15 +645,28 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                     </td>
                     <td>
                         <div class="actions-cell">
-                            <a href="<?=h(VIEW_URL . $id)?>" target="_blank">Открыть</a>
                             <?php
-                                $canChangeRecruiter = $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
+                                $canChangeRecruiter = $isAdmin || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
+                                $actions = [];
+                                $actions[] = '<a class="dropdown-item" href="' . h(VIEW_URL . $id) . '" target="_blank">Открыть</a>';
+                                if ($canChangeRecruiter) {
+                                    $actions[] = '<button type="button" class="dropdown-item js-change-recruiter-btn" data-id="' . $id . '" data-current-recruiter-id="' . (int)$row['RECRUITER_ID'] . '">Сменить рекрутера</button>';
+                                }
+                                if ($taskId > 0) {
+                                    $actions[] = '<a class="dropdown-item" href="' . h($taskUrl) . '" target="_blank">Задание БП</a>';
+                                }
                             ?>
-                            <?php if ($canChangeRecruiter): ?>
-                                <button type="button" class="btn btn-outline-secondary btn-sm js-change-recruiter-btn" data-id="<?=$id?>" data-current-recruiter-id="<?= (int)$row['RECRUITER_ID'] ?>">Сменить рекрутера</button>
-                            <?php endif; ?>
-                            <?php if ($taskId > 0): ?>
-                                <a class="btn btn-outline-primary btn-sm" href="<?=h($taskUrl)?>" target="_blank">Задание БП</a>
+                            <?php if (count($actions) > 1): ?>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                        Действия
+                                    </button>
+                                    <div class="dropdown-menu dropdown-menu-right">
+                                        <?=implode('', $actions)?>
+                                    </div>
+                                </div>
+                            <?php else: ?>
+                                <?= $actions[0] ?>
                             <?php endif; ?>
                         </div>
                     </td>
