@@ -499,9 +499,17 @@ BX.ready(function () {
             return n + 'у';
         }
         if (gramCase === 'acc') {
+            if (gender === 'f') {
+                if (low.endsWith('а')) return n.slice(0, -1) + 'у';
+                if (low.endsWith('я')) return n.slice(0, -1) + 'ю';
+                if (low.endsWith('ь')) return n;
+                return n;
+            }
+            if (low.endsWith('й')) return n.slice(0, -1) + 'я';
+            if (low.endsWith('ь')) return n.slice(0, -1) + 'я';
             if (low.endsWith('а')) return n.slice(0, -1) + 'у';
             if (low.endsWith('я')) return n.slice(0, -1) + 'ю';
-            return n;
+            return n + 'а';
         }
         return n;
     }
@@ -513,7 +521,11 @@ BX.ready(function () {
             if (low.endsWith('ич')) return n + 'у';
             if (low.endsWith('на')) return n.slice(0, -1) + 'е';
         }
-        if (gramCase === 'acc') { return n; }
+        if (gramCase === 'acc') {
+            if (low.endsWith('ич')) return n + 'а';
+            if (low.endsWith('на')) return n.slice(0, -1) + 'у';
+            return n;
+        }
         return n;
     }
     function inflectLastName(name, gramCase, gender) {
