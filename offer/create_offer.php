@@ -117,6 +117,16 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
     return $res;
 }
 
+function getIblockElementsById(int $iblockId, array $sort = ['ID' => 'DESC']): array
+{
+    $res = [];
+    $rs = CIBlockElement::GetList($sort, ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME']);
+    while ($row = $rs->GetNext()) {
+        $res[] = ['ID' => (string)$row['ID'], 'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8')];
+    }
+    return $res;
+}
+
 function getCandidateById(int $candidateId): ?array
 {
     $select = [
@@ -427,7 +437,24 @@ if ((string)($_GET['ajax'] ?? '') === 'create_region') {
     exit;
 }
 
-$candidateId = (int)Context::getCurrent()->getRequest()->getQuery('id_ankety');
+$request = Context::getCurrent()->getRequest();
+$selectedMode = 'manual';
+$modeFromQuery = (string)$request->getQuery('mode');
+if (in_array($modeFromQuery, ['manual', 'candidate', 'request'], true)) {
+    $selectedMode = $modeFromQuery;
+}
+$candidateId = (int)$request->getQuery('id_ankety');
+$requestId = (int)$request->getQuery('id_request');
+if ($candidateId > 0) {
+    $selectedMode = 'candidate';
+} elseif ($requestId > 0) {
+    $selectedMode = 'request';
+}
+if ($request->isPost()) {
+    $selectedMode = in_array((string)$request->getPost('MODE'), ['manual', 'candidate', 'request'], true) ? (string)$request->getPost('MODE') : $selectedMode;
+    $candidateId = (int)$request->getPost('SOURCE_CANDIDATE_ID') ?: $candidateId;
+    $requestId = (int)$request->getPost('SOURCE_REQUEST_ID') ?: $requestId;
+}
 $candidate = null;
 $requestItem = null;
 $errors = [];
@@ -515,6 +542,32 @@ if ($candidateId > 0) {
             }
         }
     }
+} elseif ($requestId > 0) {
+    $requestItem = getRequestById($requestId);
+    if (!$requestItem) {
+        $errors[] = 'Заявка на подбор не найдена.';
+    } else {
+        $formData['request_id'] = (string)$requestId;
+        $formData['comment'] = 'Из заявки на подбор ' . (int)$requestId;
+        $formData['is_chief_position'] = normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']);
+        $formData['position'] = (string)$requestItem['POSITION'];
+        $formData['direction'] = (string)$requestItem['DIRECTION'];
+        $formData['department'] = (string)$requestItem['DEPARTMENT'];
+        $formData['chief'] = (string)$requestItem['CHIEF'];
+        $formData['chief_position'] = (string)$requestItem['CHIEF_POSITION'];
+        $formData['salary'] = (string)$requestItem['SALARY'];
+        $formData['isn'] = (string)$requestItem['ISN'];
+        $formData['bonus_type'] = (string)$requestItem['BONUS_TYPE'];
+        $formData['bonus_percent'] = (string)($requestItem['BONUS_PERCENT'] !== '' ? $requestItem['BONUS_PERCENT'] : '0');
+        $formData['work_format'] = (string)$requestItem['WORK_FORMAT'];
+        $formData['office'] = (string)$requestItem['OFFICE'];
+        $formData['work_schedule'] = (string)$requestItem['WORK_SCHEDULE'];
+        $formData['work_start'] = (string)$requestItem['WORK_START'];
+        $formData['equipment'] = (string)($requestItem['EQUIPMENT'] ?: DEFAULT_EQUIPMENT);
+        $formData['equipment_text'] = (string)$requestItem['EQUIPMENT_TEXT'];
+        $formData['contract_type'] = (string)($requestItem['CONTRACT_TYPE'] ?: DEFAULT_CONTRACT);
+        $formData['organization'] = (string)($requestItem['ORGANIZATION'] ?: DEFAULT_ORGANIZATION);
+    }
 }
 if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
     $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
@@ -530,6 +583,8 @@ $organizationList = getIblockOptions(308);
 $trialPeriodList = getIblockOptions(324);
 $regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
 $bonusTypeList = getIblockOptions(327);
+$candidateList = getIblockElementsById(IBL_CANDIDATES);
+$requestList = getIblockElementsById(IBL_REQUESTS);
 $bonusTypeNameById = [];
 foreach ($bonusTypeList as $bonusTypeRow) {
     $bonusTypeNameById[(string)$bonusTypeRow['ID']] = (string)$bonusTypeRow['NAME'];
@@ -588,7 +643,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     }
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
-    if ($candidateId <= 0) {
+    if ($candidateId <= 0 && $requestId <= 0) {
         $formData['comment'] = 'Вручную';
     }
     if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
@@ -870,6 +925,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
     <form method="post">
         <?=bitrix_sessid_post()?>
+        <div class="card mb-3">
+            <div class="card-header">Режим создания</div>
+            <div class="card-body">
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>Режим</label>
+                        <div>
+                            <label><input type="radio" name="MODE" value="manual" <?=$selectedMode === 'manual' ? 'checked' : ''?>> Создать без заявок</label><br>
+                            <label><input type="radio" name="MODE" value="candidate" <?=$selectedMode === 'candidate' ? 'checked' : ''?>> Создать из анкеты кандидата</label><br>
+                            <label><input type="radio" name="MODE" value="request" <?=$selectedMode === 'request' ? 'checked' : ''?>> Создать из заявки на подбор</label>
+                        </div>
+                    </div>
+                    <div class="form-group col-md-4" id="candidate_block" style="<?=$selectedMode === 'candidate' ? '' : 'display:none;'?>">
+                        <label>Анкета кандидата</label>
+                        <select class="form-control" name="SOURCE_CANDIDATE_ID" id="SOURCE_CANDIDATE_ID">
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($candidateList as $c): ?>
+                                <option value="<?=h($c['ID'])?>" <?=$candidateId === (int)$c['ID'] ? 'selected' : ''?>><?=h($c['ID'] . ' — ' . $c['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-4" id="request_block" style="<?=$selectedMode === 'request' ? '' : 'display:none;'?>">
+                        <label>Заявка на подбор</label>
+                        <select class="form-control" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID">
+                            <option value="">— Выберите —</option>
+                            <?php foreach ($requestList as $r): ?>
+                                <option value="<?=h($r['ID'])?>" <?=$requestId === (int)$r['ID'] ? 'selected' : ''?>><?=h($r['ID'] . ' — ' . $r['NAME'])?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <div class="card mb-3">
             <div class="card-header">Общие сведения</div>
@@ -1174,6 +1262,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 </div>
 <script>
 BX.ready(function () {
+    document.querySelectorAll('input[name="MODE"]').forEach(function (el) {
+        el.addEventListener('change', function () {
+            const mode = this.value;
+            BX('candidate_block').style.display = (mode === 'candidate') ? 'block' : 'none';
+            BX('request_block').style.display = (mode === 'request') ? 'block' : 'none';
+
+            const url = new URL(window.location.href);
+            url.searchParams.set('mode', mode);
+            url.searchParams.delete('id_ankety');
+            url.searchParams.delete('id_request');
+            if (mode === 'candidate') {
+                const cid = parseInt((BX('SOURCE_CANDIDATE_ID') || {}).value || '0', 10) || 0;
+                if (cid > 0) {
+                    url.searchParams.set('id_ankety', String(cid));
+                }
+            } else if (mode === 'request') {
+                const rid = parseInt((BX('SOURCE_REQUEST_ID') || {}).value || '0', 10) || 0;
+                if (rid > 0) {
+                    url.searchParams.set('id_request', String(rid));
+                }
+            }
+            window.location.href = url.toString();
+        });
+    });
+
+    const candidateInput = BX('SOURCE_CANDIDATE_ID');
+    if (candidateInput) {
+        candidateInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            const url = new URL(window.location.href);
+            url.searchParams.set('mode', 'candidate');
+            url.searchParams.delete('id_ankety');
+            if (id > 0) {
+                url.searchParams.set('id_ankety', String(id));
+            }
+            window.location.href = url.toString();
+        });
+    }
+
+    const requestInput = BX('SOURCE_REQUEST_ID');
+    if (requestInput) {
+        requestInput.addEventListener('change', function () {
+            const id = parseInt(this.value, 10) || 0;
+            const url = new URL(window.location.href);
+            url.searchParams.set('mode', 'request');
+            url.searchParams.delete('id_request');
+            if (id > 0) {
+                url.searchParams.set('id_request', String(id));
+            }
+            window.location.href = url.toString();
+        });
+    }
+
     var searchInput = document.getElementById('regionLocationSearch');
     var regionSelect = document.querySelector('select[name=\"region_location\"]');
     var regionNotInListCheckbox = document.getElementById('regionNotInList');
