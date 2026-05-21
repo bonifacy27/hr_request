@@ -1340,6 +1340,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
   var delegatePopup = null;
   var selectorDialog = null;
+  var cancelPopup = null;
+  var historyPopup = null;
   var requestInfoPopup = null;
 
   function ensureDelegatePopup() {
