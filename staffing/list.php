@@ -403,6 +403,16 @@ function extractTaskUserIds($rawUserId): array
     }
 
     $ids = [];
+
+    // Формат может приходить как текст задания с именами и ID в квадратных скобках:
+    // "... Ксения ... [5945], Полина ... [5984] ..."
+    if (!is_array($rawUserId) && preg_match_all('/\[(\d+)\]/', (string)$rawUserId, $m)) {
+        foreach (($m[1] ?? []) as $idRaw) {
+            $id = (int)$idRaw;
+            if ($id > 0) $ids[$id] = true;
+        }
+    }
+
     foreach ((array)$parts as $part) {
         $part = trim((string)$part);
         if ($part === '') continue;
