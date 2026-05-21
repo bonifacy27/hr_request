@@ -167,22 +167,35 @@ function getElementPropertyIntValues(int $iblockId, int $elementId, int $propert
 
 
 function renderCompactRequestInfoHtml(array $row, array $userMap, string $initiatorManager): string {
-    $pairs = [];
-    $pairs[] = ['Должность', (string)($row['DOLZHNOST'] ?? '')];
-    $pairs[] = ['Инициатор / руководитель', strip_tags($initiatorManager)];
-    $pairs[] = ['Рекрутер', strip_tags(renderUserPlain($userMap[(int)($row['RECRUITER_ID'] ?? 0)] ?? null))];
-    $pairs[] = ['Текущие исполнители', strip_tags(renderUserListPlain((array)($row['ASSIGNEES'] ?? []), $userMap))];
-    $pairs[] = ['Дата заявки', (string)($row['DATE_CREATE'] ?? '')];
-    $pairs[] = ['Ставка', (string)($row['STAVKA'] ?? '')];
-    $pairs[] = ['Комментарий к заявке', (string)($row['KOMMENTARII'] ?? '')];
+    $pairs = [
+        ['Должность', (string)($row['DOLZHNOST'] ?? '')],
+        ['Юридическое лицо', (string)($row['YURIDICHESKOE_LITSO'] ?? '')],
+        ['Подразделение', (string)($row['PODRAZDELENIE'] ?? '')],
+        ['Дирекция', (string)($row['DIREKTSIYA'] ?? '')],
+        ['Непосредственный руководитель', (string)($row['NEPOSREDSTVENNYY_RUKOVODITEL'] ?? '')],
+        ['Предполагаемый тип премирования', (string)($row['PREDPOLAGAEMYY_TIP_PREMIROVANIYA'] ?? '')],
+        ['Оклад, руб., Гросс', (string)($row['OKLAD'] ?? '')],
+        ['Процент премии', (string)($row['PROTSENT_PREMII'] ?? '')],
+        ['ИСН, руб., Гросс', (string)($row['ISN_RUB_GROSS'] ?? '')],
+        ['Доход в месяц в среднем при выполнении KPI, руб., Гросс', (string)($row['DOKHOD_KPI_GROSS'] ?? '')],
+        ['Ставка', (string)($row['STAVKA'] ?? '')],
+        ['Комментарии C&B', (string)($row['KOMMENTARII_C_B'] ?? '')],
+        ['Тип договора с сотрудником', (string)($row['TIP_DOGOVORA'] ?? '')],
+        ['Офис', (string)($row['OFIS'] ?? '')],
+        ['График работы', (string)($row['GRAFIK_RABOTY'] ?? '')],
+        ['Формат работы', (string)($row['FORMAT_RABOTY'] ?? '')],
+        ['Причина открытия вакансии', (string)($row['PRICHINA_OTKRYTIYA_VAKANSII'] ?? '')],
+        ['Причина заявки на подбор', (string)($row['PRICHINA_ZAYAVKI_NA_PODBOR'] ?? '')],
+        ['Рекрутер', strip_tags(renderUserPlain($userMap[(int)($row['RECRUITER_ID'] ?? 0)] ?? null))],
+    ];
 
     $html = '';
     foreach ($pairs as [$label, $value]) {
         $value = trim((string)$value);
-        if ($value === '') $value = '—';
+        if ($value === '') continue;
         $html .= '<div style="margin-bottom:8px;"><div class="text-muted" style="font-size:12px;">' . h($label) . '</div><div>' . nl2br(h($value)) . '</div></div>';
     }
-    return $html;
+    return $html !== '' ? $html : '<span class="text-muted">Нет данных для отображения.</span>';
 }
 
 function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds): string
@@ -733,6 +746,22 @@ $arSelect = [
     $PROP_JSON,
     'PROPERTY_3036',
     $PROP_KOMMENTARII,
+    'PROPERTY_YURIDICHESKOE_LITSO',
+    'PROPERTY_PODRAZDELENIE',
+    'PROPERTY_DIREKTSIYA',
+    'PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL',
+    'PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+    'PROPERTY_OKLAD',
+    'PROPERTY_PROTSENT_PREMII_',
+    'PROPERTY_ISN_RUB_GROSS',
+    'PROPERTY_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS',
+    'PROPERTY_KOMMENTARII_C_B',
+    'PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
+    'PROPERTY_OFIS_PRIVYAZKA',
+    'PROPERTY_GRAFIK_RABOTY_PRIVYAZKA',
+    'PROPERTY_FORMAT_RABOTY_PRIVYAZKA',
+    'PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
+    'PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR',
 ];
 
 // ===== Nav =====
@@ -810,6 +839,22 @@ while ($ob = $res->GetNextElement()) {
             : (string)($f['PROPERTY_3036_VALUE'] ?? ''),
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
+        'YURIDICHESKOE_LITSO'=>(string)($f['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
+        'PODRAZDELENIE'=>(string)($f['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
+        'DIREKTSIYA'=>(string)($f['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
+        'NEPOSREDSTVENNYY_RUKOVODITEL'=>(string)($f['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA'=>(string)($f['PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA_VALUE'] ?? ''),
+        'OKLAD'=>(string)($f['PROPERTY_OKLAD_VALUE'] ?? ''),
+        'PROTSENT_PREMII'=>(string)($f['PROPERTY_PROTSENT_PREMII__VALUE'] ?? ''),
+        'ISN_RUB_GROSS'=>(string)($f['PROPERTY_ISN_RUB_GROSS_VALUE'] ?? ''),
+        'DOKHOD_KPI_GROSS'=>(string)($f['PROPERTY_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS_VALUE'] ?? ''),
+        'KOMMENTARII_C_B'=>(string)($f['PROPERTY_KOMMENTARII_C_B_VALUE'] ?? ''),
+        'TIP_DOGOVORA'=>(string)($f['PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA_VALUE'] ?? ''),
+        'OFIS'=>(string)($f['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
+        'GRAFIK_RABOTY'=>(string)($f['PROPERTY_GRAFIK_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+        'FORMAT_RABOTY'=>(string)($f['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+        'PRICHINA_OTKRYTIYA_VAKANSII'=>(string)($f['PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST_VALUE'] ?? ''),
+        'PRICHINA_ZAYAVKI_NA_PODBOR'=>(string)($f['PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR_VALUE'] ?? ''),
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
             ? implode("\n", array_map('strval', (array)$f["{$PROP_KOMMENTARII}_VALUE"]))
             : (string)($f["{$PROP_KOMMENTARII}_VALUE"] ?? ''),
