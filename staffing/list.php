@@ -278,14 +278,14 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
 
     $candidateLinks = $buildLinks(
         $candidateFormIds,
-        'https://ourtricolortv.nsc.ru/services/lists/207/element/0/',
+        '/forms/staff_recruitment/check_candidate/view.php?id=',
         'Анкета'
     );
     if ($candidateLinks !== '') $chunks[] = '<div><strong>Анкеты:</strong> ' . $candidateLinks . '</div>';
 
     $offerLinks = $buildLinks(
         $offerIds,
-        'https://ourtricolortv.nsc.ru/services/lists/218/element/0/',
+        '/forms/staff_recruitment/offer/view_offer.php?id=',
         'Оффер'
     );
     if ($offerLinks !== '') $chunks[] = '<div><strong>Офферы:</strong> ' . $offerLinks . '</div>';
