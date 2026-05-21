@@ -948,17 +948,14 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
   .page-wrap { padding: 16px 24px; }
-  .table thead th { white-space: nowrap; }
+  .table thead th { white-space:nowrap; vertical-align:middle; }
   .sort-link { color: #fff; text-decoration: none; }
   .sort-link:hover { text-decoration: underline; }
   .actions-wrap { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .actions-compact { min-width: 190px; max-width: 220px; }
   .status-wrap { display:inline-flex; align-items:center; gap:6px; }
-  .btn-info-icon {
-    width: 22px; height: 22px; border-radius: 50%;
-    display:inline-flex; align-items:center; justify-content:center;
-    padding: 0; font-size: 12px; line-height: 1;
-  }
+  .history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
+  .history-btn:hover { background:#5a6268; }
   .history-box {
     max-height: 360px; overflow:auto; white-space:pre-wrap; word-break:break-word;
     border: 1px solid #e9ecef; background:#f8f9fa; border-radius:6px; padding:10px 12px; margin-top:8px;
@@ -994,7 +991,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   <?php endif; ?>
 
   <div class="d-flex align-items-center mb-3">
-    <a href="<?= h($createElementUrl) ?>" class="btn btn-success mr-3" target="_blank" rel="noopener">Создать новую заявку</a>
+    <a href="<?= h($createElementUrl) ?>" class="btn btn-success mr-3 mb-2" target="_blank" rel="noopener">Создать новую заявку</a>
 
     <form method="get" class="form-inline" style="gap:8px; flex-wrap:wrap;">
       <input type="hidden" name="sort" value="<?= h($sort) ?>">
@@ -1035,8 +1032,8 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
         </select>
       <?php endif; ?>
 
-      <button type="submit" class="btn btn-primary">Найти</button>
-      <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary">Сброс</a>
+      <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+      <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
     </form>
   </div>
 
@@ -1083,7 +1080,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <?php if ($canSeeRelationsColumn): ?>
               <th>Связи</th>
             <?php endif; ?>
-            <th>Причина</th>
             <th>Действия</th>
           </tr>
         </thead>
@@ -1134,7 +1130,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
               <span class="status-wrap">
                 <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
                 <button type="button"
-                        class="btn btn-sm btn-outline-secondary btn-info-icon js-history-btn"
+                        class="history-btn js-history-btn"
                         data-element-id="<?= (int)$row['ID'] ?>"
                         data-comments="<?= h((string)$row['KOMMENTARII']) ?>"
                         title="История заявки">
@@ -1147,13 +1143,10 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                 <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS']) ?>
               </td>
             <?php endif; ?>
-            <td style="max-width:420px; white-space:normal; word-break:break-word;">
-              <?= $row['REASON'] !== '' ? nl2br(h($row['REASON'])) : '<span class="text-muted">—</span>' ?>
-            </td>
             <td>
               <div class="actions-wrap">
                 <?php if ($taskUrl !== ''): ?>
-                  <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
+                  <a class="btn btn-outline-secondary btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                 <?php endif; ?>
 
                 <?php if ($hasAnyAction): ?>
