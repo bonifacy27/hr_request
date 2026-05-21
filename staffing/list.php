@@ -394,6 +394,28 @@ function getDocumentIdCandidates(int $iblockId, int $elementId): array
     ];
 }
 
+function extractTaskUserIds($rawUserId): array
+{
+    if (is_array($rawUserId)) {
+        $parts = $rawUserId;
+    } else {
+        $parts = preg_split('/[;,\s]+/', (string)$rawUserId);
+    }
+
+    $ids = [];
+    foreach ((array)$parts as $part) {
+        $part = trim((string)$part);
+        if ($part === '') continue;
+        if (preg_match('/^user_(\d+)$/i', $part, $m)) {
+            $ids[(int)$m[1]] = true;
+        } elseif (ctype_digit($part)) {
+            $ids[(int)$part] = true;
+        }
+    }
+
+    return array_map('intval', array_keys($ids));
+}
+
 function getRunningTasks(int $elementId, int $iblockId = 201): array
 {
     $tasks = [];
@@ -411,7 +433,7 @@ function getRunningTasks(int $elementId, int $iblockId = 201): array
                 if ($tid <= 0) continue;
                 $tasks[] = [
                     'ID'          => $tid,
-                    'USER_ID'     => (int)($t['USER_ID'] ?? 0),
+                    'USER_IDS'    => extractTaskUserIds($t['USER_ID'] ?? ''),
                     'DOCUMENT_ID' => $docIdCandidate,
                     'WORKFLOW_ID' => (string)($t['WORKFLOW_ID'] ?? ''),
                     'NAME'        => (string)($t['NAME'] ?? ''),
@@ -856,8 +878,10 @@ while ($ob = $res->GetNextElement()) {
 
     $assigneeIds = [];
     foreach ($tasks as $t) {
-        $uid = (int)($t['USER_ID'] ?? 0);
-        if ($uid > 0) $assigneeIds[$uid] = true;
+        foreach ((array)($t['USER_IDS'] ?? []) as $uid) {
+            $uid = (int)$uid;
+            if ($uid > 0) $assigneeIds[$uid] = true;
+        }
     }
     $assigneeIds = array_values(array_map('intval', array_keys($assigneeIds)));
 
@@ -869,22 +893,24 @@ while ($ob = $res->GetNextElement()) {
 
     if (!empty($tasks)) {
         foreach ($tasks as $t) {
-            if ((int)$t['USER_ID'] === (int)$GLOBALS['USER']->GetID() && (int)$GLOBALS['USER']->GetID() > 0) {
+            $taskUserIds = (array)($t['USER_IDS'] ?? []);
+            if (in_array((int)$GLOBALS['USER']->GetID(), $taskUserIds, true) && (int)$GLOBALS['USER']->GetID() > 0) {
                 $taskIdForLink = (int)$t['ID'];
-                $taskUserForLink = (int)$t['USER_ID'];
+                $taskUserForLink = (int)$GLOBALS['USER']->GetID();
                 $hasCurrentUserTask = true;
             }
 
-            if ($recruiterId > 0 && (int)$t['USER_ID'] === $recruiterId && $taskIdForDelegate <= 0) {
+            if ($recruiterId > 0 && in_array($recruiterId, $taskUserIds, true) && $taskIdForDelegate <= 0) {
                 $taskIdForDelegate = (int)$t['ID'];
-                $taskUserForDelegate = (int)$t['USER_ID'];
+                $taskUserForDelegate = $recruiterId;
             }
         }
 
         if ($taskIdForDelegate <= 0) {
             $firstTask = $tasks[0];
             $taskIdForDelegate = (int)($firstTask['ID'] ?? 0);
-            $taskUserForDelegate = (int)($firstTask['USER_ID'] ?? 0);
+            $firstTaskUsers = (array)($firstTask['USER_IDS'] ?? []);
+            $taskUserForDelegate = (int)($firstTaskUsers[0] ?? 0);
         }
     }
 
