@@ -1340,6 +1340,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
   var delegatePopup = null;
   var selectorDialog = null;
+  var requestInfoPopup = null;
 
   function ensureDelegatePopup() {
     if (delegatePopup) return delegatePopup;
@@ -1458,8 +1459,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     });
   }
 
-  var cancelPopup = null;
-  var historyPopup = null;
 
   function ensureCancelPopup() {
     if (cancelPopup) return cancelPopup;
