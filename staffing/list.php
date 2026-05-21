@@ -165,6 +165,26 @@ function getElementPropertyIntValues(int $iblockId, int $elementId, int $propert
     return array_map('intval', array_keys($values));
 }
 
+
+function renderCompactRequestInfoHtml(array $row, array $userMap, string $initiatorManager): string {
+    $pairs = [];
+    $pairs[] = ['Должность', (string)($row['DOLZHNOST'] ?? '')];
+    $pairs[] = ['Инициатор / руководитель', strip_tags($initiatorManager)];
+    $pairs[] = ['Рекрутер', strip_tags(renderUserPlain($userMap[(int)($row['RECRUITER_ID'] ?? 0)] ?? null))];
+    $pairs[] = ['Текущие исполнители', strip_tags(renderUserListPlain((array)($row['ASSIGNEES'] ?? []), $userMap))];
+    $pairs[] = ['Дата заявки', (string)($row['DATE_CREATE'] ?? '')];
+    $pairs[] = ['Ставка', (string)($row['STAVKA'] ?? '')];
+    $pairs[] = ['Комментарий к заявке', (string)($row['KOMMENTARII'] ?? '')];
+
+    $html = '';
+    foreach ($pairs as [$label, $value]) {
+        $value = trim((string)$value);
+        if ($value === '') $value = '—';
+        $html .= '<div style="margin-bottom:8px;"><div class="text-muted" style="font-size:12px;">' . h($label) . '</div><div>' . nl2br(h($value)) . '</div></div>';
+    }
+    return $html;
+}
+
 function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds): string
 {
     $buildLinks = static function(array $ids, string $prefix, string $label): string {
@@ -1151,7 +1171,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $hasAnyAction = $canView || $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
           <tr>
-            <td><?= (int)$row['ID'] ?></td>
+            <td><button type="button" class="status-open-btn js-request-info-btn" data-id="<?= (int)$row['ID'] ?>" data-info-html="<?= h(renderCompactRequestInfoHtml($row, $userMap, $initiatorManager)) ?>"><?= (int)$row['ID'] ?></button></td>
             <td><?= $row['DOLZHNOST'] !== '' ? h($row['DOLZHNOST']) : '<span class="text-muted">—</span>' ?></td>
             <td><?= $initiatorManager ?></td>
             <td><?= renderUserPlain($recruiter) ?></td>
@@ -1265,6 +1285,13 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       </div>
       <div class="popup-form-hint">Доступно рекрутеру с активной задачей по заявке и руководителю отдела подбора.</div>
     </form>
+  </div>
+</div>
+
+<div id="request-info-popup-template" style="display:none;">
+  <div class="popup-form-wrap">
+    <div class="popup-form-title">Заявка #<span id="request-info-element-id"></span></div>
+    <div id="request-info-content" class="history-box"></div>
   </div>
 </div>
 
@@ -1506,6 +1533,34 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     elCommHid.value = '';
   }
 
+
+  function ensureRequestInfoPopup() {
+    if (requestInfoPopup) return requestInfoPopup;
+    var tpl = document.getElementById('request-info-popup-template');
+    var content = tpl ? tpl.innerHTML : '<div style="padding:12px">Ошибка шаблона</div>';
+    requestInfoPopup = BX.PopupWindowManager.create('request_info_popup', null, {
+      content: content,
+      closeIcon: { right: '12px', top: '10px' },
+      autoHide: true,
+      overlay: { opacity: 30 },
+      draggable: true,
+      closeByEsc: true,
+      titleBar: 'Информация о заявке',
+      zIndex: 20000,
+      buttons: [new BX.PopupWindowButton({text: 'Закрыть', className: 'popup-window-button-link-cancel', events: { click: function(){ requestInfoPopup.close(); }}})]
+    });
+    return requestInfoPopup;
+  }
+
+  function openRequestInfoPopup(elementId, html) {
+    var p = ensureRequestInfoPopup();
+    p.show();
+    var idNode = p.contentContainer.querySelector('#request-info-element-id');
+    var contentNode = p.contentContainer.querySelector('#request-info-content');
+    if (idNode) idNode.textContent = String(elementId || '');
+    if (contentNode) contentNode.innerHTML = (html || '').trim() || '<span class="text-muted">Нет данных для отображения.</span>';
+  }
+
   function ensureHistoryPopup() {
     if (historyPopup) return historyPopup;
     var tpl = document.getElementById('history-popup-template');
@@ -1577,6 +1632,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       }
 
       select.value = '';
+    });
+  });
+
+  document.querySelectorAll('.js-request-info-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var elementId = parseInt(btn.getAttribute('data-id') || '0', 10);
+      var infoHtml = btn.getAttribute('data-info-html') || '';
+      if (!elementId) { notify('Не удалось определить ID заявки.'); return; }
+      openRequestInfoPopup(elementId, infoHtml);
     });
   });
 
