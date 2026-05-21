@@ -706,15 +706,19 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                             <?php
                                 $canChangeRecruiter = $isAdmin || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $actions = [];
+                                $bpAction = null;
                                 $actions[] = ['type' => 'link', 'title' => 'Открыть', 'href' => VIEW_URL . $id];
                                 if ($canChangeRecruiter) {
                                     $actions[] = ['type' => 'change_recruiter', 'title' => 'Сменить рекрутера'];
                                     $actions[] = ['type' => 'cancel_check', 'title' => 'Отменить проверку'];
                                 }
                                 if ($taskId > 0) {
-                                    $actions[] = ['type' => 'link', 'title' => 'Задание БП', 'href' => $taskUrl];
+                                    $bpAction = ['type' => 'link', 'title' => 'Задание БП', 'href' => $taskUrl];
                                 }
                             ?>
+                            <?php if ($bpAction): ?>
+                                <a class="btn btn-outline-secondary btn-sm" href="<?=h($bpAction['href'])?>" target="_blank"><?=h($bpAction['title'])?></a>
+                            <?php endif; ?>
                             <?php if (count($actions) > 1): ?>
                                 <div class="actions-menu">
                                     <button class="btn btn-outline-secondary btn-sm js-actions-menu-toggle" type="button" aria-haspopup="true" aria-expanded="false">
