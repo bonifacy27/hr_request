@@ -143,6 +143,17 @@ function renderUserListPlain(array $ids, array $userMap): string {
     return $names ? h(implode(', ', $names)) : '<span class="text-muted">—</span>';
 }
 
+
+function renderUserListText(array $ids, array $userMap): string {
+    if (empty($ids)) return 'Активных исполнителей нет';
+    $names = [];
+    foreach ($ids as $id) {
+        $u = $userMap[(int)$id] ?? null;
+        if ($u) $names[] = formatUserName($u);
+    }
+    return $names ? implode("\n", $names) : 'Активных исполнителей нет';
+}
+
 function getElementPropertyIntValues(int $iblockId, int $elementId, int $propertyId): array
 {
     $values = [];
@@ -465,6 +476,7 @@ $fInitiator = (int)$request->get('f_initiator');
 $fRecruiter = (int)$request->get('f_recruiter');
 $fManager   = (int)$request->get('f_manager');
 $fStatus    = (int)$request->get('f_status'); // enum id
+$inWorkOnly = (string)$request->get('in_work') === 'Y';
 
 if (!$canUseExtendedFilters) {
     $fInitiator = 0;
@@ -704,10 +716,12 @@ $arSelect = [
 ];
 
 // ===== Nav =====
-$navParams = [
-    'nPageSize' => $pageSize,
-    'bShowAll'  => false,
-];
+$navParams = $inWorkOnly
+    ? false
+    : [
+        'nPageSize' => $pageSize,
+        'bShowAll'  => false,
+    ];
 
 $res = CIBlockElement::GetList($arOrder, $filter, false, $navParams, $arSelect);
 
@@ -819,9 +833,20 @@ if (in_array($sort, ['DOLZHNOST','STATUS'], true)) {
 }
 
 // Navigation
-$totalCount  = (int)$res->NavRecordCount;
-$pageCount   = (int)$res->NavPageCount;
-$currentPage = (int)$res->NavPageNomer;
+$currentPage = max(1, (int)$request->get('PAGEN_1'));
+
+if ($inWorkOnly) {
+    $items = array_values(array_filter($items, static fn($row) => !empty($row['HAS_CURRENT_USER_TASK'])));
+    $totalCount = count($items);
+    $pageCount = max(1, (int)ceil($totalCount / $pageSize));
+    if ($currentPage > $pageCount) $currentPage = $pageCount;
+    $offset = ($currentPage - 1) * $pageSize;
+    $items = array_slice($items, $offset, $pageSize);
+} else {
+    $totalCount  = (int)$res->NavRecordCount;
+    $pageCount   = (int)$res->NavPageCount;
+    $currentPage = (int)$res->NavPageNomer;
+}
 
 function navPageUrl(int $pageNum): string { return buildUrl(['PAGEN_1' => $pageNum], []); }
 
@@ -956,6 +981,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   .status-wrap { display:inline-flex; align-items:center; gap:6px; }
   .history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
   .history-btn:hover { background:#5a6268; }
+  .status-open-btn { border:0; background:transparent; padding:0; }
   .history-box {
     max-height: 360px; overflow:auto; white-space:pre-wrap; word-break:break-word;
     border: 1px solid #e9ecef; background:#f8f9fa; border-radius:6px; padding:10px 12px; margin-top:8px;
@@ -1031,6 +1057,11 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
           <?php endforeach; ?>
         </select>
       <?php endif; ?>
+
+      <label class="d-flex align-items-center mb-0">
+        <input type="checkbox" name="in_work" value="Y" <?= $inWorkOnly ? 'checked' : '' ?>>
+        <span class="ml-2">В работе</span>
+      </label>
 
       <button type="submit" class="btn btn-primary btn-sm">Применить</button>
       <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
@@ -1128,7 +1159,9 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <td><span class="text-muted"><?= h($row['DATE_CREATE']) ?></span></td>
             <td>
               <span class="status-wrap">
-                <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
+                <button type="button" class="status-open-btn js-executors-btn" data-id="<?= (int)$row['ID'] ?>" data-executors="<?= h(nl2br(renderUserListText((array)$row['ASSIGNEES'], $userMap))) ?>">
+                  <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
+                </button>
                 <button type="button"
                         class="history-btn js-history-btn"
                         data-element-id="<?= (int)$row['ID'] ?>"
@@ -1497,15 +1530,17 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     return historyPopup;
   }
 
-  function openHistoryPopup(elementId, comments) {
+  function openHistoryPopup(elementId, comments, title) {
     var p = ensureHistoryPopup();
     p.show();
+    if (typeof title === 'string' && title.trim() !== '' && p.setTitleBar) { p.setTitleBar(title.trim()); } else if (p.setTitleBar) { p.setTitleBar('История заявки'); }
     var idNode = p.contentContainer.querySelector('#history-element-id');
     var contentNode = p.contentContainer.querySelector('#history-content');
     if (idNode) idNode.textContent = String(elementId || '');
     if (contentNode) {
       var txt = (comments || '').trim();
-      contentNode.textContent = txt !== '' ? txt : 'История отсутствует.';
+      if (txt.indexOf('<br') !== -1) contentNode.innerHTML = txt;
+      else contentNode.textContent = txt !== '' ? txt : 'История отсутствует.';
     }
   }
 
@@ -1542,6 +1577,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       }
 
       select.value = '';
+    });
+  });
+
+  document.querySelectorAll('.js-executors-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var elementId = parseInt(btn.getAttribute('data-id') || '0', 10);
+      var executors = btn.getAttribute('data-executors') || '';
+      if (!elementId) { notify('Не удалось определить ID заявки.'); return; }
+      openHistoryPopup(elementId, executors, 'Текущие исполнители');
     });
   });
 
