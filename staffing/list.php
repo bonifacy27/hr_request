@@ -182,6 +182,7 @@ function splitMultiValues($value): array {
 }
 
 function resolveElementLinkDisplay($value): string {
+    static $elementNameCache = [];
     $ids = [];
     foreach (splitMultiValues($value) as $v) {
         if (ctype_digit($v)) $ids[] = (int)$v;
@@ -189,16 +190,21 @@ function resolveElementLinkDisplay($value): string {
     $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
     if (!$ids) return trim((string)$value);
 
-    $names = [];
-    $rs = CIBlockElement::GetList([], ['@ID' => $ids], false, false, ['ID','NAME']);
-    while ($f = $rs->Fetch()) $names[(int)$f['ID']] = (string)$f['NAME'];
+    $needLoad = [];
+    foreach ($ids as $id) if (!array_key_exists($id, $elementNameCache)) $needLoad[] = $id;
+    if ($needLoad) {
+        $rs = CIBlockElement::GetList([], ['@ID' => $needLoad], false, false, ['ID','NAME']);
+        while ($f = $rs->Fetch()) $elementNameCache[(int)$f['ID']] = (string)$f['NAME'];
+        foreach ($needLoad as $id) if (!array_key_exists($id, $elementNameCache)) $elementNameCache[$id] = '#'.$id;
+    }
 
     $res = [];
-    foreach ($ids as $id) $res[] = $names[$id] ?? ('#'.$id);
+    foreach ($ids as $id) $res[] = $elementNameCache[$id] ?? ('#'.$id);
     return implode(', ', $res);
 }
 
 function resolveUserDisplay($value): string {
+    static $userCache = [];
     $ids = [];
     foreach (splitMultiValues($value) as $v) {
         if (preg_match('/^user_(\d+)$/i', $v, $m)) $ids[] = (int)$m[1];
@@ -207,11 +213,19 @@ function resolveUserDisplay($value): string {
     $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
     if (!$ids) return trim((string)$value);
 
-    $map = fetchUsersMapByIds($ids);
+    $needLoad = [];
+    foreach ($ids as $id) if (!array_key_exists($id, $userCache)) $needLoad[] = $id;
+    if ($needLoad) {
+        $map = fetchUsersMapByIds($needLoad);
+        foreach ($needLoad as $id) {
+            $u = $map[$id] ?? null;
+            $userCache[$id] = $u ? formatUserName($u) : ('user#'.$id);
+        }
+    }
+
     $res = [];
     foreach ($ids as $id) {
-        $u = $map[$id] ?? null;
-        $res[] = $u ? formatUserName($u) : ('user#'.$id);
+        $res[] = $userCache[$id] ?? ('user#'.$id);
     }
     return implode(', ', $res);
 }
