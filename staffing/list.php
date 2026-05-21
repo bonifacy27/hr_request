@@ -166,6 +166,56 @@ function getElementPropertyIntValues(int $iblockId, int $elementId, int $propert
 }
 
 
+
+function splitMultiValues($value): array {
+    if (is_array($value)) {
+        $parts = $value;
+    } else {
+        $parts = preg_split('/\s*,\s*/', (string)$value);
+    }
+    $out = [];
+    foreach ((array)$parts as $v) {
+        $v = trim((string)$v);
+        if ($v !== '') $out[] = $v;
+    }
+    return $out;
+}
+
+function resolveElementLinkDisplay($value): string {
+    $ids = [];
+    foreach (splitMultiValues($value) as $v) {
+        if (ctype_digit($v)) $ids[] = (int)$v;
+    }
+    $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
+    if (!$ids) return trim((string)$value);
+
+    $names = [];
+    $rs = CIBlockElement::GetList([], ['@ID' => $ids], false, false, ['ID','NAME']);
+    while ($f = $rs->Fetch()) $names[(int)$f['ID']] = (string)$f['NAME'];
+
+    $res = [];
+    foreach ($ids as $id) $res[] = $names[$id] ?? ('#'.$id);
+    return implode(', ', $res);
+}
+
+function resolveUserDisplay($value): string {
+    $ids = [];
+    foreach (splitMultiValues($value) as $v) {
+        if (preg_match('/^user_(\d+)$/i', $v, $m)) $ids[] = (int)$m[1];
+        elseif (ctype_digit($v)) $ids[] = (int)$v;
+    }
+    $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
+    if (!$ids) return trim((string)$value);
+
+    $map = fetchUsersMapByIds($ids);
+    $res = [];
+    foreach ($ids as $id) {
+        $u = $map[$id] ?? null;
+        $res[] = $u ? formatUserName($u) : ('user#'.$id);
+    }
+    return implode(', ', $res);
+}
+
 function renderCompactRequestInfoHtml(array $row, array $userMap, string $initiatorManager): string {
     $pairs = [
         ['Должность', (string)($row['DOLZHNOST'] ?? '')],
@@ -839,20 +889,20 @@ while ($ob = $res->GetNextElement()) {
             : (string)($f['PROPERTY_3036_VALUE'] ?? ''),
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
-        'YURIDICHESKOE_LITSO'=>(string)($f['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
-        'PODRAZDELENIE'=>(string)($f['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
-        'DIREKTSIYA'=>(string)($f['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
-        'NEPOSREDSTVENNYY_RUKOVODITEL'=>(string)($f['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
-        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA'=>(string)($f['PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA_VALUE'] ?? ''),
+        'YURIDICHESKOE_LITSO'=>resolveElementLinkDisplay((string)($f['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? '')),
+        'PODRAZDELENIE'=>resolveElementLinkDisplay((string)($f['PROPERTY_PODRAZDELENIE_VALUE'] ?? '')),
+        'DIREKTSIYA'=>resolveElementLinkDisplay((string)($f['PROPERTY_DIREKTSIYA_VALUE'] ?? '')),
+        'NEPOSREDSTVENNYY_RUKOVODITEL'=>resolveUserDisplay((string)($f['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? '')),
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA'=>resolveElementLinkDisplay((string)($f['PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA_VALUE'] ?? '')),
         'OKLAD'=>(string)($f['PROPERTY_OKLAD_VALUE'] ?? ''),
         'PROTSENT_PREMII'=>(string)($f['PROPERTY_PROTSENT_PREMII__VALUE'] ?? ''),
         'ISN_RUB_GROSS'=>(string)($f['PROPERTY_ISN_RUB_GROSS_VALUE'] ?? ''),
         'DOKHOD_KPI_GROSS'=>(string)($f['PROPERTY_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS_VALUE'] ?? ''),
         'KOMMENTARII_C_B'=>(string)($f['PROPERTY_KOMMENTARII_C_B_VALUE'] ?? ''),
-        'TIP_DOGOVORA'=>(string)($f['PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA_VALUE'] ?? ''),
-        'OFIS'=>(string)($f['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
-        'GRAFIK_RABOTY'=>(string)($f['PROPERTY_GRAFIK_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
-        'FORMAT_RABOTY'=>(string)($f['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+        'TIP_DOGOVORA'=>resolveElementLinkDisplay((string)($f['PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA_VALUE'] ?? '')),
+        'OFIS'=>resolveElementLinkDisplay((string)($f['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? '')),
+        'GRAFIK_RABOTY'=>resolveElementLinkDisplay((string)($f['PROPERTY_GRAFIK_RABOTY_PRIVYAZKA_VALUE'] ?? '')),
+        'FORMAT_RABOTY'=>resolveElementLinkDisplay((string)($f['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? '')),
         'PRICHINA_OTKRYTIYA_VAKANSII'=>(string)($f['PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST_VALUE'] ?? ''),
         'PRICHINA_ZAYAVKI_NA_PODBOR'=>(string)($f['PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR_VALUE'] ?? ''),
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
