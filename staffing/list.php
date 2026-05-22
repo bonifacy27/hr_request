@@ -143,6 +143,17 @@ function renderUserListPlain(array $ids, array $userMap): string {
     return $names ? h(implode(', ', $names)) : '<span class="text-muted">—</span>';
 }
 
+
+function renderUserListText(array $ids, array $userMap): string {
+    if (empty($ids)) return 'Активных исполнителей нет';
+    $names = [];
+    foreach ($ids as $id) {
+        $u = $userMap[(int)$id] ?? null;
+        if ($u) $names[] = formatUserName($u);
+    }
+    return $names ? implode("\n", $names) : 'Активных исполнителей нет';
+}
+
 function getElementPropertyIntValues(int $iblockId, int $elementId, int $propertyId): array
 {
     $values = [];
@@ -152,6 +163,103 @@ function getElementPropertyIntValues(int $iblockId, int $elementId, int $propert
         if ($v > 0) $values[$v] = true;
     }
     return array_map('intval', array_keys($values));
+}
+
+
+
+function splitMultiValues($value): array {
+    if (is_array($value)) {
+        $parts = $value;
+    } else {
+        $parts = preg_split('/\s*,\s*/', (string)$value);
+    }
+    $out = [];
+    foreach ((array)$parts as $v) {
+        $v = trim((string)$v);
+        if ($v !== '') $out[] = $v;
+    }
+    return $out;
+}
+
+function resolveElementLinkDisplay($value): string {
+    static $elementNameCache = [];
+    $ids = [];
+    foreach (splitMultiValues($value) as $v) {
+        if (ctype_digit($v)) $ids[] = (int)$v;
+    }
+    $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
+    if (!$ids) return trim((string)$value);
+
+    $needLoad = [];
+    foreach ($ids as $id) if (!array_key_exists($id, $elementNameCache)) $needLoad[] = $id;
+    if ($needLoad) {
+        $rs = CIBlockElement::GetList([], ['@ID' => $needLoad], false, false, ['ID','NAME']);
+        while ($f = $rs->Fetch()) $elementNameCache[(int)$f['ID']] = (string)$f['NAME'];
+        foreach ($needLoad as $id) if (!array_key_exists($id, $elementNameCache)) $elementNameCache[$id] = '#'.$id;
+    }
+
+    $res = [];
+    foreach ($ids as $id) $res[] = $elementNameCache[$id] ?? ('#'.$id);
+    return implode(', ', $res);
+}
+
+function resolveUserDisplay($value): string {
+    static $userCache = [];
+    $ids = [];
+    foreach (splitMultiValues($value) as $v) {
+        if (preg_match('/^user_(\d+)$/i', $v, $m)) $ids[] = (int)$m[1];
+        elseif (ctype_digit($v)) $ids[] = (int)$v;
+    }
+    $ids = array_values(array_unique(array_filter($ids, fn($x)=>$x>0)));
+    if (!$ids) return trim((string)$value);
+
+    $needLoad = [];
+    foreach ($ids as $id) if (!array_key_exists($id, $userCache)) $needLoad[] = $id;
+    if ($needLoad) {
+        $map = fetchUsersMapByIds($needLoad);
+        foreach ($needLoad as $id) {
+            $u = $map[$id] ?? null;
+            $userCache[$id] = $u ? formatUserName($u) : ('user#'.$id);
+        }
+    }
+
+    $res = [];
+    foreach ($ids as $id) {
+        $res[] = $userCache[$id] ?? ('user#'.$id);
+    }
+    return implode(', ', $res);
+}
+
+function renderCompactRequestInfoHtml(array $row, array $userMap, string $initiatorManager): string {
+    $pairs = [
+        ['Должность', (string)($row['DOLZHNOST'] ?? '')],
+        ['Юридическое лицо', (string)($row['YURIDICHESKOE_LITSO'] ?? '')],
+        ['Подразделение', (string)($row['PODRAZDELENIE'] ?? '')],
+        ['Дирекция', (string)($row['DIREKTSIYA'] ?? '')],
+        ['Непосредственный руководитель', (string)($row['NEPOSREDSTVENNYY_RUKOVODITEL'] ?? '')],
+        ['Предполагаемый тип премирования', (string)($row['PREDPOLAGAEMYY_TIP_PREMIROVANIYA'] ?? '')],
+        ['Оклад, руб., Гросс', (string)($row['OKLAD'] ?? '')],
+        ['Процент премии', (string)($row['PROTSENT_PREMII'] ?? '')],
+        ['ИСН, руб., Гросс', (string)($row['ISN_RUB_GROSS'] ?? '')],
+        ['Доход в месяц в среднем при выполнении KPI, руб., Гросс', (string)($row['DOKHOD_KPI_GROSS'] ?? '')],
+        ['Ставка', (string)($row['STAVKA'] ?? '')],
+        ['Комментарии C&B', (string)($row['KOMMENTARII_C_B'] ?? '')],
+        ['Тип договора с сотрудником', (string)($row['TIP_DOGOVORA'] ?? '')],
+        ['Офис', (string)($row['OFIS'] ?? '')],
+        ['График работы', (string)($row['GRAFIK_RABOTY'] ?? '')],
+        ['Формат работы', (string)($row['FORMAT_RABOTY'] ?? '')],
+        ['Причина открытия вакансии', (string)($row['PRICHINA_OTKRYTIYA_VAKANSII'] ?? '')],
+        ['Причина заявки на подбор', (string)($row['PRICHINA_ZAYAVKI_NA_PODBOR'] ?? '')],
+        ['Рекрутер', strip_tags(renderUserPlain($userMap[(int)($row['RECRUITER_ID'] ?? 0)] ?? null))],
+    ];
+
+    $html = '';
+    foreach ($pairs as [$label, $value]) {
+        $value = trim((string)$value);
+        if ($value === '') continue;
+        $html .= '<div style="margin-bottom:8px;"><div class="text-muted" style="font-size:12px;">' . h($label) . '</div><div>' . nl2br(h($value)) . '</div></div>';
+    }
+    return $html !== '' ? $html : '<span class="text-muted">Нет данных для отображения.</span>';
 }
 
 function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds): string
@@ -170,14 +278,14 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
 
     $candidateLinks = $buildLinks(
         $candidateFormIds,
-        'https://ourtricolortv.nsc.ru/services/lists/207/element/0/',
+        '/forms/staff_recruitment/check_candidate/view.php?id=',
         'Анкета'
     );
     if ($candidateLinks !== '') $chunks[] = '<div><strong>Анкеты:</strong> ' . $candidateLinks . '</div>';
 
     $offerLinks = $buildLinks(
         $offerIds,
-        'https://ourtricolortv.nsc.ru/services/lists/218/element/0/',
+        '/forms/staff_recruitment/offer/view_offer.php?id=',
         'Оффер'
     );
     if ($offerLinks !== '') $chunks[] = '<div><strong>Офферы:</strong> ' . $offerLinks . '</div>';
@@ -286,6 +394,38 @@ function getDocumentIdCandidates(int $iblockId, int $elementId): array
     ];
 }
 
+function extractTaskUserIds($rawUserId): array
+{
+    if (is_array($rawUserId)) {
+        $parts = $rawUserId;
+    } else {
+        $parts = preg_split('/[;,\s]+/', (string)$rawUserId);
+    }
+
+    $ids = [];
+
+    // Формат может приходить как текст задания с именами и ID в квадратных скобках:
+    // "... Ксения ... [5945], Полина ... [5984] ..."
+    if (!is_array($rawUserId) && preg_match_all('/\[(\d+)\]/', (string)$rawUserId, $m)) {
+        foreach (($m[1] ?? []) as $idRaw) {
+            $id = (int)$idRaw;
+            if ($id > 0) $ids[$id] = true;
+        }
+    }
+
+    foreach ((array)$parts as $part) {
+        $part = trim((string)$part);
+        if ($part === '') continue;
+        if (preg_match('/^user_(\d+)$/i', $part, $m)) {
+            $ids[(int)$m[1]] = true;
+        } elseif (ctype_digit($part)) {
+            $ids[(int)$part] = true;
+        }
+    }
+
+    return array_map('intval', array_keys($ids));
+}
+
 function getRunningTasks(int $elementId, int $iblockId = 201): array
 {
     $tasks = [];
@@ -303,7 +443,7 @@ function getRunningTasks(int $elementId, int $iblockId = 201): array
                 if ($tid <= 0) continue;
                 $tasks[] = [
                     'ID'          => $tid,
-                    'USER_ID'     => (int)($t['USER_ID'] ?? 0),
+                    'USER_IDS'    => extractTaskUserIds($t['USER_ID'] ?? ''),
                     'DOCUMENT_ID' => $docIdCandidate,
                     'WORKFLOW_ID' => (string)($t['WORKFLOW_ID'] ?? ''),
                     'NAME'        => (string)($t['NAME'] ?? ''),
@@ -465,6 +605,7 @@ $fInitiator = (int)$request->get('f_initiator');
 $fRecruiter = (int)$request->get('f_recruiter');
 $fManager   = (int)$request->get('f_manager');
 $fStatus    = (int)$request->get('f_status'); // enum id
+$inWorkOnly = (string)$request->get('in_work') === 'Y';
 
 if (!$canUseExtendedFilters) {
     $fInitiator = 0;
@@ -701,13 +842,31 @@ $arSelect = [
     $PROP_JSON,
     'PROPERTY_3036',
     $PROP_KOMMENTARII,
+    'PROPERTY_YURIDICHESKOE_LITSO',
+    'PROPERTY_PODRAZDELENIE',
+    'PROPERTY_DIREKTSIYA',
+    'PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL',
+    'PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA',
+    'PROPERTY_OKLAD',
+    'PROPERTY_PROTSENT_PREMII_',
+    'PROPERTY_ISN_RUB_GROSS',
+    'PROPERTY_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS',
+    'PROPERTY_KOMMENTARII_C_B',
+    'PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA',
+    'PROPERTY_OFIS_PRIVYAZKA',
+    'PROPERTY_GRAFIK_RABOTY_PRIVYAZKA',
+    'PROPERTY_FORMAT_RABOTY_PRIVYAZKA',
+    'PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
+    'PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR',
 ];
 
 // ===== Nav =====
-$navParams = [
-    'nPageSize' => $pageSize,
-    'bShowAll'  => false,
-];
+$navParams = $inWorkOnly
+    ? false
+    : [
+        'nPageSize' => $pageSize,
+        'bShowAll'  => false,
+    ];
 
 $res = CIBlockElement::GetList($arOrder, $filter, false, $navParams, $arSelect);
 
@@ -729,8 +888,10 @@ while ($ob = $res->GetNextElement()) {
 
     $assigneeIds = [];
     foreach ($tasks as $t) {
-        $uid = (int)($t['USER_ID'] ?? 0);
-        if ($uid > 0) $assigneeIds[$uid] = true;
+        foreach ((array)($t['USER_IDS'] ?? []) as $uid) {
+            $uid = (int)$uid;
+            if ($uid > 0) $assigneeIds[$uid] = true;
+        }
     }
     $assigneeIds = array_values(array_map('intval', array_keys($assigneeIds)));
 
@@ -742,22 +903,24 @@ while ($ob = $res->GetNextElement()) {
 
     if (!empty($tasks)) {
         foreach ($tasks as $t) {
-            if ((int)$t['USER_ID'] === (int)$GLOBALS['USER']->GetID() && (int)$GLOBALS['USER']->GetID() > 0) {
+            $taskUserIds = (array)($t['USER_IDS'] ?? []);
+            if (in_array((int)$GLOBALS['USER']->GetID(), $taskUserIds, true) && (int)$GLOBALS['USER']->GetID() > 0) {
                 $taskIdForLink = (int)$t['ID'];
-                $taskUserForLink = (int)$t['USER_ID'];
+                $taskUserForLink = (int)$GLOBALS['USER']->GetID();
                 $hasCurrentUserTask = true;
             }
 
-            if ($recruiterId > 0 && (int)$t['USER_ID'] === $recruiterId && $taskIdForDelegate <= 0) {
+            if ($recruiterId > 0 && in_array($recruiterId, $taskUserIds, true) && $taskIdForDelegate <= 0) {
                 $taskIdForDelegate = (int)$t['ID'];
-                $taskUserForDelegate = (int)$t['USER_ID'];
+                $taskUserForDelegate = $recruiterId;
             }
         }
 
         if ($taskIdForDelegate <= 0) {
             $firstTask = $tasks[0];
             $taskIdForDelegate = (int)($firstTask['ID'] ?? 0);
-            $taskUserForDelegate = (int)($firstTask['USER_ID'] ?? 0);
+            $firstTaskUsers = (array)($firstTask['USER_IDS'] ?? []);
+            $taskUserForDelegate = (int)($firstTaskUsers[0] ?? 0);
         }
     }
 
@@ -776,6 +939,22 @@ while ($ob = $res->GetNextElement()) {
             : (string)($f['PROPERTY_3036_VALUE'] ?? ''),
         'ASSIGNEES'=>$assigneeIds,
         'REASON'=>(string)$f["{$PROP_REASON}_VALUE"],
+        'YURIDICHESKOE_LITSO'=>resolveElementLinkDisplay((string)($f['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? '')),
+        'PODRAZDELENIE'=>resolveElementLinkDisplay((string)($f['PROPERTY_PODRAZDELENIE_VALUE'] ?? '')),
+        'DIREKTSIYA'=>resolveElementLinkDisplay((string)($f['PROPERTY_DIREKTSIYA_VALUE'] ?? '')),
+        'NEPOSREDSTVENNYY_RUKOVODITEL'=>resolveUserDisplay((string)($f['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? '')),
+        'PREDPOLAGAEMYY_TIP_PREMIROVANIYA'=>resolveElementLinkDisplay((string)($f['PROPERTY_PREDPOLAGAEMYY_TIP_PREMIROVANIYA_PRIVYAZKA_VALUE'] ?? '')),
+        'OKLAD'=>(string)($f['PROPERTY_OKLAD_VALUE'] ?? ''),
+        'PROTSENT_PREMII'=>(string)($f['PROPERTY_PROTSENT_PREMII__VALUE'] ?? ''),
+        'ISN_RUB_GROSS'=>(string)($f['PROPERTY_ISN_RUB_GROSS_VALUE'] ?? ''),
+        'DOKHOD_KPI_GROSS'=>(string)($f['PROPERTY_DOKHOD_V_MESYATS_V_SREDNEM_PRI_VYPOLNENII_KPI_GROS_VALUE'] ?? ''),
+        'KOMMENTARII_C_B'=>(string)($f['PROPERTY_KOMMENTARII_C_B_VALUE'] ?? ''),
+        'TIP_DOGOVORA'=>resolveElementLinkDisplay((string)($f['PROPERTY_TIP_DOGOVORA_S_SOTRUDNIKOM_PRIVYAZKA_VALUE'] ?? '')),
+        'OFIS'=>resolveElementLinkDisplay((string)($f['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? '')),
+        'GRAFIK_RABOTY'=>resolveElementLinkDisplay((string)($f['PROPERTY_GRAFIK_RABOTY_PRIVYAZKA_VALUE'] ?? '')),
+        'FORMAT_RABOTY'=>resolveElementLinkDisplay((string)($f['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? '')),
+        'PRICHINA_OTKRYTIYA_VAKANSII'=>(string)($f['PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST_VALUE'] ?? ''),
+        'PRICHINA_ZAYAVKI_NA_PODBOR'=>(string)($f['PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR_VALUE'] ?? ''),
         'KOMMENTARII'=>is_array($f["{$PROP_KOMMENTARII}_VALUE"] ?? null)
             ? implode("\n", array_map('strval', (array)$f["{$PROP_KOMMENTARII}_VALUE"]))
             : (string)($f["{$PROP_KOMMENTARII}_VALUE"] ?? ''),
@@ -819,9 +998,20 @@ if (in_array($sort, ['DOLZHNOST','STATUS'], true)) {
 }
 
 // Navigation
-$totalCount  = (int)$res->NavRecordCount;
-$pageCount   = (int)$res->NavPageCount;
-$currentPage = (int)$res->NavPageNomer;
+$currentPage = max(1, (int)$request->get('PAGEN_1'));
+
+if ($inWorkOnly) {
+    $items = array_values(array_filter($items, static fn($row) => !empty($row['HAS_CURRENT_USER_TASK'])));
+    $totalCount = count($items);
+    $pageCount = max(1, (int)ceil($totalCount / $pageSize));
+    if ($currentPage > $pageCount) $currentPage = $pageCount;
+    $offset = ($currentPage - 1) * $pageSize;
+    $items = array_slice($items, $offset, $pageSize);
+} else {
+    $totalCount  = (int)$res->NavRecordCount;
+    $pageCount   = (int)$res->NavPageCount;
+    $currentPage = (int)$res->NavPageNomer;
+}
 
 function navPageUrl(int $pageNum): string { return buildUrl(['PAGEN_1' => $pageNum], []); }
 
@@ -948,17 +1138,15 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
   .page-wrap { padding: 16px 24px; }
-  .table thead th { white-space: nowrap; }
+  .table thead th { white-space:nowrap; vertical-align:middle; }
   .sort-link { color: #fff; text-decoration: none; }
   .sort-link:hover { text-decoration: underline; }
   .actions-wrap { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .actions-compact { min-width: 190px; max-width: 220px; }
   .status-wrap { display:inline-flex; align-items:center; gap:6px; }
-  .btn-info-icon {
-    width: 22px; height: 22px; border-radius: 50%;
-    display:inline-flex; align-items:center; justify-content:center;
-    padding: 0; font-size: 12px; line-height: 1;
-  }
+  .history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
+  .history-btn:hover { background:#5a6268; }
+  .status-open-btn { border:0; background:transparent; padding:0; }
   .history-box {
     max-height: 360px; overflow:auto; white-space:pre-wrap; word-break:break-word;
     border: 1px solid #e9ecef; background:#f8f9fa; border-radius:6px; padding:10px 12px; margin-top:8px;
@@ -994,7 +1182,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   <?php endif; ?>
 
   <div class="d-flex align-items-center mb-3">
-    <a href="<?= h($createElementUrl) ?>" class="btn btn-success mr-3" target="_blank" rel="noopener">Создать новую заявку</a>
+    <a href="<?= h($createElementUrl) ?>" class="btn btn-success mr-3 mb-2" target="_blank" rel="noopener">Создать новую заявку</a>
 
     <form method="get" class="form-inline" style="gap:8px; flex-wrap:wrap;">
       <input type="hidden" name="sort" value="<?= h($sort) ?>">
@@ -1035,8 +1223,13 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
         </select>
       <?php endif; ?>
 
-      <button type="submit" class="btn btn-primary">Найти</button>
-      <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary">Сброс</a>
+      <label class="d-flex align-items-center mb-0">
+        <input type="checkbox" name="in_work" value="Y" <?= $inWorkOnly ? 'checked' : '' ?>>
+        <span class="ml-2">В работе</span>
+      </label>
+
+      <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+      <a href="<?= h($APPLICATION->GetCurPage()) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
     </form>
   </div>
 
@@ -1083,7 +1276,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <?php if ($canSeeRelationsColumn): ?>
               <th>Связи</th>
             <?php endif; ?>
-            <th>Причина</th>
             <th>Действия</th>
           </tr>
         </thead>
@@ -1124,7 +1316,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             $hasAnyAction = $canView || $canDelegate || $canCancel || $canEdit || $canCopy;
         ?>
           <tr>
-            <td><?= (int)$row['ID'] ?></td>
+            <td><button type="button" class="status-open-btn js-request-info-btn" data-id="<?= (int)$row['ID'] ?>" data-info-html="<?= h(renderCompactRequestInfoHtml($row, $userMap, $initiatorManager)) ?>"><?= (int)$row['ID'] ?></button></td>
             <td><?= $row['DOLZHNOST'] !== '' ? h($row['DOLZHNOST']) : '<span class="text-muted">—</span>' ?></td>
             <td><?= $initiatorManager ?></td>
             <td><?= renderUserPlain($recruiter) ?></td>
@@ -1132,9 +1324,11 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             <td><span class="text-muted"><?= h($row['DATE_CREATE']) ?></span></td>
             <td>
               <span class="status-wrap">
-                <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
+                <button type="button" class="status-open-btn js-executors-btn" data-id="<?= (int)$row['ID'] ?>" data-executors="<?= h(nl2br(renderUserListText((array)$row['ASSIGNEES'], $userMap))) ?>">
+                  <span class="badge" style="background:<?= h($chipColor) ?>;color:#fff;"><?= h($status) ?></span>
+                </button>
                 <button type="button"
-                        class="btn btn-sm btn-outline-secondary btn-info-icon js-history-btn"
+                        class="history-btn js-history-btn"
                         data-element-id="<?= (int)$row['ID'] ?>"
                         data-comments="<?= h((string)$row['KOMMENTARII']) ?>"
                         title="История заявки">
@@ -1147,13 +1341,10 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
                 <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS']) ?>
               </td>
             <?php endif; ?>
-            <td style="max-width:420px; white-space:normal; word-break:break-word;">
-              <?= $row['REASON'] !== '' ? nl2br(h($row['REASON'])) : '<span class="text-muted">—</span>' ?>
-            </td>
             <td>
               <div class="actions-wrap">
                 <?php if ($taskUrl !== ''): ?>
-                  <a class="btn btn-sm btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
+                  <a class="btn btn-outline-secondary btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                 <?php endif; ?>
 
                 <?php if ($hasAnyAction): ?>
@@ -1242,6 +1433,13 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   </div>
 </div>
 
+<div id="request-info-popup-template" style="display:none;">
+  <div class="popup-form-wrap">
+    <div class="popup-form-title">Заявка #<span id="request-info-element-id"></span></div>
+    <div id="request-info-content" class="history-box"></div>
+  </div>
+</div>
+
 <div id="history-popup-template" style="display:none;">
   <div class="popup-form-wrap">
     <div class="popup-form-title">История заявки #<span id="history-element-id"></span></div>
@@ -1287,6 +1485,9 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 
   var delegatePopup = null;
   var selectorDialog = null;
+  var cancelPopup = null;
+  var historyPopup = null;
+  var requestInfoPopup = null;
 
   function ensureDelegatePopup() {
     if (delegatePopup) return delegatePopup;
@@ -1405,8 +1606,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     });
   }
 
-  var cancelPopup = null;
-  var historyPopup = null;
 
   function ensureCancelPopup() {
     if (cancelPopup) return cancelPopup;
@@ -1480,6 +1679,34 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     elCommHid.value = '';
   }
 
+
+  function ensureRequestInfoPopup() {
+    if (requestInfoPopup) return requestInfoPopup;
+    var tpl = document.getElementById('request-info-popup-template');
+    var content = tpl ? tpl.innerHTML : '<div style="padding:12px">Ошибка шаблона</div>';
+    requestInfoPopup = BX.PopupWindowManager.create('request_info_popup', null, {
+      content: content,
+      closeIcon: { right: '12px', top: '10px' },
+      autoHide: true,
+      overlay: { opacity: 30 },
+      draggable: true,
+      closeByEsc: true,
+      titleBar: 'Информация о заявке',
+      zIndex: 20000,
+      buttons: [new BX.PopupWindowButton({text: 'Закрыть', className: 'popup-window-button-link-cancel', events: { click: function(){ requestInfoPopup.close(); }}})]
+    });
+    return requestInfoPopup;
+  }
+
+  function openRequestInfoPopup(elementId, html) {
+    var p = ensureRequestInfoPopup();
+    p.show();
+    var idNode = p.contentContainer.querySelector('#request-info-element-id');
+    var contentNode = p.contentContainer.querySelector('#request-info-content');
+    if (idNode) idNode.textContent = String(elementId || '');
+    if (contentNode) contentNode.innerHTML = (html || '').trim() || '<span class="text-muted">Нет данных для отображения.</span>';
+  }
+
   function ensureHistoryPopup() {
     if (historyPopup) return historyPopup;
     var tpl = document.getElementById('history-popup-template');
@@ -1504,15 +1731,17 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     return historyPopup;
   }
 
-  function openHistoryPopup(elementId, comments) {
+  function openHistoryPopup(elementId, comments, title) {
     var p = ensureHistoryPopup();
     p.show();
+    if (typeof title === 'string' && title.trim() !== '' && p.setTitleBar) { p.setTitleBar(title.trim()); } else if (p.setTitleBar) { p.setTitleBar('История заявки'); }
     var idNode = p.contentContainer.querySelector('#history-element-id');
     var contentNode = p.contentContainer.querySelector('#history-content');
     if (idNode) idNode.textContent = String(elementId || '');
     if (contentNode) {
       var txt = (comments || '').trim();
-      contentNode.textContent = txt !== '' ? txt : 'История отсутствует.';
+      if (txt.indexOf('<br') !== -1) contentNode.innerHTML = txt;
+      else contentNode.textContent = txt !== '' ? txt : 'История отсутствует.';
     }
   }
 
@@ -1549,6 +1778,24 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       }
 
       select.value = '';
+    });
+  });
+
+  document.querySelectorAll('.js-request-info-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var elementId = parseInt(btn.getAttribute('data-id') || '0', 10);
+      var infoHtml = btn.getAttribute('data-info-html') || '';
+      if (!elementId) { notify('Не удалось определить ID заявки.'); return; }
+      openRequestInfoPopup(elementId, infoHtml);
+    });
+  });
+
+  document.querySelectorAll('.js-executors-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var elementId = parseInt(btn.getAttribute('data-id') || '0', 10);
+      var executors = btn.getAttribute('data-executors') || '';
+      if (!elementId) { notify('Не удалось определить ID заявки.'); return; }
+      openHistoryPopup(elementId, executors, 'Текущие исполнители');
     });
   });
 
