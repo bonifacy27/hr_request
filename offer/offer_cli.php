@@ -58,6 +58,17 @@ if (!is_dir($saveDir)) {
 }
 
 $savePath = $saveDir . $outputFilename;
+$logDir = $_SERVER["DOCUMENT_ROOT"] . "/upload/logs/";
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0775, true);
+}
+$logFile = $logDir . "offer_cli.log";
+
+function offerLog($message) {
+    global $logFile;
+    $line = "[" . date("Y-m-d H:i:s") . "] " . $message . PHP_EOL;
+    @file_put_contents($logFile, $line, FILE_APPEND);
+}
 
 
 
@@ -967,7 +978,24 @@ $pdf->Write(0, $link, $link);
 /*************************************************************
  * OUTPUT PDF
  *************************************************************/
-$pdf->Output($savePath, "F"); // F = save to file
+offerLog("START offerId={$offerId}; outputFilename={$outputFilename}; savePath={$savePath}");
+
+try {
+    $pdf->Output($savePath, "F"); // F = save to file
+} catch (Exception $e) {
+    offerLog("ERROR PDF output failed: " . $e->getMessage());
+    if ($IS_CLI) {
+        fwrite(STDERR, "PDF generation failed: " . $e->getMessage() . "\n");
+        exit(1);
+    }
+    die("PDF generation failed");
+}
+
+if (file_exists($savePath)) {
+    offerLog("SUCCESS file exists; size=" . filesize($savePath) . "; path={$savePath}");
+} else {
+    offerLog("ERROR file not found after output; path={$savePath}");
+}
 
 if ($IS_CLI) {
     echo "PDF saved: $savePath\n";
