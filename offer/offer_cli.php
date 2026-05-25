@@ -495,6 +495,99 @@ function renderColumnStatic(
     }
 }
 
+function renderColumn2Dynamic(
+    $pdf,
+    $items,
+    $x,
+    $top,
+    $bottom,
+    $w
+){
+    $GAP_DEFAULT = 12;
+    $GAP_MIN = 4;
+    $LABEL_GAP = 2;
+    $FOOTNOTE_GAP = 2;
+
+    $blockFontSize = 14;
+    $blockBold = true;
+
+    // Предварительно считаем высоты всех строк, чтобы гарантировать размещение в колонке
+    $rows = [];
+    $totalRowsHeight = 0;
+    foreach ($items as $row) {
+        $pdf->SetFont("montserrat", "", 12);
+        $labelH = $pdf->getStringHeight($w, $row["label"]);
+
+        $blockH = calcBlockHeight(
+            $pdf,
+            $row["value"],
+            $w,
+            null,
+            $blockFontSize
+        );
+
+        $footnoteH = 0;
+        if (!empty($row["footnote"])) {
+            $pdf->SetFont("montserrat", "", 8);
+            $footnoteH = $pdf->getStringHeight($w, $row["footnote"]);
+        }
+
+        $rowHeight = $labelH + $LABEL_GAP + $blockH + ($footnoteH > 0 ? ($FOOTNOTE_GAP + $footnoteH) : 0);
+
+        $rows[] = [
+            "data" => $row,
+            "labelH" => $labelH,
+            "blockH" => $blockH,
+            "footnoteH" => $footnoteH,
+            "rowH" => $rowHeight
+        ];
+        $totalRowsHeight += $rowHeight;
+    }
+
+    $count = count($rows);
+    $available = $bottom - $top;
+    $requiredWithDefaultGap = $totalRowsHeight + max(0, $count - 1) * $GAP_DEFAULT;
+
+    $gap = $GAP_DEFAULT;
+    if ($requiredWithDefaultGap > $available && $count > 1) {
+        $gap = max($GAP_MIN, ($available - $totalRowsHeight) / ($count - 1));
+    }
+
+    // Отрисовка колоноки 2 строго в рамках доступной высоты
+    foreach ($rows as $idx => $rowMeta) {
+        $row = $rowMeta["data"];
+
+        $pdf->SetFont("montserrat", "", 12);
+        $pdf->SetXY($x, $top);
+        $pdf->MultiCell($w, 6, $row["label"], 0, "L");
+        $top += $rowMeta["labelH"] + $LABEL_GAP;
+
+        $pdf->drawBlueBlock(
+            $x,
+            $top,
+            $w,
+            $rowMeta["blockH"],
+            $row["value"],
+            null,
+            $blockBold,
+            $blockFontSize
+        );
+
+        $top += $rowMeta["blockH"];
+
+        if ($rowMeta["footnoteH"] > 0) {
+            $pdf->SetFont("montserrat", "", 8);
+            $pdf->SetXY($x, $top + $FOOTNOTE_GAP);
+            $pdf->MultiCell($w, 4, $row["footnote"], 0, "L");
+            $top += $FOOTNOTE_GAP + $rowMeta["footnoteH"];
+        }
+
+        if ($idx < $count - 1) {
+            $top += $gap;
+        }
+    }
+}
+
 
 /*************************************************************
  * RENDER COLUMN 3 — Variant B optimized
@@ -732,14 +825,13 @@ renderColumnStatic(
 );
 
 // Column 2
-renderColumnStatic(
+renderColumn2Dynamic(
     $pdf,
     $col2Data,
     $COL2_X,
     $COL_TOP,
     $COL_BOTTOM - 10,
-    $COL_WIDTH,
-    true
+    $COL_WIDTH
 );
 
 // Footnote under column 2
