@@ -519,6 +519,7 @@ function renderColumn2Dynamic(
     $LABEL_GAP = 2;
     $FOOTNOTE_GAP = 2;
 
+    $labelFontSize = 11;
     $blockFontSize = 14;
     $blockBold = true;
 
@@ -526,7 +527,7 @@ function renderColumn2Dynamic(
     $rows = [];
     $totalRowsHeight = 0;
     foreach ($items as $row) {
-        $pdf->SetFont("montserrat", "", 12);
+        $pdf->SetFont("montserrat", "", $labelFontSize);
         $labelH = $pdf->getStringHeight($w, $row["label"]);
 
         $blockH = calcBlockHeight(
@@ -568,7 +569,7 @@ function renderColumn2Dynamic(
     foreach ($rows as $idx => $rowMeta) {
         $row = $rowMeta["data"];
 
-        $pdf->SetFont("montserrat", "", 12);
+        $pdf->SetFont("montserrat", "", $labelFontSize);
         $pdf->SetXY($x, $top);
         $pdf->MultiCell($w, 6, $row["label"], 0, "L");
         $top += $rowMeta["labelH"] + $LABEL_GAP;
