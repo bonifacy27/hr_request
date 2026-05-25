@@ -515,7 +515,7 @@ function renderColumn2Dynamic(
     $w
 ){
     $GAP_DEFAULT = 12;
-    $GAP_MIN = 4;
+    $GAP_MIN = 0;
     $LABEL_GAP = 2;
     $FOOTNOTE_GAP = 2;
 
@@ -597,6 +597,8 @@ function renderColumn2Dynamic(
             $top += $gap;
         }
     }
+
+    return $top;
 }
 
 
@@ -836,19 +838,20 @@ renderColumnStatic(
 );
 
 // Column 2
-renderColumn2Dynamic(
+$col2EndY = renderColumn2Dynamic(
     $pdf,
     $col2Data,
     $COL2_X,
     $COL_TOP,
-    $COL_BOTTOM - 10,
+    194,
     $COL_WIDTH
 );
 
 // Footnote under column 2
 $pdf->SetFont($font_regular, "", 7);
 $pdf->SetTextColor(0,0,0);
-$pdf->SetXY($COL2_X, 196);
+$col2BottomFootnoteY = max(196, $col2EndY + 2);
+$pdf->SetXY($COL2_X, $col2BottomFootnoteY);
 $pdf->MultiCell(
     $COL_WIDTH,
     1,
