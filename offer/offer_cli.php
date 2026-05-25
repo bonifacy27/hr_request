@@ -448,79 +448,52 @@ function renderColumnStatic(
     $w,
     $isCol2 = false
 ){
-    $labelFontSize = $isCol2 ? 11 : 12;
-    $blockFontSize = $isCol2 ? 12 : 13;
-    $footnoteFontSize = 8;
-    $blockBold = $isCol2;
-
-    $GAP_DEFAULT = $isCol2 ? 8 : 12;
-    $GAP_MIN = $isCol2 ? 3 : 6;
-
-    $rowsMeta = [];
-    $sum = 0;
+    $GAP = $isCol2 ? 8 : 12;
 
     foreach ($items as $row) {
+
+        $labelFontSize = $isCol2 ? 11 : 12;
         $pdf->SetFont("montserrat", "", $labelFontSize);
         $labelH = $pdf->getStringHeight($w, $row["label"]);
 
-        $blockH = calcBlockHeight($pdf, $row["value"], $w, null, $blockFontSize);
+        $blockFontSize = $isCol2 ? 12 : 13;
+        $blockBold     = $isCol2;
 
-        $footH = 0;
-        if (!empty($row["footnote"])) {
-            $pdf->SetFont("montserrat", "", $footnoteFontSize);
-            $footH = $pdf->getStringHeight($w, $row["footnote"]);
-        }
+        $blockH = calcBlockHeight(
+            $pdf,
+            $row["value"],
+            $w,
+            null,
+            $blockFontSize
+        );
 
-        $rowsMeta[] = [
-            "row" => $row,
-            "labelH" => $labelH,
-            "blockH" => $blockH,
-            "footH" => $footH,
-        ];
-
-        $sum += ($labelH + 2 + $blockH + ($footH ? 2 + $footH : 0));
-    }
-
-    $N = count($rowsMeta);
-    $available = $bottom - $top;
-    $required = $sum + max(0, $N - 1) * $GAP_DEFAULT;
-
-    $GAP = ($required <= $available)
-        ? $GAP_DEFAULT
-        : max($GAP_MIN, ($available - $sum) / max(1, ($N - 1)));
-
-    foreach ($rowsMeta as $idx => $meta) {
-        $row = $meta["row"];
-
-        $pdf->SetFont("montserrat", "", $labelFontSize);
+        // label
         $pdf->SetXY($x, $top);
         $pdf->MultiCell($w, 6, $row["label"], 0, "L");
 
-        $top += $meta["labelH"] + 2;
+        $top += $labelH + 2;
 
+        // block
         $pdf->drawBlueBlock(
             $x,
             $top,
             $w,
-            $meta["blockH"],
+            $blockH,
             $row["value"],
             null,
             $blockBold,
             $blockFontSize
         );
 
-        $top += $meta["blockH"];
-
-        if ($meta["footH"] > 0) {
-            $pdf->SetFont("montserrat", "", $footnoteFontSize);
-            $pdf->SetXY($x, $top + 2);
+        // footnote
+        if (!empty($row["footnote"])) {
+            $pdf->SetFont("montserrat", "", 8);
+            $pdf->SetXY($x, $top + $blockH + 2);
             $pdf->MultiCell($w, 4, $row["footnote"], 0, "L");
-            $top += 2 + $meta["footH"];
+            $top += 6;
         }
 
-        if ($idx < $N - 1) {
-            $top += $GAP;
-        }
+        $top += $blockH + $GAP;
     }
 }
 
@@ -644,7 +617,6 @@ function renderColumn3(
  *************************************************************/
 $pdf = new OFFERPDF('L', 'mm', [$PDF_HEIGHT, $PDF_WIDTH], true, 'UTF-8', false);
 $pdf->setPrintFooter(false);
-$pdf->SetAutoPageBreak(false, 0);
 
 // Load fonts
 $font_regular = TCPDF_FONTS::addTTFfont(
