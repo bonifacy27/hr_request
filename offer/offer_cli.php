@@ -58,6 +58,17 @@ if (!is_dir($saveDir)) {
 }
 
 $savePath = $saveDir . $outputFilename;
+$logDir = $_SERVER["DOCUMENT_ROOT"] . "/upload/logs/";
+if (!is_dir($logDir)) {
+    mkdir($logDir, 0775, true);
+}
+$logFile = $logDir . "offer_cli.log";
+
+function offerLog($message) {
+    global $logFile;
+    $line = "[" . date("Y-m-d H:i:s") . "] " . $message . PHP_EOL;
+    @file_put_contents($logFile, $line, FILE_APPEND);
+}
 
 
 
@@ -495,6 +506,102 @@ function renderColumnStatic(
     }
 }
 
+function renderColumn2Dynamic(
+    $pdf,
+    $items,
+    $x,
+    $top,
+    $bottom,
+    $w
+){
+    $GAP_DEFAULT = 12;
+    $GAP_MIN = 0;
+    $LABEL_GAP = 2;
+    $FOOTNOTE_GAP = 2;
+
+    $labelFontSize = 11;
+    $blockFontSize = 14;
+    $blockBold = true;
+
+    // Предварительно считаем высоты всех строк, чтобы гарантировать размещение в колонке
+    $rows = [];
+    $totalRowsHeight = 0;
+    foreach ($items as $row) {
+        $pdf->SetFont("montserrat", "", $labelFontSize);
+        $labelH = $pdf->getStringHeight($w, $row["label"]);
+
+        $blockH = calcBlockHeight(
+            $pdf,
+            $row["value"],
+            $w,
+            null,
+            $blockFontSize
+        );
+
+        $footnoteH = 0;
+        if (!empty($row["footnote"])) {
+            $pdf->SetFont("montserrat", "", 8);
+            $footnoteH = $pdf->getStringHeight($w, $row["footnote"]);
+        }
+
+        $rowHeight = $labelH + $LABEL_GAP + $blockH + ($footnoteH > 0 ? ($FOOTNOTE_GAP + $footnoteH) : 0);
+
+        $rows[] = [
+            "data" => $row,
+            "labelH" => $labelH,
+            "blockH" => $blockH,
+            "footnoteH" => $footnoteH,
+            "rowH" => $rowHeight
+        ];
+        $totalRowsHeight += $rowHeight;
+    }
+
+    $count = count($rows);
+    $available = $bottom - $top;
+    $requiredWithDefaultGap = $totalRowsHeight + max(0, $count - 1) * $GAP_DEFAULT;
+
+    $gap = $GAP_DEFAULT;
+    if ($requiredWithDefaultGap > $available && $count > 1) {
+        $gap = max($GAP_MIN, ($available - $totalRowsHeight) / ($count - 1));
+    }
+
+    // Отрисовка колоноки 2 строго в рамках доступной высоты
+    foreach ($rows as $idx => $rowMeta) {
+        $row = $rowMeta["data"];
+
+        $pdf->SetFont("montserrat", "", $labelFontSize);
+        $pdf->SetXY($x, $top);
+        $pdf->MultiCell($w, 6, $row["label"], 0, "L");
+        $top += $rowMeta["labelH"] + $LABEL_GAP;
+
+        $pdf->drawBlueBlock(
+            $x,
+            $top,
+            $w,
+            $rowMeta["blockH"],
+            $row["value"],
+            null,
+            $blockBold,
+            $blockFontSize
+        );
+
+        $top += $rowMeta["blockH"];
+
+        if ($rowMeta["footnoteH"] > 0) {
+            $pdf->SetFont("montserrat", "", 8);
+            $pdf->SetXY($x, $top + $FOOTNOTE_GAP);
+            $pdf->MultiCell($w, 4, $row["footnote"], 0, "L");
+            $top += $FOOTNOTE_GAP + $rowMeta["footnoteH"];
+        }
+
+        if ($idx < $count - 1) {
+            $top += $gap;
+        }
+    }
+
+    return $top;
+}
+
 
 /*************************************************************
  * RENDER COLUMN 3 — Variant B optimized
@@ -732,20 +839,20 @@ renderColumnStatic(
 );
 
 // Column 2
-renderColumnStatic(
+$col2EndY = renderColumn2Dynamic(
     $pdf,
     $col2Data,
     $COL2_X,
     $COL_TOP,
-    $COL_BOTTOM - 10,
-    $COL_WIDTH,
-    true
+    194,
+    $COL_WIDTH
 );
 
 // Footnote under column 2
 $pdf->SetFont($font_regular, "", 7);
 $pdf->SetTextColor(0,0,0);
-$pdf->SetXY($COL2_X, 196);
+$col2BottomFootnoteY = max(196, $col2EndY + 2);
+$pdf->SetXY($COL2_X, $col2BottomFootnoteY);
 $pdf->MultiCell(
     $COL_WIDTH,
     1,
@@ -875,7 +982,24 @@ $pdf->Write(0, $link, $link);
 /*************************************************************
  * OUTPUT PDF
  *************************************************************/
-$pdf->Output($savePath, "F"); // F = save to file
+offerLog("START offerId={$offerId}; outputFilename={$outputFilename}; savePath={$savePath}");
+
+try {
+    $pdf->Output($savePath, "F"); // F = save to file
+} catch (Exception $e) {
+    offerLog("ERROR PDF output failed: " . $e->getMessage());
+    if ($IS_CLI) {
+        fwrite(STDERR, "PDF generation failed: " . $e->getMessage() . "\n");
+        exit(1);
+    }
+    die("PDF generation failed");
+}
+
+if (file_exists($savePath)) {
+    offerLog("SUCCESS file exists; size=" . filesize($savePath) . "; path={$savePath}");
+} else {
+    offerLog("ERROR file not found after output; path={$savePath}");
+}
 
 if ($IS_CLI) {
     echo "PDF saved: $savePath\n";
