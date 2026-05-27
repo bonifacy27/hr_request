@@ -456,6 +456,56 @@ function getRunningTasks(int $elementId, int $iblockId = 201): array
     return array_values($uniq);
 }
 
+
+function loadCurrentExecutorsMap(array $requestIds, int $iblockId): array
+{
+    $requestIds = array_values(array_unique(array_filter(array_map('intval', $requestIds), static fn($id) => $id > 0)));
+    if (empty($requestIds) || $iblockId <= 0 || !class_exists('\CBPTaskService')) {
+        return [];
+    }
+
+    $map = [];
+    foreach ($requestIds as $requestId) {
+        foreach (getDocumentIdCandidates($iblockId, $requestId) as $docIdCandidate) {
+            try {
+                $res = \CBPTaskService::GetList(
+                    ['ID' => 'DESC'],
+                    [
+                        'DOCUMENT_ID' => $docIdCandidate,
+                        'STATUS' => \CBPTaskStatus::Running,
+                    ],
+                    false,
+                    false,
+                    ['ID', 'USER_ID']
+                );
+            } catch (\Throwable $e) {
+                continue;
+            }
+
+            $foundForRequest = false;
+            while ($task = $res->GetNext()) {
+                foreach (extractTaskUserIds($task['USER_ID'] ?? '') as $userId) {
+                    $userId = (int)$userId;
+                    if ($userId > 0) {
+                        $map[$requestId][$userId] = true;
+                        $foundForRequest = true;
+                    }
+                }
+            }
+
+            if ($foundForRequest) {
+                break;
+            }
+        }
+    }
+
+    foreach ($map as $requestId => $executorsMap) {
+        $map[$requestId] = array_values(array_map('intval', array_keys((array)$executorsMap)));
+    }
+
+    return $map;
+}
+
 function getBizprocTaskUrl(int $taskId, ?int $userId = null): string
 {
     $userId = $userId ?: (int)$GLOBALS['USER']->GetID();
@@ -975,6 +1025,19 @@ while ($ob = $res->GetNextElement()) {
     foreach ([$creatorId,$managerId,$recruiterId] as $uid) if ($uid>0) $userIds[$uid]=true;
     foreach ($assigneeIds as $aid) if ((int)$aid>0) $userIds[(int)$aid]=true;
 }
+
+$currentExecutorsMap = loadCurrentExecutorsMap(array_column($items, 'ID'), $IBLOCK_ID);
+foreach ($items as &$item) {
+    $requestId = (int)($item['ID'] ?? 0);
+    if ($requestId > 0 && !empty($currentExecutorsMap[$requestId])) {
+        $item['ASSIGNEES'] = (array)$currentExecutorsMap[$requestId];
+    }
+    foreach ((array)($item['ASSIGNEES'] ?? []) as $aid) {
+        $aid = (int)$aid;
+        if ($aid > 0) $userIds[$aid] = true;
+    }
+}
+unset($item);
 
 // Users map
 $userMap = [];
