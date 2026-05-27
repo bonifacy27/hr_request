@@ -73,6 +73,7 @@ $PROP_KOMMENTARII = 'PROPERTY_1043';
 $PROP_CANDIDATE_FORMS = 3127;
 $PROP_OFFERS          = 3128;
 $PROP_EMPLOYEE_CARDS  = 3129;
+$PROP_FW_VACANCY_ID   = 'PROPERTY_1593';
 
 $BP_TEMPLATE_AFTER_DELEGATE = 1291; // <=== запускать после делегирования
 
@@ -262,7 +263,7 @@ function renderCompactRequestInfoHtml(array $row, array $userMap, string $initia
     return $html !== '' ? $html : '<span class="text-muted">Нет данных для отображения.</span>';
 }
 
-function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds): string
+function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $employeeCardIds, int $friendworkVacancyId = 0): string
 {
     $buildLinks = static function(array $ids, string $prefix, string $label): string {
         if (!$ids) return '';
@@ -296,6 +297,11 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
         'Карточка'
     );
     if ($cardLinks !== '') $chunks[] = '<div><strong>Карточки:</strong> ' . $cardLinks . '</div>';
+
+    if ($friendworkVacancyId > 0) {
+        $friendworkUrl = 'https://app.friend.work/Job/Edit/' . $friendworkVacancyId;
+        $chunks[] = '<div><strong>Friendwork:</strong> <a href="' . h($friendworkUrl) . '" target="_blank" rel="noopener">Вакансия #' . (int)$friendworkVacancyId . '</a></div>';
+    }
 
     if (!$chunks) return '<span class="text-muted">—</span>';
     return implode('', $chunks);
@@ -908,6 +914,7 @@ $arSelect = [
     'PROPERTY_FORMAT_RABOTY_PRIVYAZKA',
     'PROPERTY_PRICHINA_OTKRYTIYA_VAKANSII_TEKST',
     'PROPERTY_PRICHINA_ZAYAVKI_NA_PODBOR',
+    $PROP_FW_VACANCY_ID,
 ];
 
 // ===== Nav =====
@@ -933,6 +940,7 @@ while ($ob = $res->GetNextElement()) {
     $candidateFormIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_CANDIDATE_FORMS);
     $offerIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_OFFERS);
     $employeeCardIds = getElementPropertyIntValues($IBLOCK_ID, $id, $PROP_EMPLOYEE_CARDS);
+    $friendworkVacancyId = (int)($f["{$PROP_FW_VACANCY_ID}_VALUE"] ?? 0);
 
     $tasks = getRunningTasks($id, $IBLOCK_ID);
 
@@ -1020,6 +1028,7 @@ while ($ob = $res->GetNextElement()) {
         'CANDIDATE_FORM_IDS'=>$candidateFormIds,
         'OFFER_IDS'=>$offerIds,
         'EMPLOYEE_CARD_IDS'=>$employeeCardIds,
+        'FRIENDWORK_VACANCY_ID'=>$friendworkVacancyId,
     ];
 
     foreach ([$creatorId,$managerId,$recruiterId] as $uid) if ($uid>0) $userIds[$uid]=true;
@@ -1401,7 +1410,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
             </td>
             <?php if ($canSeeRelationsColumn): ?>
               <td style="min-width:260px; white-space:normal; word-break:break-word;">
-                <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS']) ?>
+                <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS'], (int)($row['FRIENDWORK_VACANCY_ID'] ?? 0)) ?>
               </td>
             <?php endif; ?>
             <td>
