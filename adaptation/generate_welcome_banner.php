@@ -850,6 +850,12 @@ if($tempPhotoPath && file_exists($tempPhotoPath)) @unlink($tempPhotoPath);
  .btn-primary{background:#0066cc; color:#fff}
  .btn-secondary{background:#efefef}
  .info-block{margin-bottom:16px; padding:12px; background:#ffe; border-radius:6px; font-size:14px;}
+ .modal-backdrop{display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; align-items:center; justify-content:center; padding:16px}
+ .modal-backdrop.is-open{display:flex}
+ .modal{width:min(560px,100%); background:#fff; border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25); padding:24px}
+ .modal h2{margin:0 0 12px; font-size:20px}
+ .modal p{margin:0 0 12px; line-height:1.45}
+ .modal .actions{justify-content:flex-end; margin-top:20px}
 </style>
 </head>
 <body>
@@ -950,14 +956,57 @@ if($tempPhotoPath && file_exists($tempPhotoPath)) @unlink($tempPhotoPath);
     <div class="actions">
       <button type="submit" name="action" value="refresh_preview" class="btn-secondary">Обновить превью</button>
       <button type="submit" name="action" value="generate_banner" class="btn-secondary">Скачать JPG</button>
-      <button type="submit" name="action" value="save_to_banner" class="btn-primary">Запланировать пост</button>
+      <button type="button" id="open-schedule-modal" class="btn-primary">Запланировать пост</button>
     </div>
 
     <div class="muted" style="margin-top:8px">
       При сохранении создаётся/обновляется элемент ИБ #<?=$IBLOCK_BANNER?> со свойствами:
       OTVETSTVENNYY, TEG, BANNER2 (HTML-IMG), URL_BANNERA_STROKA, VREMYA_POSTA, TIP_BANNERA=6236, KARTOCHKA_SOTRUDNIKA.
     </div>
+
+    <div class="modal-backdrop" id="schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+      <div class="modal">
+        <h2 id="schedule-modal-title">Подтвердите создание поста</h2>
+        <p>
+          Баннер будет создан в списке публикаций
+          <a href="https://ourtricolortv.nsc.ru/workgroups/group/206/lists/367/view/0/?list_section_id=" target="_blank" rel="noopener">https://ourtricolortv.nsc.ru/workgroups/group/206/lists/367/view/0/?list_section_id=</a>.
+        </p>
+        <p>В списке можно отредактировать дату публикации или удалить баннер.</p>
+        <div class="actions">
+          <button type="submit" name="action" value="save_to_banner" class="btn-primary">Запланировать публикацию</button>
+          <button type="button" id="cancel-schedule-modal" class="btn-secondary">Отмена</button>
+        </div>
+      </div>
+    </div>
   </form>
 </div>
+<script>
+(function(){
+  var openButton = document.getElementById('open-schedule-modal');
+  var modal = document.getElementById('schedule-modal');
+  var cancelButton = document.getElementById('cancel-schedule-modal');
+
+  if (!openButton || !modal || !cancelButton) return;
+
+  function openModal() {
+    modal.classList.add('is-open');
+    cancelButton.focus();
+  }
+
+  function closeModal() {
+    modal.classList.remove('is-open');
+    openButton.focus();
+  }
+
+  openButton.addEventListener('click', openModal);
+  cancelButton.addEventListener('click', closeModal);
+  modal.addEventListener('click', function(event) {
+    if (event.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+  });
+})();
+</script>
 </body>
 </html>
