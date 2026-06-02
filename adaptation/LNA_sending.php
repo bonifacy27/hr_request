@@ -37,11 +37,43 @@ const LNA_STATUS_ACTIVE_ENUM_ID = 522;
 const LNA_MAIL_SUBJECT = 'Документы ЛНА для ознакомления';
 const LNA_MAIL_BODY = "Добрый день!\nВам отправлены файлы ЛНА для ознакомления.";
 
-function lnaLog(string $message): void
+function lnaDebugValue($value): string
 {
+    if (is_array($value)) {
+        $json = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $json === false ? '[array]' : $json;
+    }
+
+    if ($value === null) {
+        return 'null';
+    }
+
+    if (is_bool($value)) {
+        return $value ? 'true' : 'false';
+    }
+
+    return (string)$value;
+}
+
+function lnaTrack(string $message): void
+{
+    $message = '[LNA] ' . $message;
+
+    if (isset($GLOBALS['LNA_BP_ACTIVITY'])
+        && is_object($GLOBALS['LNA_BP_ACTIVITY'])
+        && method_exists($GLOBALS['LNA_BP_ACTIVITY'], 'WriteToTrackingService')
+    ) {
+        $GLOBALS['LNA_BP_ACTIVITY']->WriteToTrackingService($message);
+    }
+
     if (defined('STDOUT')) {
         echo $message . PHP_EOL;
     }
+}
+
+function lnaLog(string $message): void
+{
+    lnaTrack($message);
 }
 
 function lnaExtractElementIdFromDocumentId($documentId): int
@@ -253,10 +285,20 @@ function lnaBuildAttachment(array $file, int $elementId): ?array
     ];
 }
 
-function lnaGetRegulationAttachments(): array
+function lnaGetRegulationAttachments(array &$debug = []): array
 {
     $attachments = [];
     $seen = [];
+    $debug = [
+        'matchedElements' => 0,
+        'propertiesWithValue' => 0,
+        'filesResolved' => 0,
+        'attachmentsBuilt' => 0,
+        'emptyFileProperties' => 0,
+        'unresolvedFileValues' => [],
+        'unreadableFiles' => [],
+        'duplicates' => 0,
+    ];
 
     $rsElements = CIBlockElement::GetList(
         ['SORT' => 'ASC', 'ID' => 'ASC'],
@@ -273,6 +315,7 @@ function lnaGetRegulationAttachments(): array
     );
 
     while ($element = $rsElements->Fetch()) {
+        $debug['matchedElements']++;
         $elementId = (int)$element['ID'];
         $rsFiles = CIBlockElement::GetProperty(
             LNA_REGULATIONS_IBLOCK_ID,
@@ -283,30 +326,130 @@ function lnaGetRegulationAttachments(): array
 
         while ($property = $rsFiles->Fetch()) {
             if (empty($property['VALUE'])) {
+                $debug['emptyFileProperties']++;
                 continue;
             }
 
+            $debug['propertiesWithValue']++;
             $file = lnaFileArrayFromDiskValue($property['VALUE']);
             if (!$file) {
+                if (count($debug['unresolvedFileValues']) < 10) {
+                    $debug['unresolvedFileValues'][] = 'element=' . $elementId . ', value=' . lnaDebugValue($property['VALUE']);
+                }
                 continue;
             }
 
+            $debug['filesResolved']++;
             $attachment = lnaBuildAttachment($file, $elementId);
             if (!$attachment) {
+                if (count($debug['unreadableFiles']) < 10) {
+                    $debug['unreadableFiles'][] = 'element=' . $elementId . ', fileId=' . (int)($file['ID'] ?? 0) . ', src=' . (string)($file['SRC'] ?? '');
+                }
                 continue;
             }
 
             $key = $attachment['FILE_ID'] > 0 ? 'file:' . $attachment['FILE_ID'] : 'path:' . $attachment['PATH'];
             if (isset($seen[$key])) {
+                $debug['duplicates']++;
                 continue;
             }
 
             $seen[$key] = true;
             $attachments[] = $attachment;
+            $debug['attachmentsBuilt']++;
         }
     }
 
     return $attachments;
+}
+
+
+function lnaCountRegulationElements(array $filter): int
+{
+    $countFilter = array_merge(
+        [
+            'IBLOCK_ID' => LNA_REGULATIONS_IBLOCK_ID,
+            'ACTIVE' => 'Y',
+            'CHECK_PERMISSIONS' => 'N',
+        ],
+        $filter
+    );
+
+    return (int)CIBlockElement::GetList([], $countFilter, [], false, ['ID']);
+}
+
+function lnaGetPropertyDebugValue(int $elementId, int $propertyId): string
+{
+    $values = [];
+    $rs = CIBlockElement::GetProperty(
+        LNA_REGULATIONS_IBLOCK_ID,
+        $elementId,
+        ['sort' => 'asc', 'id' => 'asc'],
+        ['ID' => $propertyId]
+    );
+
+    while ($property = $rs->Fetch()) {
+        if ($property['VALUE'] === '' || $property['VALUE'] === null) {
+            continue;
+        }
+
+        $parts = [];
+        foreach (['VALUE', 'VALUE_ENUM_ID', 'VALUE_ENUM', 'DESCRIPTION'] as $key) {
+            if (isset($property[$key]) && $property[$key] !== '') {
+                $parts[] = $key . '=' . lnaDebugValue($property[$key]);
+            }
+        }
+        $values[] = implode(', ', $parts);
+    }
+
+    return $values ? implode(' | ', $values) : '(empty)';
+}
+
+function lnaTrackRegulationDiagnostics(array $debug): void
+{
+    lnaTrack('Диагностика поиска ЛНА: найдено элементов по основному фильтру=' . $debug['matchedElements']
+        . ', непустых значений FILES=' . $debug['propertiesWithValue']
+        . ', файлов распознано=' . $debug['filesResolved']
+        . ', вложений подготовлено=' . $debug['attachmentsBuilt']
+        . ', пустых значений FILES=' . $debug['emptyFileProperties']
+        . ', дублей=' . $debug['duplicates']);
+
+    lnaTrack('Контрольные количества: active=' . lnaCountRegulationElements([])
+        . ', requiredYes=' . lnaCountRegulationElements(['PROPERTY_' . LNA_PROP_REQUIRED_ON_HIRE => LNA_REQUIRED_YES_ENUM_ID])
+        . ', statusActive=' . lnaCountRegulationElements(['PROPERTY_' . LNA_PROP_STATUS => LNA_STATUS_ACTIVE_ENUM_ID])
+        . ', requiredYesAndStatusActive=' . lnaCountRegulationElements([
+            'PROPERTY_' . LNA_PROP_REQUIRED_ON_HIRE => LNA_REQUIRED_YES_ENUM_ID,
+            'PROPERTY_' . LNA_PROP_STATUS => LNA_STATUS_ACTIVE_ENUM_ID,
+        ]));
+
+    if ($debug['unresolvedFileValues']) {
+        lnaTrack('FILES не удалось распознать как Disk/CFile: ' . implode(' || ', $debug['unresolvedFileValues']));
+    }
+
+    if ($debug['unreadableFiles']) {
+        lnaTrack('Файлы распознаны, но недоступны на диске: ' . implode(' || ', $debug['unreadableFiles']));
+    }
+
+    $rsSample = CIBlockElement::GetList(
+        ['ID' => 'DESC'],
+        [
+            'IBLOCK_ID' => LNA_REGULATIONS_IBLOCK_ID,
+            'ACTIVE' => 'Y',
+            'CHECK_PERMISSIONS' => 'N',
+        ],
+        false,
+        ['nTopCount' => 5],
+        ['ID', 'NAME']
+    );
+
+    while ($element = $rsSample->Fetch()) {
+        $elementId = (int)$element['ID'];
+        lnaTrack('Пример элемента регламентов ID=' . $elementId
+            . ', NAME=' . (string)$element['NAME']
+            . ', REQUIRED_PROP=' . lnaGetPropertyDebugValue($elementId, LNA_PROP_REQUIRED_ON_HIRE)
+            . ', STATUS_PROP=' . lnaGetPropertyDebugValue($elementId, LNA_PROP_STATUS)
+            . ', FILES_PROP=' . lnaGetPropertyDebugValue($elementId, LNA_PROP_FILES));
+    }
 }
 
 function lnaEncodeMimeHeader(string $value): string
@@ -381,25 +524,34 @@ function lnaSendMail(string $email, array $attachments): bool
     return lnaSendMailFallback($email, $attachments);
 }
 
+lnaTrack('Старт отправки ЛНА. DOCUMENT_ROOT=' . (string)($_SERVER['DOCUMENT_ROOT'] ?? '') . ', diskModuleLoaded=' . (\Bitrix\Main\Loader::includeModule('disk') ? 'Y' : 'N'));
+
 $elementId = lnaDetectCurrentElementId();
+lnaTrack('Определен ID текущего документа: ' . $elementId);
 if ($elementId <= 0) {
     throw new RuntimeException('Не удалось определить ID текущего документа бизнес-процесса.');
 }
 
 $userId = lnaGetEmployeeUserId($elementId);
+lnaTrack('Значение поля UZ_SOTRUDNIKA: userId=' . $userId);
 if ($userId <= 0) {
     throw new RuntimeException('В текущем документе не заполнено поле UZ_SOTRUDNIKA.');
 }
 
 $email = lnaGetUserEmail($userId);
+lnaTrack('E-mail сотрудника из UZ_SOTRUDNIKA: ' . ($email !== '' ? $email : '(empty)'));
 if ($email === '' || !check_email($email)) {
     throw new RuntimeException('Не удалось определить корректный e-mail сотрудника из поля UZ_SOTRUDNIKA.');
 }
 
-$attachments = lnaGetRegulationAttachments();
+$attachmentDebug = [];
+$attachments = lnaGetRegulationAttachments($attachmentDebug);
+lnaTrackRegulationDiagnostics($attachmentDebug);
 if (!$attachments) {
-    throw new RuntimeException('Не найдены файлы ЛНА для отправки.');
+    throw new RuntimeException('Не найдены файлы ЛНА для отправки. Подробности записаны в трекинг бизнес-процесса с префиксом [LNA].');
 }
+
+lnaTrack('Готова отправка письма: получатель=' . $email . ', вложений=' . count($attachments));
 
 if (!lnaSendMail($email, $attachments)) {
     throw new RuntimeException('Не удалось отправить письмо сотруднику ' . $email . '.');
