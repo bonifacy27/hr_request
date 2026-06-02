@@ -34,6 +34,8 @@ const LNA_PROP_FILES = 395;
 const LNA_REQUIRED_YES_ENUM_ID = 6819;
 const LNA_STATUS_ACTIVE_ENUM_ID = 522;
 
+const LNA_MAIL_EVENT_NAME = 'TRICOLOR_SIMPLE_HTML';
+const LNA_MAIL_SITE_ID = 's1';
 const LNA_MAIL_SUBJECT = 'Документы ЛНА для ознакомления';
 const LNA_MAIL_BODY = "Добрый день!\nВам отправлены файлы ЛНА для ознакомления.";
 
@@ -501,82 +503,60 @@ function lnaTrackRegulationDiagnostics(array $debug): void
     }
 }
 
-function lnaEncodeMimeHeader(string $value): string
+function lnaHtml(string $value): string
 {
-    return function_exists('mb_encode_mimeheader')
-        ? mb_encode_mimeheader($value, defined('SITE_CHARSET') ? SITE_CHARSET : 'UTF-8')
-        : $value;
+    return function_exists('htmlspecialcharsbx')
+        ? htmlspecialcharsbx($value)
+        : htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function lnaSendMailViaBitrix(string $email, array $attachments): bool
+function lnaGetAttachmentFileIds(array $attachments): array
 {
-    if (!class_exists('Bitrix\\Main\\Mail\\Mail')) {
-        return false;
-    }
-
-    $mailAttachments = [];
+    $fileIds = [];
     foreach ($attachments as $attachment) {
-        $mailAttachments[] = [
-            'PATH' => $attachment['PATH'],
-            'NAME' => $attachment['NAME'],
-            'CONTENT_TYPE' => $attachment['CONTENT_TYPE'],
-        ];
-    }
-
-    try {
-        return (bool)\Bitrix\Main\Mail\Mail::send([
-            'TO' => $email,
-            'SUBJECT' => LNA_MAIL_SUBJECT,
-            'BODY' => LNA_MAIL_BODY,
-            'CHARSET' => defined('SITE_CHARSET') ? SITE_CHARSET : 'UTF-8',
-            'CONTENT_TYPE' => 'text/plain',
-            'HEADER' => [],
-            'ATTACHMENT' => $mailAttachments,
-        ]);
-    } catch (\Throwable $e) {
-        lnaTrack('Bitrix Mail::send вернул ошибку, пробуем fallback mail(): ' . $e->getMessage());
-        return false;
-    }
-}
-
-function lnaSendMailFallback(string $email, array $attachments): bool
-{
-    $charset = defined('SITE_CHARSET') ? SITE_CHARSET : 'UTF-8';
-    $boundary = 'lna-' . md5(uniqid('', true));
-    $headers = [];
-    $headers[] = 'MIME-Version: 1.0';
-    $headers[] = 'Content-Type: multipart/mixed; boundary="' . $boundary . '"';
-
-    $body = '--' . $boundary . "\r\n";
-    $body .= 'Content-Type: text/plain; charset=' . $charset . "\r\n";
-    $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-    $body .= chunk_split(base64_encode(LNA_MAIL_BODY));
-
-    foreach ($attachments as $attachment) {
-        $content = file_get_contents($attachment['PATH']);
-        if ($content === false) {
-            continue;
+        $fileId = (int)($attachment['FILE_ID'] ?? 0);
+        if ($fileId > 0) {
+            $fileIds[$fileId] = $fileId;
         }
-
-        $body .= '--' . $boundary . "\r\n";
-        $body .= 'Content-Type: ' . $attachment['CONTENT_TYPE'] . '; name="' . lnaEncodeMimeHeader($attachment['NAME']) . '"' . "\r\n";
-        $body .= 'Content-Disposition: attachment; filename="' . lnaEncodeMimeHeader($attachment['NAME']) . '"' . "\r\n";
-        $body .= "Content-Transfer-Encoding: base64\r\n\r\n";
-        $body .= chunk_split(base64_encode($content));
     }
 
-    $body .= '--' . $boundary . "--\r\n";
-
-    return mail($email, lnaEncodeMimeHeader(LNA_MAIL_SUBJECT), $body, implode("\r\n", $headers));
+    return array_values($fileIds);
 }
 
 function lnaSendMail(string $email, array $attachments): bool
 {
-    if (lnaSendMailViaBitrix($email, $attachments)) {
-        return true;
+    if (!class_exists('CEvent')) {
+        lnaTrack('CEvent недоступен, отправка через почтовый шаблон невозможна.');
+        return false;
     }
 
-    return lnaSendMailFallback($email, $attachments);
+    $fileIds = lnaGetAttachmentFileIds($attachments);
+    if (!$fileIds) {
+        lnaTrack('Для почтового шаблона не удалось получить ID файлов вложений.');
+        return false;
+    }
+
+    $eventFields = [
+        'LID' => LNA_MAIL_SITE_ID,
+        'RECEIVER' => $email,
+        'HTML' => nl2br(lnaHtml(LNA_MAIL_BODY), false),
+        'TITLE' => LNA_MAIL_SUBJECT,
+    ];
+
+    lnaTrack('Отправка через почтовый шаблон ' . LNA_MAIL_EVENT_NAME . ': получатель=' . $email . ', fileIds=' . implode(',', $fileIds));
+
+    $eventId = CEvent::Send(
+        LNA_MAIL_EVENT_NAME,
+        LNA_MAIL_SITE_ID,
+        $eventFields,
+        'Y',
+        '',
+        $fileIds
+    );
+
+    lnaTrack('Результат CEvent::Send: ' . lnaDebugValue($eventId));
+
+    return (bool)$eventId;
 }
 
 $lnaFlushTracking = function (): void {
