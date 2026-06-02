@@ -58,17 +58,19 @@ function lnaDebugValue($value): string
 function lnaTrack(string $message): void
 {
     $message = '[LNA] ' . $message;
-
-    if (isset($GLOBALS['LNA_BP_ACTIVITY'])
-        && is_object($GLOBALS['LNA_BP_ACTIVITY'])
-        && method_exists($GLOBALS['LNA_BP_ACTIVITY'], 'WriteToTrackingService')
-    ) {
-        $GLOBALS['LNA_BP_ACTIVITY']->WriteToTrackingService($message);
-    }
+    $GLOBALS['LNA_TRACKING_MESSAGES'][] = $message;
 
     if (defined('STDOUT')) {
         echo $message . PHP_EOL;
     }
+}
+
+function lnaPullTrackMessages(): array
+{
+    $messages = $GLOBALS['LNA_TRACKING_MESSAGES'] ?? [];
+    $GLOBALS['LNA_TRACKING_MESSAGES'] = [];
+
+    return is_array($messages) ? $messages : [];
 }
 
 function lnaLog(string $message): void
@@ -524,37 +526,56 @@ function lnaSendMail(string $email, array $attachments): bool
     return lnaSendMailFallback($email, $attachments);
 }
 
-lnaTrack('Старт отправки ЛНА. DOCUMENT_ROOT=' . (string)($_SERVER['DOCUMENT_ROOT'] ?? '') . ', diskModuleLoaded=' . (\Bitrix\Main\Loader::includeModule('disk') ? 'Y' : 'N'));
+$lnaFlushTracking = function (): void {
+    if (!isset($this) || !is_object($this) || !method_exists($this, 'WriteToTrackingService')) {
+        lnaPullTrackMessages();
+        return;
+    }
 
-$elementId = lnaDetectCurrentElementId();
-lnaTrack('Определен ID текущего документа: ' . $elementId);
-if ($elementId <= 0) {
-    throw new RuntimeException('Не удалось определить ID текущего документа бизнес-процесса.');
+    foreach (lnaPullTrackMessages() as $message) {
+        $this->WriteToTrackingService($message);
+    }
+};
+
+try {
+    lnaTrack('Старт отправки ЛНА. DOCUMENT_ROOT=' . (string)($_SERVER['DOCUMENT_ROOT'] ?? '') . ', diskModuleLoaded=' . (\Bitrix\Main\Loader::includeModule('disk') ? 'Y' : 'N'));
+
+    $elementId = lnaDetectCurrentElementId();
+    lnaTrack('Определен ID текущего документа: ' . $elementId);
+    if ($elementId <= 0) {
+        throw new RuntimeException('Не удалось определить ID текущего документа бизнес-процесса.');
+    }
+
+    $userId = lnaGetEmployeeUserId($elementId);
+    lnaTrack('Значение поля UZ_SOTRUDNIKA: userId=' . $userId);
+    if ($userId <= 0) {
+        throw new RuntimeException('В текущем документе не заполнено поле UZ_SOTRUDNIKA.');
+    }
+
+    $email = lnaGetUserEmail($userId);
+    lnaTrack('E-mail сотрудника из UZ_SOTRUDNIKA: ' . ($email !== '' ? $email : '(empty)'));
+    if ($email === '' || !check_email($email)) {
+        throw new RuntimeException('Не удалось определить корректный e-mail сотрудника из поля UZ_SOTRUDNIKA.');
+    }
+
+    $attachmentDebug = [];
+    $attachments = lnaGetRegulationAttachments($attachmentDebug);
+    lnaTrackRegulationDiagnostics($attachmentDebug);
+    if (!$attachments) {
+        throw new RuntimeException('Не найдены файлы ЛНА для отправки. Подробности записаны в трекинг бизнес-процесса с префиксом [LNA].');
+    }
+
+    lnaTrack('Готова отправка письма: получатель=' . $email . ', вложений=' . count($attachments));
+
+    if (!lnaSendMail($email, $attachments)) {
+        throw new RuntimeException('Не удалось отправить письмо сотруднику ' . $email . '.');
+    }
+
+    lnaLog('Письмо с файлами ЛНА отправлено на ' . $email . '. Вложений: ' . count($attachments) . '.');
+} catch (\Throwable $e) {
+    lnaTrack('Ошибка выполнения: ' . $e->getMessage());
+    $lnaFlushTracking();
+    throw $e;
 }
 
-$userId = lnaGetEmployeeUserId($elementId);
-lnaTrack('Значение поля UZ_SOTRUDNIKA: userId=' . $userId);
-if ($userId <= 0) {
-    throw new RuntimeException('В текущем документе не заполнено поле UZ_SOTRUDNIKA.');
-}
-
-$email = lnaGetUserEmail($userId);
-lnaTrack('E-mail сотрудника из UZ_SOTRUDNIKA: ' . ($email !== '' ? $email : '(empty)'));
-if ($email === '' || !check_email($email)) {
-    throw new RuntimeException('Не удалось определить корректный e-mail сотрудника из поля UZ_SOTRUDNIKA.');
-}
-
-$attachmentDebug = [];
-$attachments = lnaGetRegulationAttachments($attachmentDebug);
-lnaTrackRegulationDiagnostics($attachmentDebug);
-if (!$attachments) {
-    throw new RuntimeException('Не найдены файлы ЛНА для отправки. Подробности записаны в трекинг бизнес-процесса с префиксом [LNA].');
-}
-
-lnaTrack('Готова отправка письма: получатель=' . $email . ', вложений=' . count($attachments));
-
-if (!lnaSendMail($email, $attachments)) {
-    throw new RuntimeException('Не удалось отправить письмо сотруднику ' . $email . '.');
-}
-
-lnaLog('Письмо с файлами ЛНА отправлено на ' . $email . '. Вложений: ' . count($attachments) . '.');
+$lnaFlushTracking();
