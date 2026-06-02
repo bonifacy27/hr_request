@@ -523,14 +523,20 @@ function lnaSendMailViaBitrix(string $email, array $attachments): bool
         ];
     }
 
-    return (bool)\Bitrix\Main\Mail\Mail::send([
-        'TO' => $email,
-        'SUBJECT' => LNA_MAIL_SUBJECT,
-        'BODY' => LNA_MAIL_BODY,
-        'CHARSET' => defined('SITE_CHARSET') ? SITE_CHARSET : 'UTF-8',
-        'CONTENT_TYPE' => 'text/plain',
-        'ATTACHMENT' => $mailAttachments,
-    ]);
+    try {
+        return (bool)\Bitrix\Main\Mail\Mail::send([
+            'TO' => $email,
+            'SUBJECT' => LNA_MAIL_SUBJECT,
+            'BODY' => LNA_MAIL_BODY,
+            'CHARSET' => defined('SITE_CHARSET') ? SITE_CHARSET : 'UTF-8',
+            'CONTENT_TYPE' => 'text/plain',
+            'HEADER' => [],
+            'ATTACHMENT' => $mailAttachments,
+        ]);
+    } catch (\Throwable $e) {
+        lnaTrack('Bitrix Mail::send вернул ошибку, пробуем fallback mail(): ' . $e->getMessage());
+        return false;
+    }
 }
 
 function lnaSendMailFallback(string $email, array $attachments): bool
