@@ -177,13 +177,23 @@ function lnaExtractDiskAttachedObjectId($value): int
 {
     if (is_array($value)) {
         foreach (['VALUE', 'ID', 'FILE_ID'] as $key) {
-            if (isset($value[$key])) {
-                $id = lnaExtractDiskAttachedObjectId($value[$key]);
-                if ($id > 0) {
-                    return $id;
-                }
+            if (!isset($value[$key])) {
+                continue;
+            }
+
+            $id = lnaExtractDiskAttachedObjectId($value[$key]);
+            if ($id > 0) {
+                return $id;
             }
         }
+
+        foreach ($value as $item) {
+            $id = lnaExtractDiskAttachedObjectId($item);
+            if ($id > 0) {
+                return $id;
+            }
+        }
+
         return 0;
     }
 
@@ -196,25 +206,59 @@ function lnaExtractDiskAttachedObjectId($value): int
         return (int)$matches[1];
     }
 
-    return 0;
+    return ctype_digit($raw) ? (int)$raw : 0;
 }
 
 function lnaExtractNumericFileId($value): int
 {
     if (is_array($value)) {
         foreach (['FILE_ID', 'ID', 'VALUE'] as $key) {
-            if (isset($value[$key])) {
-                $id = lnaExtractNumericFileId($value[$key]);
-                if ($id > 0) {
-                    return $id;
-                }
+            if (!isset($value[$key])) {
+                continue;
+            }
+
+            $id = lnaExtractNumericFileId($value[$key]);
+            if ($id > 0) {
+                return $id;
             }
         }
+
+        foreach ($value as $item) {
+            $id = lnaExtractNumericFileId($item);
+            if ($id > 0) {
+                return $id;
+            }
+        }
+
         return 0;
     }
 
     $raw = trim((string)$value);
     return ctype_digit($raw) ? (int)$raw : 0;
+}
+
+
+function lnaNormalizeFilePropertyValues($value): array
+{
+    if (!is_array($value)) {
+        return [$value];
+    }
+
+    foreach (['VALUE', 'ID', 'FILE_ID'] as $key) {
+        if (isset($value[$key])) {
+            return lnaNormalizeFilePropertyValues($value[$key]);
+        }
+    }
+
+    $result = [];
+    foreach ($value as $item) {
+        if ($item === '' || $item === null || $item === false) {
+            continue;
+        }
+        $result[] = $item;
+    }
+
+    return $result;
 }
 
 function lnaFileArrayFromDiskValue($value): ?array
@@ -333,32 +377,35 @@ function lnaGetRegulationAttachments(array &$debug = []): array
             }
 
             $debug['propertiesWithValue']++;
-            $file = lnaFileArrayFromDiskValue($property['VALUE']);
-            if (!$file) {
-                if (count($debug['unresolvedFileValues']) < 10) {
-                    $debug['unresolvedFileValues'][] = 'element=' . $elementId . ', value=' . lnaDebugValue($property['VALUE']);
+            $fileValues = lnaNormalizeFilePropertyValues($property['VALUE']);
+            foreach ($fileValues as $fileValue) {
+                $file = lnaFileArrayFromDiskValue($fileValue);
+                if (!$file) {
+                    if (count($debug['unresolvedFileValues']) < 10) {
+                        $debug['unresolvedFileValues'][] = 'element=' . $elementId . ', value=' . lnaDebugValue($fileValue) . ', raw=' . lnaDebugValue($property['VALUE']);
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            $debug['filesResolved']++;
-            $attachment = lnaBuildAttachment($file, $elementId);
-            if (!$attachment) {
-                if (count($debug['unreadableFiles']) < 10) {
-                    $debug['unreadableFiles'][] = 'element=' . $elementId . ', fileId=' . (int)($file['ID'] ?? 0) . ', src=' . (string)($file['SRC'] ?? '');
+                $debug['filesResolved']++;
+                $attachment = lnaBuildAttachment($file, $elementId);
+                if (!$attachment) {
+                    if (count($debug['unreadableFiles']) < 10) {
+                        $debug['unreadableFiles'][] = 'element=' . $elementId . ', fileId=' . (int)($file['ID'] ?? 0) . ', src=' . (string)($file['SRC'] ?? '');
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            $key = $attachment['FILE_ID'] > 0 ? 'file:' . $attachment['FILE_ID'] : 'path:' . $attachment['PATH'];
-            if (isset($seen[$key])) {
-                $debug['duplicates']++;
-                continue;
-            }
+                $key = $attachment['FILE_ID'] > 0 ? 'file:' . $attachment['FILE_ID'] : 'path:' . $attachment['PATH'];
+                if (isset($seen[$key])) {
+                    $debug['duplicates']++;
+                    continue;
+                }
 
-            $seen[$key] = true;
-            $attachments[] = $attachment;
-            $debug['attachmentsBuilt']++;
+                $seen[$key] = true;
+                $attachments[] = $attachment;
+                $debug['attachmentsBuilt']++;
+            }
         }
     }
 
