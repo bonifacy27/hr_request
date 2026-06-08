@@ -30,6 +30,7 @@ const FW_API_INTERNAL  = 'https://app.friend.work/api';
 const FW_LOGIN_CONST_ID = 'Constant1698403240866';
 const FW_PASS_CONST_ID  = 'Constant1698403290839';
 const FW_STATUS_APPROVED_INTERVIEW_DONE = 127730;
+const REDIRECT_AFTER_CREATE_URL = '/forms/staffing/check_candidate/list.php';
 
 function h($s): string
 {
@@ -331,8 +332,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             startListWorkflow(BP_TEMPLATE_3, (int)$newId, $bpErrors3);
             if (!empty($bpErrors1) || !empty($bpErrors2) || !empty($bpErrors3)) {
                 $errors[] = 'Анкета создана, но запуск БП завершился с ошибками.';
+            } else {
+                LocalRedirect(REDIRECT_AFTER_CREATE_URL);
+                return;
             }
-            $saveMessage = 'Анкета кандидата создана. ID: ' . (int)$newId;
         }
     }
 }
