@@ -48,6 +48,18 @@ function decodeName(string $name): string
     return html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
 
+function hasUploadedFile($file): bool
+{
+    return is_array($file)
+        && !empty($file['name'])
+        && (int)($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_NO_FILE;
+}
+
+function isUploadedFileOk($file): bool
+{
+    return hasUploadedFile($file) && (int)($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_OK;
+}
+
 function getPropertyEnumOptions(int $iblockId, int $propertyId): array
 {
     $options = [];
@@ -121,16 +133,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $value = trim((string)$value);
         }
 
-        if (!is_array($value)) {
-            $formData[$code] = (string)$value;
-        }
-
         if ($f['type'] === 'FILE') {
-            if (is_array($value) && !empty($value['name'])) {
+            if (isUploadedFileOk($value)) {
+                $propertyValues[(int)$f['id']] = $value;
+                $formData[$code] = (string)$value['name'];
+            } elseif (hasUploadedFile($value)) {
+                $errors[] = 'Ошибка загрузки файла в поле: ' . $f['label'];
+            }
+        } else {
+            $formData[$code] = (string)$value;
+            if ($value !== '') {
                 $propertyValues[(int)$f['id']] = $value;
             }
-        } elseif ($value !== '') {
-            $propertyValues[(int)$f['id']] = $value;
         }
 
         if (!empty($f['required']) && trim((string)($formData[$code] ?? '')) === '') {
