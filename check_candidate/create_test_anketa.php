@@ -25,6 +25,7 @@ const BP_TEMPLATE_1 = 466;
 const BP_TEMPLATE_2 = 328;
 const BP_TEMPLATE_3 = 844;
 const TESTIROVANIE_PROPERTY_ID = 3146;
+const REDIRECT_AFTER_CREATE_URL = 'http://ourtricolortv.nsc.ru';
 
 function h($s): string
 {
@@ -46,18 +47,6 @@ function normalizeDate(string $value): string
 function decodeName(string $name): string
 {
     return html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-}
-
-function hasUploadedFile($file): bool
-{
-    return is_array($file)
-        && !empty($file['name'])
-        && (int)($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_NO_FILE;
-}
-
-function isUploadedFileOk($file): bool
-{
-    return hasUploadedFile($file) && (int)($file['error'] ?? UPLOAD_ERR_OK) === UPLOAD_ERR_OK;
 }
 
 function getPropertyEnumOptions(int $iblockId, int $propertyId): array
@@ -95,8 +84,6 @@ $fields = [
     ['id' => 1596, 'code' => 'ID_ZAYAVKI_NA_PODBOR', 'label' => 'ID заявки на подбор', 'type' => 'N', 'required' => false, 'hidden' => true],
     ['id' => 2854, 'code' => 'ROUTE', 'label' => 'Маршрут', 'type' => 'S', 'required' => false, 'hidden' => true],
     ['id' => 1093, 'code' => 'TIP_ANKETY', 'label' => 'Тип анкеты', 'type' => 'L', 'required' => true, 'hidden' => false],
-    ['id' => 1689, 'code' => 'REZYUME', 'label' => 'Резюме', 'type' => 'FILE', 'required' => true, 'hidden' => false],
-    ['id' => 1726, 'code' => 'SOGLASOVANIE_KANDIDATA', 'label' => 'Согласование кандидата руководителем', 'type' => 'FILE', 'required' => true, 'hidden' => false],
 ];
 
 $formData = [];
@@ -133,18 +120,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $value = trim((string)$value);
         }
 
-        if ($f['type'] === 'FILE') {
-            if (isUploadedFileOk($value)) {
-                $propertyValues[(int)$f['id']] = $value;
-                $formData[$code] = (string)$value['name'];
-            } elseif (hasUploadedFile($value)) {
-                $errors[] = 'Ошибка загрузки файла в поле: ' . $f['label'];
-            }
-        } else {
-            $formData[$code] = (string)$value;
-            if ($value !== '') {
-                $propertyValues[(int)$f['id']] = $value;
-            }
+        $formData[$code] = (string)$value;
+        if ($value !== '') {
+            $propertyValues[(int)$f['id']] = $value;
         }
 
         if (!empty($f['required']) && trim((string)($formData[$code] ?? '')) === '') {
@@ -183,7 +161,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             if (!empty($bpErrors1) || !empty($bpErrors2) || !empty($bpErrors3)) {
                 $errors[] = 'Анкета создана, но запуск БП завершился с ошибками.';
             }
-            $saveMessage = 'Тестовая анкета кандидата создана. ID: ' . (int)$newId;
+            LocalRedirect(REDIRECT_AFTER_CREATE_URL);
+            return;
         }
     }
 }
@@ -211,7 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 
         <div class="anketa-grid">
             <?php foreach ($fields as $f): if (!empty($f['hidden'])) { continue; } $code = $f['code']; ?>
-                <div class="anketa-field <?= in_array($code, ['REZYUME','SOGLASOVANIE_KANDIDATA'], true) ? 'anketa-full' : '' ?>">
+                <div class="anketa-field">
                     <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= !empty($f['required']) ? '<span class="req">*</span>' : '' ?></label>
                     <?php if ($f['type'] === 'USER'): ?>
                         <input type="hidden" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
