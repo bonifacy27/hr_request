@@ -724,7 +724,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $errors[] = 'Заполните поле «Подразделение».';
     }
     if ((int)$formData['chief'] <= 0) {
-        $errors[] = 'Заполните поле «ФИО руководителя (из списка)».';
+        $errors[] = 'Заполните поле «Руководитель».';
     }
     if ($formData['chief_position'] === '') {
         $errors[] = 'Заполните поле «Должность руководителя».';
@@ -896,7 +896,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'position' => 'Должность',
                     'department' => 'Подразделение',
                     'direction' => 'Дирекция',
-                    'chief' => 'ФИО руководителя (из списка)',
+                    'chief' => 'Руководитель',
                     'is_chief_position' => 'Кандидат на руководящую должность',
                     'contract_type' => 'Тип трудового договора',
                     'salary' => 'Оклад, руб.',
@@ -1068,7 +1068,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>ФИО руководителя (из списка) <span class="text-danger">*</span></label>
+                        <label>Руководитель <span class="text-danger">*</span></label>
                         <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
                         <div id="chiefSelector"></div>
                     </div>
