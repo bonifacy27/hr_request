@@ -120,7 +120,13 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
 function getIblockElementsById(int $iblockId, array $sort = ['ID' => 'DESC']): array
 {
     $res = [];
-    $rs = CIBlockElement::GetList($sort, ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME']);
+    $filter = [
+        'IBLOCK_ID' => $iblockId,
+        'ACTIVE' => 'Y',
+        'CHECK_PERMISSIONS' => 'Y',
+        'MIN_PERMISSION' => 'R',
+    ];
+    $rs = CIBlockElement::GetList($sort, $filter, false, false, ['ID', 'NAME']);
     while ($row = $rs->GetNext()) {
         $res[] = ['ID' => (string)$row['ID'], 'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8')];
     }
