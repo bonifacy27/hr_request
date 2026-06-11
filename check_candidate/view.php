@@ -33,7 +33,7 @@ $fieldsByCode = [
     'DIPLOM' => ['TYPE' => 'F', 'NAME' => 'Диплом'],
     'TRUDOVAYA_KNIZHKA' => ['TYPE' => 'F', 'NAME' => 'Трудовая книжка'],
     'STD_R' => ['TYPE' => 'F', 'NAME' => 'СТД-Р'],
-    'PRICHINA_OTSUTSTVIYA_TRUDOVOY' => ['TYPE' => 'S', 'NAME' => 'Причина отсутствия трудовой'],
+    'PRICHINA_OTSUTSTVIYA_TRUDOVOY' => ['TYPE' => 'S', 'NAME' => 'Причина отсутствия трудовой книжки'],
     'VOENNYY_BILET' => ['TYPE' => 'F', 'NAME' => 'Военный билет'],
     'RESUME' => ['TYPE' => 'F', 'NAME' => 'Резюме'],
     'COMP_SPEC' => ['TYPE' => 'F', 'NAME' => 'Характеристики ПК'],
@@ -108,6 +108,15 @@ function fileIconByExt($fileName)
     ];
 
     return $map[$ext] ?? '📄';
+}
+
+function renderInlineNote($label, $valueHtml)
+{
+    if ($valueHtml === '') {
+        return '';
+    }
+
+    return '<div class="mt-2 text-muted"><strong>' . h($label) . ':</strong> ' . $valueHtml . '</div>';
 }
 
 function renderValue(array $property, $type)
@@ -244,11 +253,24 @@ $propertiesByCode['CANDIDATE_FIO'] = [
         </div>
 
         <?php foreach ($blocks as $blockTitle => $blockCodes): ?>
-            <?php $rowsHtml = []; ?>
+            <?php
+            $rowsHtml = [];
+            $absenceReasonCode = 'PRICHINA_OTSUTSTVIYA_TRUDOVOY';
+            $absenceReasonConfig = $fieldsByCode[$absenceReasonCode] ?? null;
+            $absenceReasonProperty = $propertiesByCode[$absenceReasonCode] ?? null;
+            $absenceReasonHtml = ($absenceReasonConfig && $absenceReasonProperty)
+                ? renderValue($absenceReasonProperty, (string)$absenceReasonConfig['TYPE'])
+                : '';
+            $absenceReasonWasRendered = false;
+            ?>
             <?php foreach ($blockCodes as $code): ?>
                 <?php
                 $fieldConfig = $fieldsByCode[$code] ?? null;
                 if (!$fieldConfig) {
+                    continue;
+                }
+
+                if ($code === $absenceReasonCode) {
                     continue;
                 }
 
@@ -263,9 +285,18 @@ $propertiesByCode['CANDIDATE_FIO'] = [
                     continue;
                 }
 
+                if (!$absenceReasonWasRendered && in_array($code, ['TRUDOVAYA_KNIZHKA', 'STD_R'], true)) {
+                    $valueHtml .= renderInlineNote($absenceReasonConfig['NAME'] ?? 'Причина отсутствия трудовой книжки', $absenceReasonHtml);
+                    $absenceReasonWasRendered = $absenceReasonHtml !== '';
+                }
+
                 $rowsHtml[] = '<tr><td class="field-name">' . h($fieldConfig['NAME']) . '</td><td>' . $valueHtml . '</td></tr>';
                 ?>
             <?php endforeach; ?>
+
+            <?php if (!$absenceReasonWasRendered && $absenceReasonHtml !== '' && in_array($absenceReasonCode, $blockCodes, true)): ?>
+                <?php $rowsHtml[] = '<tr><td class="field-name">' . h($absenceReasonConfig['NAME'] ?? 'Причина отсутствия трудовой книжки') . '</td><td>' . $absenceReasonHtml . '</td></tr>'; ?>
+            <?php endif; ?>
 
             <?php if (!$rowsHtml) {
                 continue;
