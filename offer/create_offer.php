@@ -400,6 +400,18 @@ function createRegionLocation(int $iblockId, string $name, float $rkValue, strin
     return ['id' => (int)$id, 'error' => ''];
 }
 
+
+function startOfferListWorkflow(int $templateId, int $offerId, array $params, array &$errors): bool
+{
+    if (!Loader::includeModule('bizproc')) {
+        $errors[] = ['message' => 'Не удалось подключить модуль bizproc.'];
+        return false;
+    }
+
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
+    return CBPDocument::StartWorkflow($templateId, $documentId, $params, $errors) !== false;
+}
+
 function appendOfferToRequest(int $requestId, int $offerId): void
 {
     if ($requestId <= 0 || $offerId <= 0) {
@@ -883,10 +895,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         if ($offerId) {
             appendOfferToRequest((int)$formData['request_id'], (int)$offerId);
 
-            if (Loader::includeModule('bizproc')) {
-                $bpErrors = [];
-                CBPDocument::StartWorkflow(1324, ['lists', 'BizprocDocument', (int)$offerId], [], $bpErrors);
-            }
+            $bpErrors = [];
+            startOfferListWorkflow(1324, (int)$offerId, [], $bpErrors);
 
             if ($sourceSnapshot !== null) {
                 $changes = [];
@@ -953,14 +963,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     $changes[] = $label . ': ' . $oldDisplay . ' → ' . $newDisplay;
                 }
 
-                if (!empty($changes) && Loader::includeModule('bizproc')) {
-                    $documentId = ['lists', 'BizprocDocument', (int)$offerId];
+                if (!empty($changes)) {
                     $bpParams = [
                         'par_Changes_type' => 'recruiter',
                         'par_Changes' => implode("\n", $changes),
                     ];
                     $bpErrors = [];
-                    CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
+                    startOfferListWorkflow(1323, (int)$offerId, $bpParams, $bpErrors);
                 }
             }
             LocalRedirect('/services/lists/218/view/0/?list_section_id=');
