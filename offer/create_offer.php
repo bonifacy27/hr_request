@@ -37,6 +37,7 @@ const OFFER_PROP_POSITION = 1161;
 const OFFER_PROP_DIRECTION = 1996;
 const OFFER_PROP_DEPARTMENT = 1163;
 const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
+const OFFER_PROP_CHIEF_FIO_TEXT = 1168;
 const OFFER_PROP_CHIEF_POSITION = 1169;
 const OFFER_PROP_BONUS_RUB_GROSS = 1170;
 const OFFER_PROP_MONTH_INCOME_AVG_GROSS = 1172;
@@ -203,6 +204,7 @@ function getRequestById(int $requestId): ?array
         'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA',
         'OBORUDOVANIE_DLYA_RABOTY_TEKST',
         'YURIDICHESKOE_LITSO',
+        'REKRUTER',
     ];
 
     $props = [];
@@ -236,6 +238,7 @@ function getRequestById(int $requestId): ?array
         'EQUIPMENT' => $raw($p, 'OBORUDOVANIE_DLYA_RABOTY_PRIVYAZKA'),
         'EQUIPMENT_TEXT' => $raw($p, 'OBORUDOVANIE_DLYA_RABOTY_TEKST'),
         'ORGANIZATION' => $raw($p, 'YURIDICHESKOE_LITSO'),
+        'RECRUITER_ID' => userIdFromValue($raw($p, 'REKRUTER')),
     ];
 }
 
@@ -353,6 +356,25 @@ function getUserDisplayNameById(int $userId): string
     return $name !== '' ? $name : (string)$userId;
 }
 
+function getUserFullFioById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    $fio = trim(implode(' ', array_filter([
+        trim((string)($user['LAST_NAME'] ?? '')),
+        trim((string)($user['NAME'] ?? '')),
+        trim((string)($user['SECOND_NAME'] ?? '')),
+    ], static function ($part) {
+        return $part !== '';
+    })));
+    return $fio !== '' ? $fio : getUserDisplayNameById($userId);
+}
+
 function createRegionLocation(int $iblockId, string $name, float $rkValue, string $candidateFio, string $createdByFio = ''): array
 {
     $name = trim($name);
@@ -379,6 +401,18 @@ function createRegionLocation(int $iblockId, string $name, float $rkValue, strin
         return ['id' => 0, 'error' => (string)($el->LAST_ERROR ?: 'Не удалось создать регион-локацию.')];
     }
     return ['id' => (int)$id, 'error' => ''];
+}
+
+
+function startOfferListWorkflow(int $templateId, int $offerId, array $params, array &$errors): bool
+{
+    if (!Loader::includeModule('bizproc')) {
+        $errors[] = ['message' => 'Не удалось подключить модуль bizproc.'];
+        return false;
+    }
+
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
+    return CBPDocument::StartWorkflow($templateId, $documentId, $params, $errors) !== false;
 }
 
 function appendOfferToRequest(int $requestId, int $offerId): void
@@ -456,6 +490,9 @@ if ((string)($_GET['ajax'] ?? '') === 'create_region') {
     exit;
 }
 
+global $USER;
+$currentUserId = (is_object($USER) && method_exists($USER, 'GetID')) ? (int)$USER->GetID() : 0;
+
 $request = Context::getCurrent()->getRequest();
 $selectedMode = 'manual';
 $modeFromQuery = (string)$request->getQuery('mode');
@@ -517,7 +554,7 @@ $formData = [
     'organization' => DEFAULT_ORGANIZATION,
     'housing_compensation' => '',
     'personal_allowance' => '0',
-    'recruiter' => '',
+    'recruiter' => ($currentUserId > 0 ? (string)$currentUserId : ''),
     'request_id' => '',
     'candidate_id' => '',
     'fw_candidate_id' => '',
@@ -531,7 +568,7 @@ if ($candidateId > 0) {
     } else {
         $formData['candidate_fio'] = $candidate['FIO'];
         $formData['candidate_phone'] = $candidate['PHONE'];
-        $formData['recruiter'] = (string)$candidate['RECRUITER_ID'];
+        $formData['recruiter'] = (string)((int)$candidate['RECRUITER_ID'] > 0 ? (int)$candidate['RECRUITER_ID'] : $currentUserId);
         $formData['request_id'] = (string)$candidate['REQUEST_ID'];
         $formData['candidate_id'] = (string)$candidate['ID'];
         $formData['fw_candidate_id'] = (string)$candidate['FW_CANDIDATE_ID'];
@@ -567,6 +604,7 @@ if ($candidateId > 0) {
         $errors[] = 'Заявка на подбор не найдена.';
     } else {
         $formData['request_id'] = (string)$requestId;
+        $formData['recruiter'] = (string)((int)$requestItem['RECRUITER_ID'] > 0 ? (int)$requestItem['RECRUITER_ID'] : $currentUserId);
         $formData['comment'] = 'Из заявки на подбор ' . (int)$requestId;
         $formData['is_chief_position'] = normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']);
         $formData['position'] = (string)$requestItem['POSITION'];
@@ -664,6 +702,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
+    $applyReadonlySourceFields();
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
     if ($candidateId <= 0 && $requestId <= 0) {
@@ -686,7 +725,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $errors[] = 'Заполните поле «Подразделение».';
     }
     if ((int)$formData['chief'] <= 0) {
-        $errors[] = 'Заполните поле «ФИО руководителя (из списка)».';
+        $errors[] = 'Заполните поле «Руководитель».';
     }
     if ($formData['chief_position'] === '') {
         $errors[] = 'Заполните поле «Должность руководителя».';
@@ -754,17 +793,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     if ($formData['candidate_phone'] !== '' && !preg_match('/^\+7[0-9\\s\\-\\(\\)]{10,20}$/', $formData['candidate_phone'])) {
         $errors[] = 'Поле «Контактный телефон кандидата» должно быть в формате +7....';
     }
-    if ($formData['personal_allowance'] !== '') {
-        $personalAllowance = (float)$formData['personal_allowance'];
-        if ($personalAllowance < 0 || $personalAllowance > 100) {
-            $errors[] = 'Поле «Северная надбавка %%» должно быть в диапазоне от 0 до 100.';
-        }
-    }
     if ($formData['region_location'] === '0') {
         $formData['region_location'] = '';
     }
     if ($formData['region_location'] !== '' && isset($regionCalcById[$formData['region_location']])) {
         $formData['rayon_coefficient'] = (string)$regionCalcById[$formData['region_location']]['rayon_coefficient'];
+        $regionPersonalAllowance = trim((string)$regionCalcById[$formData['region_location']]['personal_allowance']);
+        if ($regionPersonalAllowance !== '') {
+            $formData['personal_allowance'] = $regionPersonalAllowance;
+        }
+    }
+    if ($formData['personal_allowance'] !== '') {
+        $personalAllowance = (float)$formData['personal_allowance'];
+        if ($personalAllowance < 0 || $personalAllowance > 100) {
+            $errors[] = 'Поле «Северная надбавка %%» должно быть в диапазоне от 0 до 100.';
+        }
     }
 
     $salaryNum = parseNumericInput($formData['salary']);
@@ -796,6 +839,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_DIRECTION => $formData['direction'],
             OFFER_PROP_DEPARTMENT => $formData['department'],
             OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
+            OFFER_PROP_CHIEF_FIO_TEXT => getUserFullFioById((int)$formData['chief']),
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
             OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
             OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
@@ -803,7 +847,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_ISN_NDFL => $formData['isn_ndfl'],
             OFFER_PROP_BONUS_RUB_NDFL => $formData['bonus_rub_ndfl'],
             OFFER_PROP_MONTH_INCOME_AVG_NDFL => $formData['month_income_avg_ndfl'],
-            OFFER_PROP_SALARY => $formData['salary'],
+            OFFER_PROP_SALARY => normalizeMoneyForStorage($formData['salary']),
             OFFER_PROP_ISN => $formData['isn'],
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
@@ -839,6 +883,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
         if ($offerId) {
             appendOfferToRequest((int)$formData['request_id'], (int)$offerId);
+
+            $bpErrors = [];
+            startOfferListWorkflow(1324, (int)$offerId, [], $bpErrors);
 
             if ($sourceSnapshot !== null) {
                 $changes = [];
@@ -1037,7 +1084,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>ФИО руководителя (из списка) <span class="text-danger">*</span></label>
+                        <label>Руководитель <span class="text-danger">*</span></label>
                         <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
                         <div id="chiefSelector"></div>
                     </div>
@@ -1271,19 +1318,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>ID заявки на подбор</label>
-                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>">
+                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
                         <label>ID анкеты кандидата</label>
-                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>">
+                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
                         <label>ID кандидата Friendwork</label>
-                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>">
+                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
                         <label>Рекрутер (ID пользователя)</label>
-                        <input type="number" class="form-control" name="recruiter" value="<?=h($formData['recruiter'])?>">
+                        <input type="number" class="form-control" name="recruiter" value="<?=h($formData['recruiter'])?>" readonly>
                     </div>
                 </div>
 
