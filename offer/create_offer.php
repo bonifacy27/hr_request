@@ -267,20 +267,17 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
-function normalizeMoneyForStorage($value): string
+function appendHistory($old, $add): string
 {
-    $normalized = str_replace([" ", "\t", "\n", "\r", "\0", "\x0B", "\xc2\xa0"], '', trim((string)$value));
-    $normalized = str_replace(',', '.', $normalized);
-    if ($normalized === '') {
-        return '';
+    $old = trim((string)$old);
+    $add = trim((string)$add);
+    if ($old === '') {
+        return $add;
     }
-    if (!is_numeric($normalized)) {
-        return $normalized;
+    if ($add === '') {
+        return $old;
     }
-    if (floor((float)$normalized) == (float)$normalized) {
-        return (string)(int)$normalized;
-    }
-    return rtrim(rtrim($normalized, '0'), '.');
+    return $old . "\n\n" . $add;
 }
 
 function dateToStorageFormat(string $value): string
@@ -674,45 +671,31 @@ $equipmentNameById = $nameById($equipmentList);
 $regionNameById = $nameById($regionLocationList);
 
 $sourceSnapshot = null;
-$applyReadonlySourceFields = static function () use (&$formData, $candidate, $requestItem, $candidateId, $requestId, $currentUserId): void {
-    if ($candidateId > 0 && $candidate) {
-        $formData['request_id'] = (string)$candidate['REQUEST_ID'];
-        $formData['candidate_id'] = (string)$candidate['ID'];
-        $formData['fw_candidate_id'] = (string)$candidate['FW_CANDIDATE_ID'];
-        $formData['recruiter'] = (string)((int)$candidate['RECRUITER_ID'] > 0 ? (int)$candidate['RECRUITER_ID'] : $currentUserId);
-        return;
+if (($candidateId > 0 && $candidate) || $requestItem) {
+    $sourceSnapshot = [];
+    if ($candidate) {
+        $sourceSnapshot['candidate_fio'] = (string)$candidate['FIO'];
     }
-    if ($requestId > 0 && $requestItem) {
-        $formData['request_id'] = (string)$requestId;
-        $formData['candidate_id'] = '';
-        $formData['fw_candidate_id'] = '';
-        $formData['recruiter'] = (string)((int)$requestItem['RECRUITER_ID'] > 0 ? (int)$requestItem['RECRUITER_ID'] : $currentUserId);
-        return;
+    if ($requestItem) {
+        $sourceSnapshot += [
+            'organization' => (string)$requestItem['ORGANIZATION'],
+            'position' => (string)$requestItem['POSITION'],
+            'department' => (string)$requestItem['DEPARTMENT'],
+            'direction' => (string)$requestItem['DIRECTION'],
+            'chief' => (string)$requestItem['CHIEF'],
+            'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
+            'salary' => (string)$requestItem['SALARY'],
+            'isn' => (string)$requestItem['ISN'],
+            'bonus_type' => (string)$requestItem['BONUS_TYPE'],
+            'bonus_percent' => (string)$requestItem['BONUS_PERCENT'],
+            'office' => (string)$requestItem['OFFICE'],
+            'work_format' => (string)$requestItem['WORK_FORMAT'],
+            'work_schedule' => (string)$requestItem['WORK_SCHEDULE'],
+            'work_start' => (string)$requestItem['WORK_START'],
+            'equipment' => (string)$requestItem['EQUIPMENT'],
+            'equipment_text' => (string)$requestItem['EQUIPMENT_TEXT'],
+        ];
     }
-    $formData['recruiter'] = (string)$currentUserId;
-};
-$applyReadonlySourceFields();
-if ($candidateId > 0 && $candidate && $requestItem) {
-    $sourceSnapshot = [
-        'organization' => (string)$requestItem['ORGANIZATION'],
-        'candidate_fio' => (string)$candidate['FIO'],
-        'position' => (string)$requestItem['POSITION'],
-        'department' => (string)$requestItem['DEPARTMENT'],
-        'direction' => (string)$requestItem['DIRECTION'],
-        'chief' => (string)$requestItem['CHIEF'],
-        'is_chief_position' => normalizeChiefPosition((string)$requestItem['CHIEF_POSITION_FLAG']),
-        'contract_type' => (string)$requestItem['CONTRACT_TYPE'],
-        'salary' => (string)$requestItem['SALARY'],
-        'isn' => (string)$requestItem['ISN'],
-        'bonus_type' => (string)$requestItem['BONUS_TYPE'],
-        'bonus_percent' => (string)$requestItem['BONUS_PERCENT'],
-        'office' => (string)$requestItem['OFFICE'],
-        'work_format' => (string)$requestItem['WORK_FORMAT'],
-        'work_schedule' => (string)$requestItem['WORK_SCHEDULE'],
-        'work_start' => (string)$requestItem['WORK_START'],
-        'equipment' => (string)$requestItem['EQUIPMENT'],
-        'equipment_text' => (string)$requestItem['EQUIPMENT_TEXT'],
-    ];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
@@ -913,10 +896,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'department' => 'Подразделение',
                     'direction' => 'Дирекция',
                     'chief' => 'Руководитель',
-                    'is_chief_position' => 'Кандидат на руководящую должность',
                     'contract_type' => 'Тип трудового договора',
-                    'salary' => 'Оклад, руб.',
-                    'isn' => 'ИСН, руб.',
+                    'salary' => 'Оклад',
+                    'isn' => 'ИСН',
                     'bonus_type' => 'Тип премирования',
                     'bonus_percent' => 'Процент премии',
                     'office' => 'Офис',
@@ -927,6 +909,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'equipment_text' => 'Оборудование для работы (текст)',
                 ];
                 foreach ($labelMap as $key => $label) {
+                    if (!array_key_exists($key, $sourceSnapshot)) {
+                        continue;
+                    }
                     $old = trim((string)($sourceSnapshot[$key] ?? ''));
                     $new = trim((string)($formData[$key] ?? ''));
                     if ($old === $new) {
@@ -962,20 +947,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     } elseif ($key === 'chief') {
                         $oldDisplay = getUserDisplayNameById((int)$old);
                         $newDisplay = getUserDisplayNameById((int)$new);
-                    } elseif ($key === 'is_chief_position') {
-                        $oldDisplay = ($old === '1159' ? 'Да' : 'Нет');
-                        $newDisplay = ($new === '1159' ? 'Да' : 'Нет');
                     }
                     $changes[] = $label . ': ' . $oldDisplay . ' → ' . $newDisplay;
                 }
 
                 if (!empty($changes)) {
-                    $bpParams = [
-                        'par_Changes_type' => 'recruiter',
-                        'par_Changes' => implode("\n", $changes),
-                    ];
-                    $bpErrors = [];
-                    startOfferListWorkflow(1323, (int)$offerId, $bpParams, $bpErrors);
+                    global $USER;
+                    $who = is_object($USER) && method_exists($USER, 'GetFullName') ? trim((string)$USER->GetFullName()) : '';
+                    if ($who === '' && is_object($USER) && method_exists($USER, 'GetID')) {
+                        $who = 'ID ' . (int)$USER->GetID();
+                    }
+                    if ($who === '') {
+                        $who = 'неизвестный пользователь';
+                    }
+
+                    $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании оффера (рекрутер, {$who}):\n- " . implode("\n- ", $changes);
+                    $elUpdate = new CIBlockElement();
+                    $elUpdate->Update((int)$offerId, [
+                        'PREVIEW_TEXT' => appendHistory('', $historyBlock),
+                        'PREVIEW_TEXT_TYPE' => 'text',
+                    ]);
+
+                    if (Loader::includeModule('bizproc')) {
+                        $documentId = ['lists', 'BizprocDocument', (int)$offerId];
+                        $bpParams = [
+                            'par_Changes_type' => 'recruiter',
+                            'par_Changes' => (string)$historyBlock,
+                        ];
+                        $bpErrors = [];
+                        CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
+                    }
                 }
             }
             LocalRedirect('/services/lists/218/view/0/?list_section_id=');
