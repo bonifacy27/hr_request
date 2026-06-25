@@ -369,6 +369,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         $tripDuration = trim((string)($post['trip_duration'] ?? ''));
     }
 
+    $internalCandidate = trim((string)($post['internal_candidate'] ?? ''));
+    if (!$saveMessage && !in_array($internalCandidate, ['Да', 'Нет'], true)) {
+        $saveMessage = [
+            'type' => 'danger',
+            'text' => 'Поле «Есть ли внутренний кандидат на данную должность?» обязательно для заполнения.',
+        ];
+    }
+
     $managerName = trim((string)($post['employee_name'] ?? ''));
     $managerPosition = '';
     if ($managerId > 0) {
@@ -409,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'DATA_DEKRETA'                                  => fr_fmt_date($post['maternity_date'] ?? ''),
         'DATA_UVOLNENIYA'                               => fr_fmt_date($post['replacement_date'] ?? ''),
         'DATA_PEREVODA'                                 => fr_fmt_date($post['transfer_date'] ?? ''),
-        'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => trim((string)($post['internal_candidate'] ?? '')),
+        'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => $internalCandidate,
         'OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV'     => trim((string)($post['internal_departments'] ?? '')),
         'OBYAZANNOSTI'                                  => $dutiesEdited,
         // Исходные обязанности из карточки должности (не отредактированные)
@@ -640,6 +648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
           <label>Должностные обязанности <span class="text-danger">*</span></label>
           <input type="hidden" name="duties_original" id="dutiesOriginal" value="">
           <textarea class="form-control" name="duties" id="duties" rows="8" placeholder="Опишите ключевые обязанности..." required></textarea>
+          <small class="form-text text-muted">Заполните или внесите корректировки, если указанная информация не соответствует действительности.</small>
           <small class="form-text text-muted">Если выбрана должность из списка, поле может быть предзаполнено из карточки должности.</small>
         </div>
         <div class="form-row">
@@ -687,7 +696,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         </div>
         <div class="form-row">
           <div class="form-group col-md-4">
-            <label>Наличие водительских прав</label>
+            <label>Наличие водительского удостоверения</label>
             <select name="driver_license" class="form-control">
               <option>Не имеет значения</option>
               <option>Да</option>
@@ -810,7 +819,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             <label>Есть ли внутренний кандидат на данную должность? <span class="text-danger">*</span>
               <span class="bx-helpdesk ml-1" data-hint="Укажите, есть ли внутренний кандидат на эту должность?"></span>
             </label>
-            <input type="text" class="form-control" name="internal_candidate" required>
+            <select name="internal_candidate" class="form-control" required>
+              <option value="">— Выберите —</option>
+              <option value="Да">Да</option>
+              <option value="Нет">Нет</option>
+            </select>
           </div>
         </div>
         <div class="form-group">
