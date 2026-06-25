@@ -189,7 +189,19 @@ function getHLData($hlId, $select = array('*'), $filter = array(), $order = arra
 $legalList     = getIblockOptions(IBLOCK_LEGAL);
 $dep0List      = getIblockOptions(IBLOCK_DEP0);
 
-$scheduleRows = getHLData(12, ['ID','UF_SCHEDULE_NAME','UF_POSITION_ID']);
+$scheduleCurrentDate = new \Bitrix\Main\Type\DateTime();
+$scheduleRows = getHLData(
+    12,
+    ['ID','UF_SCHEDULE_NAME','UF_POSITION_ID','UF_FORMAT_START_DATE','UF_FORMAT_END_DATE'],
+    [
+        '<=UF_FORMAT_START_DATE' => $scheduleCurrentDate,
+        [
+            'LOGIC' => 'OR',
+            'UF_FORMAT_END_DATE' => false,
+            '>=UF_FORMAT_END_DATE' => $scheduleCurrentDate,
+        ],
+    ]
+);
 $positionIds = [];
 foreach ($scheduleRows as $r) {
     if (!empty($r['UF_POSITION_ID'])) $positionIds[] = $r['UF_POSITION_ID'];
