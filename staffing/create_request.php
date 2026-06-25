@@ -215,7 +215,16 @@ if ($positionIds) {
     }
 }
 $positionOptions = [];
+$shownPositionIds = [];
 foreach ($scheduleRows as $r) {
+    $pid = (string)$r['UF_POSITION_ID'];
+    if ($pid !== '' && isset($shownPositionIds[$pid])) {
+        continue;
+    }
+    if ($pid !== '') {
+        $shownPositionIds[$pid] = true;
+    }
+
     $raw = (string)$r['UF_SCHEDULE_NAME'];
     $posName = trim($raw);
     $deptName = '';
@@ -223,7 +232,6 @@ foreach ($scheduleRows as $r) {
         $posName = trim($m[1]);
         $deptName = trim($m[2]);
     }
-    $pid = (string)$r['UF_POSITION_ID'];
     $duties = $pid !== '' && isset($dutiesByPosId[$pid]) ? $dutiesByPosId[$pid] : '';
     $positionOptions[] = [
         'ROW_ID'          => (int)$r['ID'],
