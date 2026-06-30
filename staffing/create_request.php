@@ -189,7 +189,19 @@ function getHLData($hlId, $select = array('*'), $filter = array(), $order = arra
 $legalList     = getIblockOptions(IBLOCK_LEGAL);
 $dep0List      = getIblockOptions(IBLOCK_DEP0);
 
-$scheduleRows = getHLData(12, ['ID','UF_SCHEDULE_NAME','UF_POSITION_ID']);
+$scheduleCurrentDate = new \Bitrix\Main\Type\DateTime();
+$scheduleRows = getHLData(
+    12,
+    ['ID','UF_SCHEDULE_NAME','UF_POSITION_ID','UF_FORMAT_START_DATE','UF_FORMAT_END_DATE'],
+    [
+        '<=UF_FORMAT_START_DATE' => $scheduleCurrentDate,
+        [
+            'LOGIC' => 'OR',
+            'UF_FORMAT_END_DATE' => false,
+            '>=UF_FORMAT_END_DATE' => $scheduleCurrentDate,
+        ],
+    ]
+);
 $positionIds = [];
 foreach ($scheduleRows as $r) {
     if (!empty($r['UF_POSITION_ID'])) $positionIds[] = $r['UF_POSITION_ID'];
@@ -203,7 +215,16 @@ if ($positionIds) {
     }
 }
 $positionOptions = [];
+$shownPositionIds = [];
 foreach ($scheduleRows as $r) {
+    $pid = (string)$r['UF_POSITION_ID'];
+    if ($pid !== '' && isset($shownPositionIds[$pid])) {
+        continue;
+    }
+    if ($pid !== '') {
+        $shownPositionIds[$pid] = true;
+    }
+
     $raw = (string)$r['UF_SCHEDULE_NAME'];
     $posName = trim($raw);
     $deptName = '';
@@ -211,7 +232,6 @@ foreach ($scheduleRows as $r) {
         $posName = trim($m[1]);
         $deptName = trim($m[2]);
     }
-    $pid = (string)$r['UF_POSITION_ID'];
     $duties = $pid !== '' && isset($dutiesByPosId[$pid]) ? $dutiesByPosId[$pid] : '';
     $positionOptions[] = [
         'ROW_ID'          => (int)$r['ID'],
@@ -349,6 +369,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         $tripDuration = trim((string)($post['trip_duration'] ?? ''));
     }
 
+    $internalCandidate = trim((string)($post['internal_candidate'] ?? ''));
+    if (!$saveMessage && !in_array($internalCandidate, ['Да', 'Нет'], true)) {
+        $saveMessage = [
+            'type' => 'danger',
+            'text' => 'Поле «Есть ли внутренний кандидат на данную должность?» обязательно для заполнения.',
+        ];
+    }
+
     $managerName = trim((string)($post['employee_name'] ?? ''));
     $managerPosition = '';
     if ($managerId > 0) {
@@ -389,7 +417,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         'DATA_DEKRETA'                                  => fr_fmt_date($post['maternity_date'] ?? ''),
         'DATA_UVOLNENIYA'                               => fr_fmt_date($post['replacement_date'] ?? ''),
         'DATA_PEREVODA'                                 => fr_fmt_date($post['transfer_date'] ?? ''),
-        'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => trim((string)($post['internal_candidate'] ?? '')),
+        'EST_LI_VNUTRENNIY_KANDIDAT_NA_DANNUYU_DOLZHNOST' => $internalCandidate,
         'OTDELY_DLYA_POISKA_VNUTRENNIKH_KANDIDATOV'     => trim((string)($post['internal_departments'] ?? '')),
         'OBYAZANNOSTI'                                  => $dutiesEdited,
         // Исходные обязанности из карточки должности (не отредактированные)
@@ -620,6 +648,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
           <label>Должностные обязанности <span class="text-danger">*</span></label>
           <input type="hidden" name="duties_original" id="dutiesOriginal" value="">
           <textarea class="form-control" name="duties" id="duties" rows="8" placeholder="Опишите ключевые обязанности..." required></textarea>
+          <small class="form-text text-muted">Заполните или внесите корректировки, если указанная информация не соответствует действительности.</small>
           <small class="form-text text-muted">Если выбрана должность из списка, поле может быть предзаполнено из карточки должности.</small>
         </div>
         <div class="form-row">
@@ -667,7 +696,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         </div>
         <div class="form-row">
           <div class="form-group col-md-4">
-            <label>Наличие водительских прав</label>
+            <label>Наличие водительского удостоверения</label>
             <select name="driver_license" class="form-control">
               <option>Не имеет значения</option>
               <option>Да</option>
@@ -790,7 +819,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
             <label>Есть ли внутренний кандидат на данную должность? <span class="text-danger">*</span>
               <span class="bx-helpdesk ml-1" data-hint="Укажите, есть ли внутренний кандидат на эту должность?"></span>
             </label>
-            <input type="text" class="form-control" name="internal_candidate" required>
+            <select name="internal_candidate" class="form-control" required>
+              <option value="">— Выберите —</option>
+              <option value="Да">Да</option>
+              <option value="Нет">Нет</option>
+            </select>
           </div>
         </div>
         <div class="form-group">
