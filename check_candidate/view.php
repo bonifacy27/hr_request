@@ -33,7 +33,7 @@ $fieldsByCode = [
     'DIPLOM' => ['TYPE' => 'F', 'NAME' => 'Диплом'],
     'TRUDOVAYA_KNIZHKA' => ['TYPE' => 'F', 'NAME' => 'Трудовая книжка'],
     'STD_R' => ['TYPE' => 'F', 'NAME' => 'СТД-Р'],
-    'PRICHINA_OTSUTSTVIYA_TRUDOVOY' => ['TYPE' => 'S', 'NAME' => 'Причина отсутствия трудовой книжки'],
+    'PRICHINA_OTSUTSTVIYA_TRUDOVOY' => ['TYPE' => 'F', 'NAME' => 'Причина отсутствия трудовой книжки', 'SOURCE_CODE' => 'PROPERTY_3153'],
     'VOENNYY_BILET' => ['TYPE' => 'F', 'NAME' => 'Военный билет'],
     'RESUME' => ['TYPE' => 'F', 'NAME' => 'Резюме'],
     'COMP_SPEC' => ['TYPE' => 'F', 'NAME' => 'Характеристики ПК'],
@@ -223,6 +223,11 @@ foreach ($properties as $property) {
     if (!is_array($property)) {
         continue;
     }
+    $propertyId = (int)($property['ID'] ?? 0);
+    if ($propertyId > 0) {
+        $propertiesByCode['PROPERTY_' . $propertyId] = $property;
+    }
+
     $code = (string)($property['CODE'] ?? '');
     if ($code === '') {
         continue;
@@ -257,7 +262,8 @@ $propertiesByCode['CANDIDATE_FIO'] = [
             $rowsHtml = [];
             $absenceReasonCode = 'PRICHINA_OTSUTSTVIYA_TRUDOVOY';
             $absenceReasonConfig = $fieldsByCode[$absenceReasonCode] ?? null;
-            $absenceReasonProperty = $propertiesByCode[$absenceReasonCode] ?? null;
+            $absenceReasonSourceCode = (string)($absenceReasonConfig['SOURCE_CODE'] ?? $absenceReasonCode);
+            $absenceReasonProperty = $propertiesByCode[$absenceReasonSourceCode] ?? null;
             $absenceReasonHtml = ($absenceReasonConfig && $absenceReasonProperty)
                 ? renderValue($absenceReasonProperty, (string)$absenceReasonConfig['TYPE'])
                 : '';
