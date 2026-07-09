@@ -277,7 +277,7 @@ while ($ob = $res->GetNextElement()) {
         'CANDIDATE_FIO' => (string)($f[PROP_CANDIDATE_FIO . '_VALUE'] ?? ''),
         'PLANNED_SEND_DATE' => (string)($f[PROP_PLANNED_SEND_DATE . '_VALUE'] ?? ''),
         'POSITION' => (string)($f[PROP_POSITION . '_VALUE'] ?? ''),
-        'ORGANIZATION' => (string)($f[PROP_ORGANIZATION . '_VALUE'] ?? ''),
+        'ORGANIZATION' => html_entity_decode((string)($f[PROP_ORGANIZATION . '_VALUE'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => (string)($f[PROP_STATUS . '_VALUE'] ?? ''),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
@@ -336,59 +336,78 @@ function navPageUrl(int $pageNum): string
     return buildUrl(['PAGEN_1' => $pageNum]);
 }
 ?>
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
-.offer-list-page .toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
-.offer-list-page .toolbar .btn-primary { background:#2563eb; border-color:#2563eb; color:#fff; padding:7px 12px; border-radius:6px; text-decoration:none; }
-.offer-list-page .toolbar form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0; }
-.offer-list-page table { width:100%; border-collapse:collapse; }
-.offer-list-page th, .offer-list-page td { border:1px solid #d1d5db; padding:8px; vertical-align:top; }
-.offer-list-page th { background:#f8fafc; }
-.offer-list-page .actions { display:flex; flex-wrap:wrap; gap:6px; }
-.offer-list-page .btn { display:inline-block; padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
-.offer-list-page .btn-info { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
-.offer-list-page .muted { color:#6b7280; }
-.offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; border:1px solid #94a3b8; color:#334155; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
-.offer-list-page .status-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
+.offer-list-page { padding:16px 24px; }
+.offer-list-page .table thead th { white-space:nowrap; vertical-align:middle; }
+.offer-list-page .sort-link, .offer-list-page th a { color:#fff; text-decoration:none; }
+.offer-list-page .sort-link:hover, .offer-list-page th a:hover { color:#fff; text-decoration:underline; }
+.offer-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; padding:12px 14px; }
+.offer-list-page .filter-item { flex:0 0 auto; min-width:180px; }
+.offer-list-page .filter-item.search-item { width:320px; }
+.offer-list-page .actions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.offer-list-page .muted { color:#6c757d; }
+.offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:0; background:#6c757d; color:#fff; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
+.offer-list-page .info-btn:hover { background:#5a6268; color:#fff; text-decoration:none; }
+.offer-list-page .status-badge { display:inline-block; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
-.offer-list-page .pagination .active { background:#2563eb; border-color:#2563eb; color:#fff; }
-.offer-list-page .modal-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none; z-index:9998; }
-.offer-list-page .modal-card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:80vh; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(2,6,23,.25); display:none; z-index:9999; }
-.offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e2e8f0; }
+.offer-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
+.offer-list-page .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; z-index:9998; opacity:1; }
+.offer-list-page .modal-card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(900px, 92vw); max-height:82vh; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); display:none; z-index:9999; overflow:hidden; }
+.offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e5e5e5; }
 .offer-list-page .modal-title { font-weight:600; }
-.offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(80vh - 60px); }
+.offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(82vh - 60px); }
 </style>
 
-<div class="offer-list-page">
-    <div class="toolbar">
-        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn-primary">Создать оффер</a>
+<div class="container-fluid offer-list-page">
+    <h2 class="mb-3">Заявки на оффер</h2>
 
-        <form method="get" action="">
-            <input type="text" name="q" value="<?= h($q) ?>" placeholder="Поиск по ФИО кандидата">
+    <div class="d-flex flex-wrap align-items-center mb-3">
+        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn btn-success mr-3 mb-2">Создать оффер</a>
+    </div>
 
-            <select name="f_recruiter">
+    <form method="get" action="" class="card mb-3">
+        <div class="filter-toolbar">
+            <div class="filter-item search-item">
+                <label class="mb-1">Поиск по ФИО кандидата</label>
+                <input type="text" name="q" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Введите ФИО">
+            </div>
+
+            <div class="filter-item">
+                <label class="mb-1">Рекрутер</label>
+                <select name="f_recruiter" class="form-control form-control-sm">
                 <option value="0">Все рекрутеры</option>
                 <?php foreach ($recruiterOptionUsers as $uid => $u): ?>
                     <option value="<?= (int)$uid ?>" <?= $fRecruiter === (int)$uid ? 'selected' : '' ?>>
                         <?= h(formatUserName($u)) ?>
                     </option>
                 <?php endforeach; ?>
-            </select>
+                </select>
+            </div>
 
-            <select name="f_status">
+            <div class="filter-item">
+                <label class="mb-1">Статус</label>
+                <select name="f_status" class="form-control form-control-sm">
                 <option value="0">Все статусы</option>
                 <?php foreach ($statusEnumOptions as $sid => $sname): ?>
                     <option value="<?= (int)$sid ?>" <?= $fStatus === (int)$sid ? 'selected' : '' ?>><?= h($sname) ?></option>
                 <?php endforeach; ?>
-            </select>
+                </select>
+            </div>
 
-            <button type="submit" class="btn">Применить</button>
-            <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn">Сбросить</a>
+            <div class="ml-auto d-flex" style="gap:8px;">
+                <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+                <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+            </div>
+        </div>
         </form>
-    </div>
 
-    <table>
-        <thead>
+    <div class="mb-2 text-muted">Найдено: <?= (int)$res->NavRecordCount ?>, страница <?= (int)$res->NavPageNomer ?> из <?= (int)$res->NavPageCount ?></div>
+
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered table-hover">
+        <thead class="thead-dark">
         <tr>
             <th><?= sortLink('ID', 'ID', $sort, $dir) ?></th>
             <th><?= sortLink('CANDIDATE_FIO', 'Полное ФИО кандидата', $sort, $dir) ?></th>
@@ -438,11 +457,11 @@ function navPageUrl(int $pageNum): string
                     <td>
                         <div class="actions">
                             <?php if ($canManage): ?>
-                                <a class="btn" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Просмотр</a>
-                                <a class="btn" href="<?= h($row['EDIT_URL']) ?>" target="_blank" rel="noopener">Редактирование</a>
+                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Просмотр</a>
+                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['EDIT_URL']) ?>" target="_blank" rel="noopener">Редактирование</a>
                             <?php endif; ?>
                             <?php if ($taskUrl !== ''): ?>
-                                <a class="btn btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
+                                <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
                             <?php if (!$canManage && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
@@ -454,6 +473,7 @@ function navPageUrl(int $pageNum): string
         <?php endif; ?>
         </tbody>
     </table>
+    </div>
 
     <?php if ((int)$res->NavPageCount > 1): ?>
         <div class="pagination">
@@ -473,7 +493,7 @@ function navPageUrl(int $pageNum): string
     <div id="status-history-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="status-history-title">
         <div class="modal-head">
             <div id="status-history-title" class="modal-title">История статуса</div>
-            <button type="button" class="btn" id="status-history-close">Закрыть</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="status-history-close">Закрыть</button>
         </div>
         <div class="modal-body" id="status-history-content"></div>
     </div>

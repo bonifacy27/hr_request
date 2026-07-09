@@ -108,7 +108,7 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
     while ($row = $rs->GetNext()) {
         $prepared = [
             'ID' => (string)$row['ID'],
-            'NAME' => (string)$row['NAME'],
+            'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         ];
         foreach ($selectFields as $field) {
             $prepared[$field] = (string)($row[$field . '_VALUE'] ?? $row[$field] ?? '');
@@ -116,6 +116,32 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
         $res[] = $prepared;
     }
     return $res;
+}
+
+
+function moveNamedOptionsToTop(array $options, array $priorityNames): array
+{
+    $priorityMap = [];
+    foreach ($priorityNames as $index => $name) {
+        $priorityMap[mb_strtolower(trim((string)$name), 'UTF-8')] = $index;
+    }
+
+    $top = [];
+    $rest = [];
+    foreach ($options as $option) {
+        $normalizedName = mb_strtolower(trim((string)($option['NAME'] ?? '')), 'UTF-8');
+        if (array_key_exists($normalizedName, $priorityMap)) {
+            $top[] = ['sort' => $priorityMap[$normalizedName], 'row' => $option];
+        } else {
+            $rest[] = $option;
+        }
+    }
+
+    usort($top, static function ($a, $b) {
+        return $a['sort'] <=> $b['sort'];
+    });
+
+    return array_merge(array_column($top, 'row'), $rest);
 }
 
 function getIblockElementsById(int $iblockId, array $sort = ['ID' => 'DESC']): array
@@ -638,7 +664,7 @@ $equipmentList = getIblockOptions(326);
 $contractList = getIblockOptions(325);
 $organizationList = getIblockOptions(308);
 $trialPeriodList = getIblockOptions(324);
-$regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
+$regionLocationList = moveNamedOptionsToTop(getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']), ['Санкт-Петербург', 'Москва']);
 $bonusTypeList = getIblockOptions(327);
 $candidateList = getIblockElementsById(IBL_CANDIDATES);
 $requestList = getIblockElementsById(IBL_REQUESTS);
