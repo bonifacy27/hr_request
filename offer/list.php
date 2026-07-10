@@ -115,23 +115,69 @@ function getFieldValue(array $fields, string $property): string
 }
 
 
-function getPropertyValue(array $properties, int $propertyId): string
+function getLinkedElementName(int $elementId): string
 {
-    foreach ($properties as $property) {
-        if (!is_array($property) || (int)($property['ID'] ?? 0) !== $propertyId) {
+    static $cache = [];
+    if ($elementId <= 0) {
+        return '';
+    }
+    if (array_key_exists($elementId, $cache)) {
+        return $cache[$elementId];
+    }
+
+    $row = CIBlockElement::GetList([], ['ID' => $elementId], false, ['nTopCount' => 1], ['ID', 'NAME'])->GetNext();
+    $cache[$elementId] = $row ? displayValue($row['NAME'] ?? '') : '';
+    return $cache[$elementId];
+}
+
+function loadOfferPropertyValues(int $offerId, array $propertyIds): array
+{
+    $values = [];
+    if ($offerId <= 0 || empty($propertyIds)) {
+        return $values;
+    }
+
+    $rs = CIBlockElement::GetProperty(
+        IBL_OFFERS,
+        $offerId,
+        ['sort' => 'asc', 'id' => 'asc'],
+        ['ID' => array_values(array_unique(array_map('intval', $propertyIds)))]
+    );
+
+    while ($property = $rs->Fetch()) {
+        $propertyId = (int)($property['ID'] ?? 0);
+        if ($propertyId <= 0) {
             continue;
         }
 
-        $value = $property['VALUE'] ?? '';
-        if (($value === '' || $value === null) && isset($property['VALUE_ENUM'])) {
-            $value = $property['VALUE_ENUM'];
+        $rawValue = $property['VALUE'] ?? '';
+        $displayValue = $property['VALUE_ENUM'] ?? '';
+        if ($displayValue === '' || $displayValue === null) {
+            if (($property['PROPERTY_TYPE'] ?? '') === 'E' && is_numeric($rawValue)) {
+                $displayValue = getLinkedElementName((int)$rawValue);
+            }
         }
-        if (($value === '' || $value === null) && isset($property['VALUE_XML_ID'])) {
-            $value = $property['VALUE_XML_ID'];
+        if ($displayValue === '' || $displayValue === null) {
+            $displayValue = $rawValue;
         }
-        return displayValue($value);
+
+        $preparedValue = displayValue($displayValue);
+        if ($preparedValue === '') {
+            continue;
+        }
+        if (isset($values[$propertyId]) && $values[$propertyId] !== '') {
+            $values[$propertyId] .= ', ' . $preparedValue;
+        } else {
+            $values[$propertyId] = $preparedValue;
+        }
     }
-    return '';
+
+    return $values;
+}
+
+function getPropertyValue(array $properties, int $propertyId): string
+{
+    return (string)($properties[$propertyId] ?? '');
 }
 
 function renderOfferDetailsHtml(array $details): string
@@ -356,10 +402,16 @@ $res = CIBlockElement::GetList($arOrder, $filter, false, ['nPageSize' => $pageSi
 
 $items = [];
 $userIds = [];
+$detailPropertyIds = [
+    1157, 1158, 1161, 2753, 1996, 1163, 1164, 1168, 1169,
+    1165, 1184, 1998, 1186, 1170, 1172, 1235, 1234,
+    1159, 1174, 2001, 2002, 1177, 2755, 1767,
+    1327, 1326, 1328, 1329, 2070, 3130, 2857,
+];
 while ($ob = $res->GetNextElement()) {
     $f = $ob->GetFields();
-    $p = $ob->GetProperties();
     $id = (int)$f['ID'];
+    $p = loadOfferPropertyValues($id, $detailPropertyIds);
     $recruiterId = userIdFromValue($f[PROP_RECRUITER . '_VALUE'] ?? '');
 
     $taskIdForCurrentUser = (int)($currentUserTasksMap[$id] ?? 0);
