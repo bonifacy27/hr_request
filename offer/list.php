@@ -114,6 +114,26 @@ function getFieldValue(array $fields, string $property): string
     return displayValue($fields[$property . '_VALUE'] ?? '');
 }
 
+
+function getPropertyValue(array $properties, int $propertyId): string
+{
+    foreach ($properties as $property) {
+        if (!is_array($property) || (int)($property['ID'] ?? 0) !== $propertyId) {
+            continue;
+        }
+
+        $value = $property['VALUE'] ?? '';
+        if (($value === '' || $value === null) && isset($property['VALUE_ENUM'])) {
+            $value = $property['VALUE_ENUM'];
+        }
+        if (($value === '' || $value === null) && isset($property['VALUE_XML_ID'])) {
+            $value = $property['VALUE_XML_ID'];
+        }
+        return displayValue($value);
+    }
+    return '';
+}
+
 function renderOfferDetailsHtml(array $details): string
 {
     $html = '';
@@ -325,38 +345,10 @@ if ($sort === 'STATUS') $arOrder = [PROP_STATUS => $dir, 'ID' => 'DESC'];
 $arSelect = [
     'ID', 'DATE_CREATE',
     PROP_CANDIDATE_FIO,
-    PROP_CANDIDATE_PHONE,
-    PROP_PLANNED_SEND_DATE,
     PROP_POSITION,
-    PROP_DIRECTION,
-    PROP_DEPARTMENT,
-    PROP_CHIEF_FIO_FROM_LIST,
-    PROP_CHIEF_FIO_TEXT,
-    PROP_CHIEF_POSITION,
-    PROP_SALARY,
-    PROP_ISN,
-    PROP_BONUS_TYPE,
-    PROP_BONUS_PERCENT,
-    PROP_BONUS_RUB_GROSS,
-    PROP_MONTH_INCOME_AVG_GROSS,
-    PROP_RAYON_COEFFICIENT,
-    PROP_PERSONAL_ALLOWANCE,
-    PROP_PLANNED_START_DATE,
-    PROP_TRIAL_PERIOD,
-    PROP_CONTRACT_TYPE,
-    PROP_BENEFITS,
-    PROP_HOUSING_COMPENSATION,
-    PROP_REGION_LOCATION,
-    PROP_WORK_FORMAT,
-    PROP_OFFICE,
-    PROP_WORK_SCHEDULE,
-    PROP_WORK_START,
-    PROP_EQUIPMENT,
-    PROP_EQUIPMENT_TEXT,
     PROP_ORGANIZATION,
     PROP_RECRUITER,
     PROP_STATUS,
-    PROP_COMMENT,
     'PREVIEW_TEXT',
 ];
 
@@ -366,6 +358,7 @@ $items = [];
 $userIds = [];
 while ($ob = $res->GetNextElement()) {
     $f = $ob->GetFields();
+    $p = $ob->GetProperties();
     $id = (int)$f['ID'];
     $recruiterId = userIdFromValue($f[PROP_RECRUITER . '_VALUE'] ?? '');
 
@@ -375,61 +368,61 @@ while ($ob = $res->GetNextElement()) {
         [
             'title' => 'Кандидат',
             'rows' => [
-                ['label' => 'Полное ФИО кандидата', 'value' => getFieldValue($f, PROP_CANDIDATE_FIO)],
-                ['label' => 'Контактный телефон кандидата (в формате +7 ....)', 'value' => getFieldValue($f, PROP_CANDIDATE_PHONE)],
+                ['label' => 'Полное ФИО кандидата', 'value' => getPropertyValue($p, 1157)],
+                ['label' => 'Контактный телефон кандидата (в формате +7 ....)', 'value' => getPropertyValue($p, 1158)],
             ],
         ],
         [
             'title' => 'Позиция и структура',
             'rows' => [
-                ['label' => 'Должность (если отсутствует в списке)', 'value' => getFieldValue($f, PROP_POSITION)],
-                ['label' => 'Юридическое лицо', 'value' => getFieldValue($f, PROP_ORGANIZATION)],
-                ['label' => 'Дирекция', 'value' => getFieldValue($f, PROP_DIRECTION)],
-                ['label' => 'Подразделение (если отсутствует в списке)', 'value' => getFieldValue($f, PROP_DEPARTMENT)],
-                ['label' => 'ФИО руководителя (из списка)', 'value' => getFieldValue($f, PROP_CHIEF_FIO_FROM_LIST) ?: getFieldValue($f, PROP_CHIEF_FIO_TEXT)],
-                ['label' => 'Должность руководителя', 'value' => getFieldValue($f, PROP_CHIEF_POSITION)],
+                ['label' => 'Должность (если отсутствует в списке)', 'value' => getPropertyValue($p, 1161)],
+                ['label' => 'Юридическое лицо', 'value' => getPropertyValue($p, 2753)],
+                ['label' => 'Дирекция', 'value' => getPropertyValue($p, 1996)],
+                ['label' => 'Подразделение (если отсутствует в списке)', 'value' => getPropertyValue($p, 1163)],
+                ['label' => 'ФИО руководителя (из списка)', 'value' => getPropertyValue($p, 1164) ?: getPropertyValue($p, 1168)],
+                ['label' => 'Должность руководителя', 'value' => getPropertyValue($p, 1169)],
             ],
         ],
         [
             'title' => 'Компенсация',
             'rows' => [
-                ['label' => 'Оклад, руб. Гросс', 'value' => getFieldValue($f, PROP_SALARY)],
-                ['label' => 'ИСН, руб. Гросс', 'value' => getFieldValue($f, PROP_ISN)],
-                ['label' => 'Премиальная часть', 'value' => getFieldValue($f, PROP_BONUS_TYPE)],
-                ['label' => 'Премиальная часть, % премии от оклада', 'value' => getFieldValue($f, PROP_BONUS_PERCENT)],
-                ['label' => 'Премиальная часть, руб. Гросс', 'value' => getFieldValue($f, PROP_BONUS_RUB_GROSS)],
-                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => getFieldValue($f, PROP_MONTH_INCOME_AVG_GROSS)],
-                ['label' => 'Районный коэффициент', 'value' => getFieldValue($f, PROP_RAYON_COEFFICIENT)],
-                ['label' => 'Северная надбавка %%', 'value' => getFieldValue($f, PROP_PERSONAL_ALLOWANCE)],
+                ['label' => 'Оклад, руб. Гросс', 'value' => getPropertyValue($p, 1165)],
+                ['label' => 'ИСН, руб. Гросс', 'value' => getPropertyValue($p, 1184)],
+                ['label' => 'Премиальная часть', 'value' => getPropertyValue($p, 1998)],
+                ['label' => 'Премиальная часть, % премии от оклада', 'value' => getPropertyValue($p, 1186)],
+                ['label' => 'Премиальная часть, руб. Гросс', 'value' => getPropertyValue($p, 1170)],
+                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => getPropertyValue($p, 1172)],
+                ['label' => 'Районный коэффициент', 'value' => getPropertyValue($p, 1235)],
+                ['label' => 'Северная надбавка %%', 'value' => getPropertyValue($p, 1234)],
             ],
         ],
         [
             'title' => 'Даты и условия',
             'rows' => [
-                ['label' => 'Планируемая дата отправки оффера кандидату', 'value' => getFieldValue($f, PROP_PLANNED_SEND_DATE)],
-                ['label' => 'Планируемая дата выхода на работу', 'value' => getFieldValue($f, PROP_PLANNED_START_DATE)],
-                ['label' => 'Испытательный срок', 'value' => getFieldValue($f, PROP_TRIAL_PERIOD)],
-                ['label' => 'Договор с сотрудником', 'value' => getFieldValue($f, PROP_CONTRACT_TYPE)],
-                ['label' => 'Социальный пакет', 'value' => getFieldValue($f, PROP_BENEFITS)],
-                ['label' => 'Компенсация аренды жилья', 'value' => getFieldValue($f, PROP_HOUSING_COMPENSATION)],
-                ['label' => 'Регион-локация кандидата', 'value' => getFieldValue($f, PROP_REGION_LOCATION)],
+                ['label' => 'Планируемая дата отправки оффера кандидату', 'value' => getPropertyValue($p, 1159)],
+                ['label' => 'Планируемая дата выхода на работу', 'value' => getPropertyValue($p, 1174)],
+                ['label' => 'Испытательный срок', 'value' => getPropertyValue($p, 2001)],
+                ['label' => 'Договор с сотрудником', 'value' => getPropertyValue($p, 2002)],
+                ['label' => 'Социальный пакет', 'value' => getPropertyValue($p, 1177)],
+                ['label' => 'Компенсация аренды жилья', 'value' => getPropertyValue($p, 2755)],
+                ['label' => 'Регион-локация кандидата', 'value' => getPropertyValue($p, 1767)],
             ],
         ],
         [
             'title' => 'Рабочее место',
             'rows' => [
-                ['label' => 'Формат работы', 'value' => getFieldValue($f, PROP_WORK_FORMAT)],
-                ['label' => 'Адрес офиса', 'value' => getFieldValue($f, PROP_OFFICE)],
-                ['label' => 'График работы', 'value' => getFieldValue($f, PROP_WORK_SCHEDULE)],
-                ['label' => 'Начало рабочего дня', 'value' => getFieldValue($f, PROP_WORK_START)],
-                ['label' => 'Оборудование для работы', 'value' => getFieldValue($f, PROP_EQUIPMENT)],
-                ['label' => 'Оборудование для работы (текст)', 'value' => getFieldValue($f, PROP_EQUIPMENT_TEXT)],
+                ['label' => 'Формат работы', 'value' => getPropertyValue($p, 1327)],
+                ['label' => 'Адрес офиса', 'value' => getPropertyValue($p, 1326)],
+                ['label' => 'График работы', 'value' => getPropertyValue($p, 1328)],
+                ['label' => 'Начало рабочего дня', 'value' => getPropertyValue($p, 1329)],
+                ['label' => 'Оборудование для работы', 'value' => getPropertyValue($p, 2070)],
+                ['label' => 'Оборудование для работы (текст)', 'value' => getPropertyValue($p, 3130)],
             ],
         ],
         [
             'title' => 'Дополнительно',
             'rows' => [
-                ['label' => 'Комментарии', 'value' => getFieldValue($f, PROP_COMMENT)],
+                ['label' => 'Комментарии', 'value' => getPropertyValue($p, 2857)],
                 ['label' => 'Путь создания оффера', 'value' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? ''))],
             ],
         ],
