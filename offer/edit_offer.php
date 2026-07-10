@@ -1388,6 +1388,7 @@ BX.ready(function () {
     var monthIncomeWrap = document.getElementById('monthIncomeWrap');
     var regionCalc = <?=CUtil::PhpToJSObject($regionCalcById, false, true)?>;
     var regionNameById = <?=CUtil::PhpToJSObject($regionNameById, false, true)?>;
+    var isInitialRegionSync = true;
     if (!searchInput || !regionSelect) {
         return;
     }
@@ -1409,13 +1410,13 @@ BX.ready(function () {
         var value = regionSelect.value || '';
         if (value === '' || !regionCalc[value]) {
             if (rayonInput) rayonInput.value = '';
-            if (allowanceInput) allowanceInput.value = '0';
+            if (!isInitialRegionSync && allowanceInput) allowanceInput.value = '0';
             recalcIncomeFields();
             syncRegionExtraFields();
             return;
         }
         if (rayonInput) rayonInput.value = regionCalc[value].rayon_coefficient || '';
-        if (allowanceInput) allowanceInput.value = regionCalc[value].personal_allowance || '0';
+        if (!isInitialRegionSync && allowanceInput) allowanceInput.value = regionCalc[value].personal_allowance || '0';
         syncRegionExtraFields();
         recalcIncomeFields();
     });
@@ -1794,6 +1795,7 @@ BX.ready(function () {
     }
 
     regionSelect.dispatchEvent(new Event('change'));
+    isInitialRegionSync = false;
     syncRegionExtraFields();
     syncBonusPercentRequired();
     syncPlannedDateConstraint();
