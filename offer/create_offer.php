@@ -743,6 +743,18 @@ if (($candidateId > 0 && $candidate) || $requestItem) {
     }
 }
 
+
+$applyReadonlySourceFields = static function () use (&$formData, $sourceSnapshot): void {
+    if (!is_array($sourceSnapshot)) {
+        return;
+    }
+    foreach ($sourceSnapshot as $key => $value) {
+        if (array_key_exists($key, $formData)) {
+            $formData[$key] = (string)$value;
+        }
+    }
+};
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
