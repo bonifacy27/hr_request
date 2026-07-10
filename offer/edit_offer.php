@@ -158,7 +158,7 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
     while ($row = $rs->GetNext()) {
         $prepared = [
             'ID' => (string)$row['ID'],
-            'NAME' => (string)$row['NAME'],
+            'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         ];
         foreach ($selectFields as $field) {
             $prepared[$field] = (string)($row[$field . '_VALUE'] ?? $row[$field] ?? '');
@@ -331,14 +331,23 @@ function getOfferById(int $offerId): ?array
 
     $values = [];
     foreach ($propIds as $propId) {
+        $values[$propId] = '';
         $rs = CIBlockElement::GetProperty(IBL_OFFERS, (int)$row['ID'], ['sort' => 'asc'], ['ID' => $propId]);
-        $p = $rs->Fetch();
-        $values[$propId] = trim((string)($p['VALUE'] ?? ''));
+        while ($p = $rs->Fetch()) {
+            $value = trim((string)($p['VALUE'] ?? ''));
+            if ($value === '' && isset($p['VALUE_ENUM'])) {
+                $value = trim((string)$p['VALUE_ENUM']);
+            }
+            if ($value === '') {
+                continue;
+            }
+            $values[$propId] = $values[$propId] === '' ? $value : ($values[$propId] . ', ' . $value);
+        }
     }
 
     return [
         'ID' => (int)$row['ID'],
-        'NAME' => (string)$row['NAME'],
+        'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         'PROPS' => $values,
     ];
 }
@@ -734,10 +743,14 @@ $equipmentNameById = $nameById($equipmentList);
 $regionNameById = $nameById($regionLocationList);
 
 $sourceSnapshot = $formData;
+$recruiterDisplayName = getUserDisplayNameById((int)$formData['recruiter']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
+    }
+    foreach (['request_id', 'candidate_id', 'fw_candidate_id', 'recruiter', 'comment'] as $readonlyKey) {
+        $formData[$readonlyKey] = (string)($sourceSnapshot[$readonlyKey] ?? $formData[$readonlyKey] ?? '');
     }
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
@@ -1290,28 +1303,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         <div class="card mb-3">
             <div class="card-header">Связи</div>
             <div class="card-body">
+                <div class="alert alert-info py-2">Справочная информация. Поля этого блока не редактируются.</div>
                 <div class="form-row">
                     <div class="form-group col-md-4">
                         <label>ID заявки на подбор</label>
-                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>">
+                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
                         <label>ID анкеты кандидата</label>
-                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>">
+                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
                         <label>ID кандидата Friendwork</label>
-                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>">
+                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>" readonly>
                     </div>
                     <div class="form-group col-md-4">
-                        <label>Рекрутер (ID пользователя)</label>
-                        <input type="number" class="form-control" name="recruiter" value="<?=h($formData['recruiter'])?>">
+                        <label>Рекрутер</label>
+                        <input type="hidden" name="recruiter" value="<?=h($formData['recruiter'])?>">
+                        <input type="text" class="form-control" value="<?=h($recruiterDisplayName !== '' ? $recruiterDisplayName : ('ID ' . $formData['recruiter']))?>" readonly>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label>Комментарий</label>
-                    <textarea class="form-control" name="comment" rows="2"><?=h($formData['comment'])?></textarea>
+                    <textarea class="form-control" name="comment" rows="2" readonly><?=h($formData['comment'])?></textarea>
                 </div>
             </div>
         </div>
