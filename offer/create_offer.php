@@ -60,7 +60,7 @@ const OFFER_PROP_EQUIPMENT = 2070;
 const OFFER_PROP_EQUIPMENT_TEXT = 3130;
 const OFFER_PROP_CONTRACT_TYPE = 2002;
 const OFFER_PROP_ORGANIZATION = 2753;
-const OFFER_PROP_HOUSING_COMPENSATION = 2755;
+const OFFER_PROP_HOUSING_COMPENSATION = 3147;
 const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
 const OFFER_PROP_RAYON_COEFFICIENT = 1235;
@@ -77,6 +77,25 @@ const DEFAULT_ORGANIZATION = '3197820';
 function h($s): string
 {
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+
+function normalizeMoneyForStorage($value): string
+{
+    $value = str_replace(["\xc2\xa0", ' '], '', trim((string)$value));
+    $value = str_replace(',', '.', $value);
+    return $value;
+}
+
+function formatMoneyForDisplay($value): string
+{
+    $normalized = normalizeMoneyForStorage($value);
+    if ($normalized === '' || !is_numeric($normalized)) {
+        return trim((string)$value);
+    }
+    $number = (float)$normalized;
+    $decimals = floor($number) == $number ? 0 : 2;
+    return number_format($number, $decimals, ',', ' ');
 }
 
 function userIdFromValue($raw): int
@@ -108,7 +127,7 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
     while ($row = $rs->GetNext()) {
         $prepared = [
             'ID' => (string)$row['ID'],
-            'NAME' => (string)$row['NAME'],
+            'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
         ];
         foreach ($selectFields as $field) {
             $prepared[$field] = (string)($row[$field . '_VALUE'] ?? $row[$field] ?? '');
@@ -116,6 +135,32 @@ function getIblockOptions(int $iblockId, array $selectFields = []): array
         $res[] = $prepared;
     }
     return $res;
+}
+
+
+function moveNamedOptionsToTop(array $options, array $priorityNames): array
+{
+    $priorityMap = [];
+    foreach ($priorityNames as $index => $name) {
+        $priorityMap[mb_strtolower(trim((string)$name), 'UTF-8')] = $index;
+    }
+
+    $top = [];
+    $rest = [];
+    foreach ($options as $option) {
+        $normalizedName = mb_strtolower(trim((string)($option['NAME'] ?? '')), 'UTF-8');
+        if (array_key_exists($normalizedName, $priorityMap)) {
+            $top[] = ['sort' => $priorityMap[$normalizedName], 'row' => $option];
+        } else {
+            $rest[] = $option;
+        }
+    }
+
+    usort($top, static function ($a, $b) {
+        return $a['sort'] <=> $b['sort'];
+    });
+
+    return array_merge(array_column($top, 'row'), $rest);
 }
 
 function getIblockElementsById(int $iblockId, array $sort = ['ID' => 'DESC']): array
@@ -638,7 +683,7 @@ $equipmentList = getIblockOptions(326);
 $contractList = getIblockOptions(325);
 $organizationList = getIblockOptions(308);
 $trialPeriodList = getIblockOptions(324);
-$regionLocationList = getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']);
+$regionLocationList = moveNamedOptionsToTop(getIblockOptions(293, ['PROPERTY_1765', 'PROPERTY_1832']), ['Санкт-Петербург', 'Москва']);
 $bonusTypeList = getIblockOptions(327);
 $candidateList = getIblockElementsById(IBL_CANDIDATES);
 $requestList = getIblockElementsById(IBL_REQUESTS);
@@ -702,7 +747,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
-    $applyReadonlySourceFields();
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
     if ($candidateId <= 0 && $requestId <= 0) {
@@ -841,14 +885,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
             OFFER_PROP_CHIEF_FIO_TEXT => getUserFullFioById((int)$formData['chief']),
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
-            OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
-            OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
-            OFFER_PROP_SALARY_NDFL => $formData['salary_ndfl'],
-            OFFER_PROP_ISN_NDFL => $formData['isn_ndfl'],
-            OFFER_PROP_BONUS_RUB_NDFL => $formData['bonus_rub_ndfl'],
-            OFFER_PROP_MONTH_INCOME_AVG_NDFL => $formData['month_income_avg_ndfl'],
+            OFFER_PROP_BONUS_RUB_GROSS => normalizeMoneyForStorage($formData['bonus_rub_gross']),
+            OFFER_PROP_MONTH_INCOME_AVG_GROSS => normalizeMoneyForStorage($formData['month_income_avg_gross']),
+            OFFER_PROP_SALARY_NDFL => normalizeMoneyForStorage($formData['salary_ndfl']),
+            OFFER_PROP_ISN_NDFL => normalizeMoneyForStorage($formData['isn_ndfl']),
+            OFFER_PROP_BONUS_RUB_NDFL => normalizeMoneyForStorage($formData['bonus_rub_ndfl']),
+            OFFER_PROP_MONTH_INCOME_AVG_NDFL => normalizeMoneyForStorage($formData['month_income_avg_ndfl']),
             OFFER_PROP_SALARY => normalizeMoneyForStorage($formData['salary']),
-            OFFER_PROP_ISN => $formData['isn'],
+            OFFER_PROP_ISN => normalizeMoneyForStorage($formData['isn']),
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
@@ -862,7 +906,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_EQUIPMENT_TEXT => $formData['equipment_text'],
             OFFER_PROP_CONTRACT_TYPE => ($formData['contract_type'] !== '' ? $formData['contract_type'] : DEFAULT_CONTRACT),
             OFFER_PROP_ORGANIZATION => ($formData['organization'] !== '' ? $formData['organization'] : DEFAULT_ORGANIZATION),
-            OFFER_PROP_HOUSING_COMPENSATION => $formData['housing_compensation'],
+            OFFER_PROP_HOUSING_COMPENSATION => normalizeMoneyForStorage($formData['housing_compensation']),
             OFFER_PROP_REGION_LOCATION => $formData['region_location'],
             OFFER_PROP_PERSONAL_ALLOWANCE => $formData['personal_allowance'],
             OFFER_PROP_RAYON_COEFFICIENT => $formData['rayon_coefficient'],
@@ -907,13 +951,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'work_start' => 'Начало рабочего дня',
                     'equipment' => 'Оборудование',
                     'equipment_text' => 'Оборудование для работы (текст)',
+                    'housing_compensation' => 'Компенсация аренды жилья',
                 ];
+                $moneyChangeKeys = ['salary', 'isn', 'housing_compensation'];
                 foreach ($labelMap as $key => $label) {
                     if (!array_key_exists($key, $sourceSnapshot)) {
                         continue;
                     }
                     $old = trim((string)($sourceSnapshot[$key] ?? ''));
                     $new = trim((string)($formData[$key] ?? ''));
+                    if (in_array($key, $moneyChangeKeys, true)) {
+                        $old = normalizeMoneyForStorage($old);
+                        $new = normalizeMoneyForStorage($new);
+                    }
                     if ($old === $new) {
                         continue;
                     }
@@ -968,15 +1018,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         'PREVIEW_TEXT_TYPE' => 'text',
                     ]);
 
-                    if (Loader::includeModule('bizproc')) {
-                        $documentId = ['lists', 'BizprocDocument', (int)$offerId];
-                        $bpParams = [
-                            'par_Changes_type' => 'recruiter',
-                            'par_Changes' => (string)$historyBlock,
-                        ];
-                        $bpErrors = [];
-                        CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
-                    }
+                    $bpParams = [
+                        'par_Changes_type' => 'recruiter',
+                        'par_Changes' => (string)$historyBlock,
+                    ];
+                    $bpErrors = [];
+                    startOfferListWorkflow(1323, (int)$offerId, $bpParams, $bpErrors);
                 }
             }
             LocalRedirect('/services/lists/218/view/0/?list_section_id=');
@@ -1145,22 +1192,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>Оклад, руб. <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
+                        <input type="text" class="form-control" name="salary" value="<?=h(formatMoneyForDisplay($formData['salary']))?>" required>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Оклад, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h(formatMoneyForDisplay($formData['salary_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="salaryNdflInfo"></small>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>ИСН, руб.</label>
-                        <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                        <input type="text" class="form-control" name="isn" value="<?=h(formatMoneyForDisplay($formData['isn']))?>">
                     </div>
                     <div class="form-group col-md-6">
                         <label>ИСН, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h(formatMoneyForDisplay($formData['isn_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="isnNdflInfo"></small>
                     </div>
                 </div>
@@ -1185,22 +1232,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>Премиальная часть, руб. Гросс</label>
-                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h(formatMoneyForDisplay($formData['bonus_rub_gross']))?>" readonly>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h(formatMoneyForDisplay($formData['bonus_rub_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="bonusNdflInfo"></small>
                     </div>
                 </div>
                 <div class="form-row" id="monthIncomeWrap">
                     <div class="form-group col-md-6">
                         <label>Доход в месяц в среднем, руб. Гросс</label>
-                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h(formatMoneyForDisplay($formData['month_income_avg_gross']))?>" readonly>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Доход в месяц в среднем, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h($formData['month_income_avg_ndfl'])?>" readonly>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h(formatMoneyForDisplay($formData['month_income_avg_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
                     </div>
                 </div>
@@ -1307,43 +1354,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
                 <div class="form-group">
                     <label>Компенсация аренды жилья</label>
-                    <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
+                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
                 </div>
             </div>
         </div>
 
         <div class="card mb-3">
             <div class="card-header">Связи</div>
-            <div class="card-body">
-                <div class="form-row">
-                    <div class="form-group col-md-4">
-                        <label>ID заявки на подбор</label>
-                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>ID анкеты кандидата</label>
-                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>ID кандидата Friendwork</label>
-                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Рекрутер (ID пользователя)</label>
-                        <input type="number" class="form-control" name="recruiter" value="<?=h($formData['recruiter'])?>" readonly>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Комментарий</label>
-                    <textarea class="form-control" name="comment" rows="2"><?=h($formData['comment'])?></textarea>
-                </div>
+            <div class="card-body py-2">
+                <input type="hidden" name="request_id" value="<?=h($formData['request_id'])?>">
+                <input type="hidden" name="candidate_id" value="<?=h($formData['candidate_id'])?>">
+                <input type="hidden" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>">
+                <input type="hidden" name="recruiter" value="<?=h($formData['recruiter'])?>">
+                <input type="hidden" name="comment" value="<?=h($formData['comment'])?>">
+                <dl class="row mb-0 small">
+                    <dt class="col-md-3">ID заявки на подбор</dt><dd class="col-md-3"><?=h($formData['request_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">ID анкеты кандидата</dt><dd class="col-md-3"><?=h($formData['candidate_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">ID кандидата Friendwork</dt><dd class="col-md-3"><?=h($formData['fw_candidate_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">Рекрутер</dt><dd class="col-md-3"><?=h(getUserDisplayNameById((int)$formData['recruiter']) ?: ($formData['recruiter'] ? ('ID ' . $formData['recruiter']) : '—'))?></dd>
+                    <dt class="col-md-3">Путь создания оффера</dt><dd class="col-md-9"><?=h($formData['comment'] ?: '—')?></dd>
+                </dl>
             </div>
         </div>
 
         <div class="text-right">
             <button type="submit" class="btn btn-primary" name="action" value="save">Создать оффер</button>
-            <a href="/services/lists/218/view/0/?list_section_id=" class="btn btn-link">К списку офферов</a>
+            <a href="/forms/staff_recruitment/offer/list.php" class="btn btn-link">К списку офферов</a>
         </div>
     </form>
 </div>
@@ -1566,6 +1602,25 @@ BX.ready(function () {
         var num = toNum(value);
         var rounded = Math.round(num);
         return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    }
+
+
+    function normalizeMoneyForSubmit(value) {
+        return String(value || '').replace(/\s+/g, '').replace(',', '.');
+    }
+
+    function normalizeMoneyInputsBeforeSubmit() {
+        [salaryInput, isnInput, salaryNdflInput, isnNdflInput, bonusRubGrossInput, bonusRubNdflInput, monthIncomeAvgInput, monthIncomeAvgNdflInput].forEach(function (el) {
+            if (!el) return;
+            el.value = normalizeMoneyForSubmit(el.value);
+        });
+        var housingInput = document.querySelector('input[name="housing_compensation"]');
+        if (housingInput) housingInput.value = normalizeMoneyForSubmit(housingInput.value);
+    }
+
+    var offerForm = document.querySelector('form[method="post"]');
+    if (offerForm) {
+        offerForm.addEventListener('submit', normalizeMoneyInputsBeforeSubmit);
     }
 
     function calcNdfl(gross) {

@@ -19,11 +19,46 @@ CJSCore::Init(['popup']);
 
 const IBL_OFFERS = 218;
 const PROP_CANDIDATE_FIO = 'PROPERTY_1157';
+const PROP_CANDIDATE_PHONE = 'PROPERTY_1158';
 const PROP_PLANNED_SEND_DATE = 'PROPERTY_1159';
+const PROP_IS_CHIEF_POSITION = 'PROPERTY_1618';
 const PROP_POSITION = 'PROPERTY_1161';
+const PROP_DIRECTION = 'PROPERTY_1996';
+const PROP_DEPARTMENT = 'PROPERTY_1163';
+const PROP_CHIEF_FIO_FROM_LIST = 'PROPERTY_1164';
+const PROP_CHIEF_FIO_TEXT = 'PROPERTY_1168';
+const PROP_CHIEF_POSITION = 'PROPERTY_1169';
+const PROP_BONUS_RUB_GROSS = 'PROPERTY_1170';
+const PROP_MONTH_INCOME_AVG_GROSS = 'PROPERTY_1172';
+const PROP_SALARY_NDFL = 'PROPERTY_1166';
+const PROP_ISN_NDFL = 'PROPERTY_1167';
+const PROP_BONUS_RUB_NDFL = 'PROPERTY_1171';
+const PROP_MONTH_INCOME_AVG_NDFL = 'PROPERTY_1173';
+const PROP_SALARY = 'PROPERTY_1165';
+const PROP_ISN = 'PROPERTY_1184';
+const PROP_BONUS_TYPE = 'PROPERTY_1998';
+const PROP_BONUS_PERCENT = 'PROPERTY_1186';
+const PROP_TRIAL_PERIOD = 'PROPERTY_2001';
+const PROP_PLANNED_START_DATE = 'PROPERTY_1174';
+const PROP_BENEFITS = 'PROPERTY_1177';
+const PROP_WORK_FORMAT = 'PROPERTY_1327';
+const PROP_OFFICE = 'PROPERTY_1326';
+const PROP_WORK_SCHEDULE = 'PROPERTY_1328';
+const PROP_WORK_START = 'PROPERTY_1329';
+const PROP_EQUIPMENT = 'PROPERTY_2070';
+const PROP_EQUIPMENT_TEXT = 'PROPERTY_3130';
+const PROP_CONTRACT_TYPE = 'PROPERTY_2002';
 const PROP_ORGANIZATION = 'PROPERTY_2753';
+const PROP_HOUSING_COMPENSATION = 'PROPERTY_3147';
+const PROP_REGION_LOCATION = 'PROPERTY_1767';
+const PROP_PERSONAL_ALLOWANCE = 'PROPERTY_1234';
+const PROP_RAYON_COEFFICIENT = 'PROPERTY_1235';
 const PROP_RECRUITER = 'PROPERTY_1190';
 const PROP_STATUS = 'PROPERTY_1189';
+const PROP_REQUEST_ID = 'PROPERTY_1601';
+const PROP_CANDIDATE_ID = 'PROPERTY_1603';
+const PROP_FW_CANDIDATE_ID = 'PROPERTY_1602';
+const PROP_COMMENT = 'PROPERTY_2857';
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
@@ -31,7 +66,7 @@ function decodeStatusHistoryHtml(string $raw): string
 {
     $decoded = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     if (preg_match('/[ÐÑ]/u', $decoded)) {
-        $decoded = mb_convert_encoding($decoded, 'ISO-8859-1', 'UTF-8');
+        $decoded = mb_convert_encoding($decoded, 'UTF-8', 'ISO-8859-1');
     }
     $decoded = str_replace(["\\r\\n", "\\n", "\\r"], "\n", $decoded);
     $decoded = preg_replace('/<br\\s*\\/?>/iu', "<br>", $decoded);
@@ -60,6 +95,135 @@ function getStatusBadgeColor(string $status): string
 function h($s): string
 {
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+
+function displayValue($value): string
+{
+    if (is_array($value)) {
+        $value = implode(', ', array_filter(array_map('strval', $value), static function ($part) {
+            return trim($part) !== '';
+        }));
+    }
+    $decoded = html_entity_decode((string)$value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim($decoded);
+}
+
+
+function formatMoneyForDisplay($value): string
+{
+    $normalized = str_replace(["\xc2\xa0", ' '], '', trim((string)$value));
+    $normalized = str_replace(',', '.', $normalized);
+    if ($normalized === '' || !is_numeric($normalized)) {
+        return trim((string)$value);
+    }
+    $number = (float)$normalized;
+    $decimals = floor($number) == $number ? 0 : 2;
+    return number_format($number, $decimals, ',', ' ');
+}
+
+function getUserDisplayNameById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    $name = trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
+    return $name !== '' ? $name : (string)($user['LOGIN'] ?? $userId);
+}
+
+function getFieldValue(array $fields, string $property): string
+{
+    return displayValue($fields[$property . '_VALUE'] ?? '');
+}
+
+
+function getLinkedElementName(int $elementId): string
+{
+    static $cache = [];
+    if ($elementId <= 0) {
+        return '';
+    }
+    if (array_key_exists($elementId, $cache)) {
+        return $cache[$elementId];
+    }
+
+    $row = CIBlockElement::GetList([], ['ID' => $elementId], false, ['nTopCount' => 1], ['ID', 'NAME'])->GetNext();
+    $cache[$elementId] = $row ? displayValue($row['NAME'] ?? '') : '';
+    return $cache[$elementId];
+}
+
+function loadOfferPropertyValues(int $offerId, array $propertyIds): array
+{
+    $values = [];
+    if ($offerId <= 0 || empty($propertyIds)) {
+        return $values;
+    }
+
+    $rs = CIBlockElement::GetProperty(
+        IBL_OFFERS,
+        $offerId,
+        ['sort' => 'asc', 'id' => 'asc'],
+        ['ID' => array_values(array_unique(array_map('intval', $propertyIds)))]
+    );
+
+    while ($property = $rs->Fetch()) {
+        $propertyId = (int)($property['ID'] ?? 0);
+        if ($propertyId <= 0) {
+            continue;
+        }
+
+        $rawValue = $property['VALUE'] ?? '';
+        $displayValue = $property['VALUE_ENUM'] ?? '';
+        if ($propertyId === 1164 && is_numeric($rawValue)) {
+            $displayValue = getUserDisplayNameById((int)$rawValue);
+        }
+        if ($displayValue === '' || $displayValue === null) {
+            if (($property['PROPERTY_TYPE'] ?? '') === 'E' && is_numeric($rawValue)) {
+                $displayValue = getLinkedElementName((int)$rawValue);
+            }
+        }
+        if ($displayValue === '' || $displayValue === null) {
+            $displayValue = $rawValue;
+        }
+
+        $preparedValue = displayValue($displayValue);
+        if ($preparedValue === '') {
+            continue;
+        }
+        if (isset($values[$propertyId]) && $values[$propertyId] !== '') {
+            $values[$propertyId] .= ', ' . $preparedValue;
+        } else {
+            $values[$propertyId] = $preparedValue;
+        }
+    }
+
+    return $values;
+}
+
+function getPropertyValue(array $properties, int $propertyId): string
+{
+    return (string)($properties[$propertyId] ?? '');
+}
+
+function renderOfferDetailsHtml(array $details): string
+{
+    $html = '';
+    foreach ($details as $section) {
+        $html .= '<div class="offer-detail-section">';
+        $html .= '<div class="offer-detail-title">' . h($section['title']) . '</div>';
+        $html .= '<div class="offer-detail-grid">';
+        foreach ($section['rows'] as $row) {
+            $value = trim((string)($row['value'] ?? ''));
+            $html .= '<div class="offer-detail-label">' . h($row['label']) . '</div>';
+            $html .= '<div class="offer-detail-value">' . h($value !== '' ? $value : '—') . '</div>';
+        }
+        $html .= '</div></div>';
+    }
+    return $html;
 }
 
 function buildUrl(array $paramsToSet = [], array $paramsToUnset = []): string
@@ -210,6 +374,7 @@ $request = Context::getCurrent()->getRequest();
 $q = trim((string)$request->get('q'));
 $fRecruiter = (int)$request->get('f_recruiter');
 $fStatus = (int)$request->get('f_status');
+$inWorkOnly = (string)$request->get('in_work') === 'Y';
 $sort = strtoupper((string)$request->get('sort') ?: 'ID');
 $dir = strtoupper((string)$request->get('dir') ?: 'DESC');
 $pageSize = 20;
@@ -225,6 +390,7 @@ $cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
 $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isCbManager = in_array($currentUserTagLower, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
+$currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
 $statusEnumOptions = [];
 $rsEnum = CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'VALUE' => 'ASC'], ['IBLOCK_ID' => IBL_OFFERS, 'PROPERTY_ID' => 1189]);
@@ -240,6 +406,10 @@ $filter = [
 if ($q !== '') $filter['%' . PROP_CANDIDATE_FIO] = $q;
 if ($fRecruiter > 0) $filter[PROP_RECRUITER] = $fRecruiter;
 if ($fStatus > 0) $filter[PROP_STATUS] = $fStatus;
+if ($inWorkOnly) {
+    $taskOfferIds = array_keys($currentUserTasksMap);
+    $filter['ID'] = !empty($taskOfferIds) ? $taskOfferIds : 0;
+}
 
 $arOrder = ['ID' => 'DESC'];
 if ($sort === 'ID') $arOrder = ['ID' => $dir];
@@ -250,7 +420,6 @@ if ($sort === 'STATUS') $arOrder = [PROP_STATUS => $dir, 'ID' => 'DESC'];
 $arSelect = [
     'ID', 'DATE_CREATE',
     PROP_CANDIDATE_FIO,
-    PROP_PLANNED_SEND_DATE,
     PROP_POSITION,
     PROP_ORGANIZATION,
     PROP_RECRUITER,
@@ -262,25 +431,93 @@ $res = CIBlockElement::GetList($arOrder, $filter, false, ['nPageSize' => $pageSi
 
 $items = [];
 $userIds = [];
-$currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
-
+$detailPropertyIds = [
+    1157, 1158, 1161, 2753, 1996, 1163, 1164, 1168, 1169,
+    1165, 1184, 1998, 1186, 1170, 1172, 1235, 1234,
+    1159, 1174, 2001, 2002, 1177, 3147, 1767,
+    1327, 1326, 1328, 1329, 2070, 3130, 2857,
+];
 while ($ob = $res->GetNextElement()) {
     $f = $ob->GetFields();
     $id = (int)$f['ID'];
+    $p = loadOfferPropertyValues($id, $detailPropertyIds);
     $recruiterId = userIdFromValue($f[PROP_RECRUITER . '_VALUE'] ?? '');
 
     $taskIdForCurrentUser = (int)($currentUserTasksMap[$id] ?? 0);
 
+    $detailSections = [
+        [
+            'title' => 'Кандидат',
+            'rows' => [
+                ['label' => 'Полное ФИО кандидата', 'value' => getPropertyValue($p, 1157)],
+                ['label' => 'Контактный телефон кандидата (в формате +7 ....)', 'value' => getPropertyValue($p, 1158)],
+            ],
+        ],
+        [
+            'title' => 'Позиция и структура',
+            'rows' => [
+                ['label' => 'Должность', 'value' => getPropertyValue($p, 1161)],
+                ['label' => 'Юридическое лицо', 'value' => getPropertyValue($p, 2753)],
+                ['label' => 'Дирекция', 'value' => getPropertyValue($p, 1996)],
+                ['label' => 'Подразделение', 'value' => getPropertyValue($p, 1163)],
+                ['label' => 'ФИО руководителя', 'value' => getPropertyValue($p, 1164) ?: getPropertyValue($p, 1168)],
+                ['label' => 'Должность руководителя', 'value' => getPropertyValue($p, 1169)],
+            ],
+        ],
+        [
+            'title' => 'Компенсация',
+            'rows' => [
+                ['label' => 'Оклад, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1165))],
+                ['label' => 'ИСН, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1184))],
+                ['label' => 'Премиальная часть', 'value' => getPropertyValue($p, 1998)],
+                ['label' => 'Премиальная часть, % премии от оклада', 'value' => getPropertyValue($p, 1186)],
+                ['label' => 'Премиальная часть, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1170))],
+                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1172))],
+                ['label' => 'Районный коэффициент', 'value' => getPropertyValue($p, 1235)],
+                ['label' => 'Северная надбавка %%', 'value' => getPropertyValue($p, 1234)],
+            ],
+        ],
+        [
+            'title' => 'Даты и условия',
+            'rows' => [
+                ['label' => 'Планируемая дата отправки оффера кандидату', 'value' => getPropertyValue($p, 1159)],
+                ['label' => 'Планируемая дата выхода на работу', 'value' => getPropertyValue($p, 1174)],
+                ['label' => 'Испытательный срок', 'value' => getPropertyValue($p, 2001)],
+                ['label' => 'Договор с сотрудником', 'value' => getPropertyValue($p, 2002)],
+                ['label' => 'Социальный пакет', 'value' => getPropertyValue($p, 1177)],
+                ['label' => 'Компенсация аренды жилья', 'value' => formatMoneyForDisplay(getPropertyValue($p, 3147))],
+                ['label' => 'Регион-локация кандидата', 'value' => getPropertyValue($p, 1767)],
+            ],
+        ],
+        [
+            'title' => 'Рабочее место',
+            'rows' => [
+                ['label' => 'Формат работы', 'value' => getPropertyValue($p, 1327)],
+                ['label' => 'Адрес офиса', 'value' => getPropertyValue($p, 1326)],
+                ['label' => 'График работы', 'value' => getPropertyValue($p, 1328)],
+                ['label' => 'Начало рабочего дня', 'value' => getPropertyValue($p, 1329)],
+                ['label' => 'Оборудование для работы', 'value' => getPropertyValue($p, 2070)],
+                ['label' => 'Оборудование для работы (текст)', 'value' => getPropertyValue($p, 3130)],
+            ],
+        ],
+        [
+            'title' => 'Дополнительно',
+            'rows' => [
+                ['label' => 'Путь создания оффера', 'value' => getPropertyValue($p, 2857)],
+            ],
+        ],
+    ];
+
     $items[] = [
         'ID' => $id,
         'DATE_CREATE' => (string)$f['DATE_CREATE'],
-        'CANDIDATE_FIO' => (string)($f[PROP_CANDIDATE_FIO . '_VALUE'] ?? ''),
-        'PLANNED_SEND_DATE' => (string)($f[PROP_PLANNED_SEND_DATE . '_VALUE'] ?? ''),
-        'POSITION' => (string)($f[PROP_POSITION . '_VALUE'] ?? ''),
-        'ORGANIZATION' => (string)($f[PROP_ORGANIZATION . '_VALUE'] ?? ''),
+        'CANDIDATE_FIO' => getFieldValue($f, PROP_CANDIDATE_FIO),
+        'POSITION' => getFieldValue($f, PROP_POSITION),
+        'ORGANIZATION' => getPropertyValue($p, 2753) ?: getFieldValue($f, PROP_ORGANIZATION),
         'RECRUITER_ID' => $recruiterId,
-        'STATUS' => (string)($f[PROP_STATUS . '_VALUE'] ?? ''),
+        'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
+        'DETAILS_HTML' => renderOfferDetailsHtml($detailSections),
         'TASK_ID_FOR_CURRENT_USER' => $taskIdForCurrentUser,
         'VIEW_URL' => '/forms/staff_recruitment/offer/view_offer.php?id=' . $id,
         'EDIT_URL' => '/forms/staff_recruitment/offer/edit_offer.php?id=' . $id,
@@ -336,74 +573,104 @@ function navPageUrl(int $pageNum): string
     return buildUrl(['PAGEN_1' => $pageNum]);
 }
 ?>
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
-.offer-list-page .toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-bottom:12px; }
-.offer-list-page .toolbar .btn-primary { background:#2563eb; border-color:#2563eb; color:#fff; padding:7px 12px; border-radius:6px; text-decoration:none; }
-.offer-list-page .toolbar form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0; }
-.offer-list-page table { width:100%; border-collapse:collapse; }
-.offer-list-page th, .offer-list-page td { border:1px solid #d1d5db; padding:8px; vertical-align:top; }
-.offer-list-page th { background:#f8fafc; }
-.offer-list-page .actions { display:flex; flex-wrap:wrap; gap:6px; }
-.offer-list-page .btn { display:inline-block; padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
-.offer-list-page .btn-info { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
-.offer-list-page .muted { color:#6b7280; }
-.offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; border:1px solid #94a3b8; color:#334155; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
-.offer-list-page .status-badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
+.offer-list-page { padding:16px 24px; }
+.offer-list-page .table thead th { white-space:nowrap; vertical-align:middle; }
+.offer-list-page .sort-link, .offer-list-page th a { color:#fff; text-decoration:none; }
+.offer-list-page .sort-link:hover, .offer-list-page th a:hover { color:#fff; text-decoration:underline; }
+.offer-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; padding:12px 14px; }
+.offer-list-page .filter-item { flex:0 0 auto; min-width:180px; }
+.offer-list-page .filter-item.search-item { width:320px; }
+.offer-list-page .actions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.offer-list-page .muted { color:#6c757d; }
+.offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:0; background:#6c757d; color:#fff; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
+.offer-list-page .info-btn:hover { background:#5a6268; color:#fff; text-decoration:none; }
+.offer-list-page .status-badge { display:inline-block; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
-.offer-list-page .pagination .active { background:#2563eb; border-color:#2563eb; color:#fff; }
-.offer-list-page .modal-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.5); display:none; z-index:9998; }
-.offer-list-page .modal-card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(680px, 92vw); max-height:80vh; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(2,6,23,.25); display:none; z-index:9999; }
-.offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e2e8f0; }
+.offer-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
+.offer-list-page .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; z-index:9998; opacity:1; }
+.offer-list-page .modal-card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:min(900px, 92vw); max-height:82vh; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.25); display:none; z-index:9999; overflow:hidden; }
+.offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e5e5e5; }
 .offer-list-page .modal-title { font-weight:600; }
-.offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(80vh - 60px); }
+.offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(82vh - 60px); }
+.offer-list-page .offer-detail-section { margin-bottom:18px; }
+.offer-list-page .offer-detail-title { font-weight:700; margin-bottom:8px; color:#343a40; }
+.offer-list-page .offer-detail-grid { display:grid; grid-template-columns:minmax(240px, 38%) 1fr; gap:6px 14px; }
+.offer-list-page .offer-detail-label { color:#6c757d; }
+.offer-list-page .offer-detail-value { font-weight:500; white-space:pre-wrap; }
 </style>
 
-<div class="offer-list-page">
-    <div class="toolbar">
-        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn-primary">Создать оффер</a>
+<div class="container-fluid offer-list-page">
+    <h2 class="mb-3">Заявки на оффер</h2>
 
-        <form method="get" action="">
-            <input type="text" name="q" value="<?= h($q) ?>" placeholder="Поиск по ФИО кандидата">
+    <div class="d-flex flex-wrap align-items-center mb-3">
+        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn btn-success mr-3 mb-2">Создать оффер</a>
+    </div>
 
-            <select name="f_recruiter">
+    <form method="get" action="" class="card mb-3">
+        <div class="filter-toolbar">
+            <div class="filter-item search-item">
+                <label class="mb-1">Поиск по ФИО кандидата</label>
+                <input type="text" name="q" value="<?= h($q) ?>" class="form-control form-control-sm" placeholder="Введите ФИО">
+            </div>
+
+            <div class="filter-item">
+                <label class="mb-1">Рекрутер</label>
+                <select name="f_recruiter" class="form-control form-control-sm">
                 <option value="0">Все рекрутеры</option>
                 <?php foreach ($recruiterOptionUsers as $uid => $u): ?>
                     <option value="<?= (int)$uid ?>" <?= $fRecruiter === (int)$uid ? 'selected' : '' ?>>
                         <?= h(formatUserName($u)) ?>
                     </option>
                 <?php endforeach; ?>
-            </select>
+                </select>
+            </div>
 
-            <select name="f_status">
+            <div class="filter-item">
+                <label class="mb-1">Статус</label>
+                <select name="f_status" class="form-control form-control-sm">
                 <option value="0">Все статусы</option>
                 <?php foreach ($statusEnumOptions as $sid => $sname): ?>
                     <option value="<?= (int)$sid ?>" <?= $fStatus === (int)$sid ? 'selected' : '' ?>><?= h($sname) ?></option>
                 <?php endforeach; ?>
-            </select>
+                </select>
+            </div>
 
-            <button type="submit" class="btn">Применить</button>
-            <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn">Сбросить</a>
+            <div class="filter-item">
+                <label class="d-flex align-items-center mt-4">
+                    <input type="checkbox" name="in_work" value="Y" <?= $inWorkOnly ? 'checked' : '' ?>>
+                    <span class="ml-2">В работе</span>
+                </label>
+            </div>
+
+            <div class="ml-auto d-flex" style="gap:8px;">
+                <button type="submit" class="btn btn-primary btn-sm">Применить</button>
+                <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'in_work', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+            </div>
+        </div>
         </form>
-    </div>
 
-    <table>
-        <thead>
+    <div class="mb-2 text-muted">Найдено: <?= (int)$res->NavRecordCount ?>, страница <?= (int)$res->NavPageNomer ?> из <?= (int)$res->NavPageCount ?></div>
+
+    <div class="table-responsive">
+    <table class="table table-sm table-bordered table-hover">
+        <thead class="thead-dark">
         <tr>
             <th><?= sortLink('ID', 'ID', $sort, $dir) ?></th>
             <th><?= sortLink('CANDIDATE_FIO', 'Полное ФИО кандидата', $sort, $dir) ?></th>
-            <th>Планируемая дата отправки оффера кандидату</th>
+            <th><?= sortLink('DATE_CREATE', 'Дата создания', $sort, $dir) ?></th>
             <th>Должность</th>
             <th>Юридическое лицо</th>
             <th>Рекрутер</th>
             <th><?= sortLink('STATUS', 'Статус + история', $sort, $dir) ?></th>
-            <th><?= sortLink('DATE_CREATE', 'Дата создания', $sort, $dir) ?></th>
             <th>Действия</th>
         </tr>
         </thead>
         <tbody>
         <?php if (empty($items)): ?>
-            <tr><td colspan="9" class="muted">Ничего не найдено.</td></tr>
+            <tr><td colspan="8" class="muted">Ничего не найдено.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $row): ?>
                 <?php
@@ -414,9 +681,9 @@ function navPageUrl(int $pageNum): string
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
                 <tr>
-                    <td><?= (int)$row['ID'] ?></td>
+                    <td><a href="#" class="js-offer-details" data-offer-id="<?= (int)$row['ID'] ?>">#<?= (int)$row['ID'] ?></a><div class="d-none" id="offer-details-<?= (int)$row['ID'] ?>"><?= $row['DETAILS_HTML'] ?></div></td>
                     <td><?= h($row['CANDIDATE_FIO'] ?: '—') ?></td>
-                    <td><?= h($row['PLANNED_SEND_DATE'] ?: '—') ?></td>
+                    <td><?= h($row['DATE_CREATE']) ?></td>
                     <td><?= h($row['POSITION'] ?: '—') ?></td>
                     <td><?= h($row['ORGANIZATION'] ?: '—') ?></td>
                     <td><?= h(isset($userMap[$recruiterId]) ? formatUserName($userMap[$recruiterId]) : '—') ?></td>
@@ -434,15 +701,14 @@ function navPageUrl(int $pageNum): string
                             <?php endif; ?>
                         </div>
                     </td>
-                    <td><?= h($row['DATE_CREATE']) ?></td>
                     <td>
                         <div class="actions">
                             <?php if ($canManage): ?>
-                                <a class="btn" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Просмотр</a>
-                                <a class="btn" href="<?= h($row['EDIT_URL']) ?>" target="_blank" rel="noopener">Редактирование</a>
+                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Просмотр</a>
+                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['EDIT_URL']) ?>" target="_blank" rel="noopener">Редактирование</a>
                             <?php endif; ?>
                             <?php if ($taskUrl !== ''): ?>
-                                <a class="btn btn-info" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
+                                <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
                             <?php if (!$canManage && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
@@ -454,6 +720,7 @@ function navPageUrl(int $pageNum): string
         <?php endif; ?>
         </tbody>
     </table>
+    </div>
 
     <?php if ((int)$res->NavPageCount > 1): ?>
         <div class="pagination">
@@ -469,23 +736,23 @@ function navPageUrl(int $pageNum): string
 </div>
 
 <div class="offer-list-page">
-    <div id="status-history-backdrop" class="modal-backdrop"></div>
-    <div id="status-history-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="status-history-title">
+    <div id="offer-modal-backdrop" class="modal-backdrop"></div>
+    <div id="offer-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="offer-modal-title">
         <div class="modal-head">
-            <div id="status-history-title" class="modal-title">История статуса</div>
-            <button type="button" class="btn" id="status-history-close">Закрыть</button>
+            <div id="offer-modal-title" class="modal-title">История статуса</div>
+            <button type="button" class="btn btn-secondary btn-sm" id="offer-modal-close">Закрыть</button>
         </div>
-        <div class="modal-body" id="status-history-content"></div>
+        <div class="modal-body" id="offer-modal-content"></div>
     </div>
 </div>
 
 <script>
 (function() {
-  var backdrop = document.getElementById('status-history-backdrop');
-  var modal = document.getElementById('status-history-modal');
-  var closeBtn = document.getElementById('status-history-close');
-  var content = document.getElementById('status-history-content');
-  var title = document.getElementById('status-history-title');
+  var backdrop = document.getElementById('offer-modal-backdrop');
+  var modal = document.getElementById('offer-modal');
+  var closeBtn = document.getElementById('offer-modal-close');
+  var content = document.getElementById('offer-modal-content');
+  var title = document.getElementById('offer-modal-title');
 
   function closeModal() {
     backdrop.style.display = 'none';
@@ -493,21 +760,43 @@ function navPageUrl(int $pageNum): string
     content.textContent = '';
   }
 
-  function openModal(offerId, history) {
-    title.textContent = 'История статуса (оффер #' + offerId + ')';
-    content.innerHTML = history || 'История отсутствует.';
+  function openModal(modalTitle, html) {
+    title.textContent = modalTitle;
+    content.innerHTML = html || 'Данные отсутствуют.';
     backdrop.style.display = 'block';
     modal.style.display = 'block';
   }
 
+  function decodeBase64Utf8(encoded) {
+    if (!encoded) return '';
+    try {
+      var binary = window.atob(encoded);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (err) {
+      try { return window.atob(encoded); } catch (fallbackErr) { return ''; }
+    }
+  }
+
   document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.js-status-info');
-    if (!btn) return;
-    e.preventDefault();
-    var encoded = btn.getAttribute('data-history-b64') || '';
-    var decoded = '';
-    try { decoded = encoded ? window.atob(encoded) : ''; } catch (err) {}
-    openModal(btn.getAttribute('data-offer-id') || '', decoded);
+    var historyBtn = e.target.closest('.js-status-info');
+    if (historyBtn) {
+      e.preventDefault();
+      openModal(
+        'История статуса (оффер #' + (historyBtn.getAttribute('data-offer-id') || '') + ')',
+        decodeBase64Utf8(historyBtn.getAttribute('data-history-b64') || '') || 'История отсутствует.'
+      );
+      return;
+    }
+
+    var detailsBtn = e.target.closest('.js-offer-details');
+    if (detailsBtn) {
+      e.preventDefault();
+      var offerId = detailsBtn.getAttribute('data-offer-id') || '';
+      var details = document.getElementById('offer-details-' + offerId);
+      openModal('Информация по офферу #' + offerId, details ? details.innerHTML : 'Данные отсутствуют.');
+    }
   });
 
   backdrop.addEventListener('click', closeModal);
