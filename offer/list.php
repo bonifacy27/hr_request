@@ -503,8 +503,7 @@ while ($ob = $res->GetNextElement()) {
         [
             'title' => 'Дополнительно',
             'rows' => [
-                ['label' => 'Комментарии', 'value' => getPropertyValue($p, 2857)],
-                ['label' => 'Путь создания оффера', 'value' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? ''))],
+                ['label' => 'Путь создания оффера', 'value' => getPropertyValue($p, 2857)],
             ],
         ],
     ];

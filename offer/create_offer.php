@@ -1361,30 +1361,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
         <div class="card mb-3">
             <div class="card-header">Связи</div>
-            <div class="card-body">
-                <div class="form-row">
-                    <div class="form-group col-md-4">
-                        <label>ID заявки на подбор</label>
-                        <input type="number" class="form-control" name="request_id" value="<?=h($formData['request_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>ID анкеты кандидата</label>
-                        <input type="number" class="form-control" name="candidate_id" value="<?=h($formData['candidate_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>ID кандидата Friendwork</label>
-                        <input type="text" class="form-control" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>" readonly>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Рекрутер (ID пользователя)</label>
-                        <input type="number" class="form-control" name="recruiter" value="<?=h($formData['recruiter'])?>" readonly>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label>Комментарий</label>
-                    <textarea class="form-control" name="comment" rows="2"><?=h($formData['comment'])?></textarea>
-                </div>
+            <div class="card-body py-2">
+                <input type="hidden" name="request_id" value="<?=h($formData['request_id'])?>">
+                <input type="hidden" name="candidate_id" value="<?=h($formData['candidate_id'])?>">
+                <input type="hidden" name="fw_candidate_id" value="<?=h($formData['fw_candidate_id'])?>">
+                <input type="hidden" name="recruiter" value="<?=h($formData['recruiter'])?>">
+                <input type="hidden" name="comment" value="<?=h($formData['comment'])?>">
+                <dl class="row mb-0 small">
+                    <dt class="col-md-3">ID заявки на подбор</dt><dd class="col-md-3"><?=h($formData['request_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">ID анкеты кандидата</dt><dd class="col-md-3"><?=h($formData['candidate_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">ID кандидата Friendwork</dt><dd class="col-md-3"><?=h($formData['fw_candidate_id'] ?: '—')?></dd>
+                    <dt class="col-md-3">Рекрутер</dt><dd class="col-md-3"><?=h(getUserDisplayNameById((int)$formData['recruiter']) ?: ($formData['recruiter'] ? ('ID ' . $formData['recruiter']) : '—'))?></dd>
+                    <dt class="col-md-3">Путь создания оффера</dt><dd class="col-md-9"><?=h($formData['comment'] ?: '—')?></dd>
+                </dl>
             </div>
         </div>
 
