@@ -1372,7 +1372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
         <div class="text-right">
             <button type="submit" class="btn btn-primary" name="action" value="save">Сохранить изменения</button>
-            <a href="/services/lists/218/view/0/?list_section_id=" class="btn btn-link">К списку офферов</a>
+            <a href="/forms/staff_recruitment/offer/list.php" class="btn btn-link">К списку офферов</a>
         </div>
     </form>
 </div>
