@@ -306,7 +306,7 @@ function getOfferById(int $offerId): ?array
         'ID' => $offerId,
         'CHECK_PERMISSIONS' => 'Y',
         'MIN_PERMISSION' => 'R',
-    ], false, ['nTopCount' => 1], ['ID', 'NAME'])->GetNext();
+    ], false, ['nTopCount' => 1], ['ID', 'NAME', 'PREVIEW_TEXT'])->GetNext();
 
     if (!$row) {
         return null;
@@ -368,6 +368,7 @@ function getOfferById(int $offerId): ?array
     return [
         'ID' => (int)$row['ID'],
         'NAME' => html_entity_decode((string)$row['NAME'], ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+        'PREVIEW_TEXT' => (string)($row['PREVIEW_TEXT'] ?? ''),
         'PROPS' => $values,
     ];
 }
@@ -395,6 +396,19 @@ function parseNumericInput($value): float
         return 0.0;
     }
     return (float)$normalized;
+}
+
+function appendHistory($old, $add): string
+{
+    $old = trim((string)$old);
+    $add = trim((string)$add);
+    if ($old === '') {
+        return $add;
+    }
+    if ($add === '') {
+        return $old;
+    }
+    return $old . "\n\n" . $add;
 }
 
 function dateToInputFormat(string $value): string
@@ -1021,10 +1035,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             if (!$updated) {
                 $errors[] = 'Не удалось обновить оффер: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
             } else {
+                $who = is_object($USER) && method_exists($USER, 'GetFullName') ? trim((string)$USER->GetFullName()) : '';
+                if ($who === '' && is_object($USER) && method_exists($USER, 'GetID')) {
+                    $who = 'ID ' . (int)$USER->GetID();
+                }
+                if ($who === '') {
+                    $who = 'неизвестный пользователь';
+                }
+                $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при редактировании оффера ({$changeType}, {$who}):\n- " . implode("\n- ", $changes);
+                $el->Update($offerId, [
+                    'PREVIEW_TEXT' => appendHistory((string)($offerItem['PREVIEW_TEXT'] ?? ''), $historyBlock),
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
+
                 $documentId = ['lists', 'BizprocDocument', (int)$offerId];
                 $bpParams = [
                     'par_Changes_type' => $changeType,
-                    'par_Changes' => implode("\n", $changes),
+                    'par_Changes' => (string)$historyBlock,
                 ];
                 $bpErrors = [];
                 CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
