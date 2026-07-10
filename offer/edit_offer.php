@@ -81,6 +81,25 @@ function h($s): string
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+
+function normalizeMoneyForStorage($value): string
+{
+    $value = str_replace(["\xc2\xa0", ' '], '', trim((string)$value));
+    $value = str_replace(',', '.', $value);
+    return $value;
+}
+
+function formatMoneyForDisplay($value): string
+{
+    $normalized = normalizeMoneyForStorage($value);
+    if ($normalized === '' || !is_numeric($normalized)) {
+        return trim((string)$value);
+    }
+    $number = (float)$normalized;
+    $decimals = floor($number) == $number ? 0 : 2;
+    return number_format($number, $decimals, ',', ' ');
+}
+
 function userIdFromValue($raw): int
 {
     $value = trim((string)$raw);
@@ -846,14 +865,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_DEPARTMENT => $formData['department'],
             OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
-            OFFER_PROP_BONUS_RUB_GROSS => $formData['bonus_rub_gross'],
-            OFFER_PROP_MONTH_INCOME_AVG_GROSS => $formData['month_income_avg_gross'],
-            OFFER_PROP_SALARY_NDFL => $formData['salary_ndfl'],
-            OFFER_PROP_ISN_NDFL => $formData['isn_ndfl'],
-            OFFER_PROP_BONUS_RUB_NDFL => $formData['bonus_rub_ndfl'],
-            OFFER_PROP_MONTH_INCOME_AVG_NDFL => $formData['month_income_avg_ndfl'],
-            OFFER_PROP_SALARY => $formData['salary'],
-            OFFER_PROP_ISN => $formData['isn'],
+            OFFER_PROP_BONUS_RUB_GROSS => normalizeMoneyForStorage($formData['bonus_rub_gross']),
+            OFFER_PROP_MONTH_INCOME_AVG_GROSS => normalizeMoneyForStorage($formData['month_income_avg_gross']),
+            OFFER_PROP_SALARY_NDFL => normalizeMoneyForStorage($formData['salary_ndfl']),
+            OFFER_PROP_ISN_NDFL => normalizeMoneyForStorage($formData['isn_ndfl']),
+            OFFER_PROP_BONUS_RUB_NDFL => normalizeMoneyForStorage($formData['bonus_rub_ndfl']),
+            OFFER_PROP_MONTH_INCOME_AVG_NDFL => normalizeMoneyForStorage($formData['month_income_avg_ndfl']),
+            OFFER_PROP_SALARY => normalizeMoneyForStorage($formData['salary']),
+            OFFER_PROP_ISN => normalizeMoneyForStorage($formData['isn']),
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
@@ -867,7 +886,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_EQUIPMENT_TEXT => $formData['equipment_text'],
             OFFER_PROP_CONTRACT_TYPE => ($formData['contract_type'] !== '' ? $formData['contract_type'] : DEFAULT_CONTRACT),
             OFFER_PROP_ORGANIZATION => ($formData['organization'] !== '' ? $formData['organization'] : DEFAULT_ORGANIZATION),
-            OFFER_PROP_HOUSING_COMPENSATION => $formData['housing_compensation'],
+            OFFER_PROP_HOUSING_COMPENSATION => normalizeMoneyForStorage($formData['housing_compensation']),
             OFFER_PROP_REGION_LOCATION => $formData['region_location'],
             OFFER_PROP_PERSONAL_ALLOWANCE => $formData['personal_allowance'],
             OFFER_PROP_RAYON_COEFFICIENT => $formData['rayon_coefficient'],
@@ -1101,22 +1120,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>Оклад, руб. <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="salary" value="<?=h($formData['salary'])?>" required>
+                        <input type="text" class="form-control" name="salary" value="<?=h(formatMoneyForDisplay($formData['salary']))?>" required>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Оклад, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h($formData['salary_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="salary_ndfl" value="<?=h(formatMoneyForDisplay($formData['salary_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="salaryNdflInfo"></small>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>ИСН, руб.</label>
-                        <input type="text" class="form-control" name="isn" value="<?=h($formData['isn'])?>">
+                        <input type="text" class="form-control" name="isn" value="<?=h(formatMoneyForDisplay($formData['isn']))?>">
                     </div>
                     <div class="form-group col-md-6">
                         <label>ИСН, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h($formData['isn_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="isn_ndfl" value="<?=h(formatMoneyForDisplay($formData['isn_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="isnNdflInfo"></small>
                     </div>
                 </div>
@@ -1141,22 +1160,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 <div class="form-row">
                     <div class="form-group col-md-6">
                         <label>Премиальная часть, руб. Гросс</label>
-                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h($formData['bonus_rub_gross'])?>" readonly>
+                        <input type="text" class="form-control" name="bonus_rub_gross" value="<?=h(formatMoneyForDisplay($formData['bonus_rub_gross']))?>" readonly>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Премиальная часть, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h($formData['bonus_rub_ndfl'])?>" readonly>
+                        <input type="text" class="form-control" name="bonus_rub_ndfl" value="<?=h(formatMoneyForDisplay($formData['bonus_rub_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="bonusNdflInfo"></small>
                     </div>
                 </div>
                 <div class="form-row" id="monthIncomeWrap">
                     <div class="form-group col-md-6">
                         <label>Доход в месяц в среднем, руб. Гросс</label>
-                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h($formData['month_income_avg_gross'])?>" readonly>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_gross" value="<?=h(formatMoneyForDisplay($formData['month_income_avg_gross']))?>" readonly>
                     </div>
                     <div class="form-group col-md-6">
                         <label>Доход в месяц в среднем, руб. (после вычета НДФЛ)</label>
-                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h($formData['month_income_avg_ndfl'])?>" readonly>
+                        <input type="text" class="form-control border border-warning font-weight-bold" name="month_income_avg_ndfl" value="<?=h(formatMoneyForDisplay($formData['month_income_avg_ndfl']))?>" readonly>
                         <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
                     </div>
                 </div>
@@ -1263,7 +1282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
                 <div class="form-group">
                     <label>Компенсация аренды жилья</label>
-                    <input type="number" step="1" class="form-control" name="housing_compensation" value="<?=h($formData['housing_compensation'])?>">
+                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
                 </div>
             </div>
         </div>
@@ -1469,6 +1488,25 @@ BX.ready(function () {
         var num = toNum(value);
         var rounded = Math.round(num);
         return String(rounded).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    }
+
+
+    function normalizeMoneyForSubmit(value) {
+        return String(value || '').replace(/\s+/g, '').replace(',', '.');
+    }
+
+    function normalizeMoneyInputsBeforeSubmit() {
+        [salaryInput, isnInput, salaryNdflInput, isnNdflInput, bonusRubGrossInput, bonusRubNdflInput, monthIncomeAvgInput, monthIncomeAvgNdflInput].forEach(function (el) {
+            if (!el) return;
+            el.value = normalizeMoneyForSubmit(el.value);
+        });
+        var housingInput = document.querySelector('input[name="housing_compensation"]');
+        if (housingInput) housingInput.value = normalizeMoneyForSubmit(housingInput.value);
+    }
+
+    var offerForm = document.querySelector('form[method="post"]');
+    if (offerForm) {
+        offerForm.addEventListener('submit', normalizeMoneyInputsBeforeSubmit);
     }
 
     function calcNdfl(gross) {

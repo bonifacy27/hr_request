@@ -109,6 +109,32 @@ function displayValue($value): string
     return trim($decoded);
 }
 
+
+function formatMoneyForDisplay($value): string
+{
+    $normalized = str_replace(["\xc2\xa0", ' '], '', trim((string)$value));
+    $normalized = str_replace(',', '.', $normalized);
+    if ($normalized === '' || !is_numeric($normalized)) {
+        return trim((string)$value);
+    }
+    $number = (float)$normalized;
+    $decimals = floor($number) == $number ? 0 : 2;
+    return number_format($number, $decimals, ',', ' ');
+}
+
+function getUserDisplayNameById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    $name = trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
+    return $name !== '' ? $name : (string)($user['LOGIN'] ?? $userId);
+}
+
 function getFieldValue(array $fields, string $property): string
 {
     return displayValue($fields[$property . '_VALUE'] ?? '');
@@ -152,6 +178,9 @@ function loadOfferPropertyValues(int $offerId, array $propertyIds): array
 
         $rawValue = $property['VALUE'] ?? '';
         $displayValue = $property['VALUE_ENUM'] ?? '';
+        if ($propertyId === 1164 && is_numeric($rawValue)) {
+            $displayValue = getUserDisplayNameById((int)$rawValue);
+        }
         if ($displayValue === '' || $displayValue === null) {
             if (($property['PROPERTY_TYPE'] ?? '') === 'E' && is_numeric($rawValue)) {
                 $displayValue = getLinkedElementName((int)$rawValue);
@@ -427,23 +456,23 @@ while ($ob = $res->GetNextElement()) {
         [
             'title' => 'Позиция и структура',
             'rows' => [
-                ['label' => 'Должность (если отсутствует в списке)', 'value' => getPropertyValue($p, 1161)],
+                ['label' => 'Должность', 'value' => getPropertyValue($p, 1161)],
                 ['label' => 'Юридическое лицо', 'value' => getPropertyValue($p, 2753)],
                 ['label' => 'Дирекция', 'value' => getPropertyValue($p, 1996)],
-                ['label' => 'Подразделение (если отсутствует в списке)', 'value' => getPropertyValue($p, 1163)],
-                ['label' => 'ФИО руководителя (из списка)', 'value' => getPropertyValue($p, 1164) ?: getPropertyValue($p, 1168)],
+                ['label' => 'Подразделение', 'value' => getPropertyValue($p, 1163)],
+                ['label' => 'ФИО руководителя', 'value' => getPropertyValue($p, 1164) ?: getPropertyValue($p, 1168)],
                 ['label' => 'Должность руководителя', 'value' => getPropertyValue($p, 1169)],
             ],
         ],
         [
             'title' => 'Компенсация',
             'rows' => [
-                ['label' => 'Оклад, руб. Гросс', 'value' => getPropertyValue($p, 1165)],
-                ['label' => 'ИСН, руб. Гросс', 'value' => getPropertyValue($p, 1184)],
+                ['label' => 'Оклад, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1165))],
+                ['label' => 'ИСН, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1184))],
                 ['label' => 'Премиальная часть', 'value' => getPropertyValue($p, 1998)],
                 ['label' => 'Премиальная часть, % премии от оклада', 'value' => getPropertyValue($p, 1186)],
-                ['label' => 'Премиальная часть, руб. Гросс', 'value' => getPropertyValue($p, 1170)],
-                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => getPropertyValue($p, 1172)],
+                ['label' => 'Премиальная часть, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1170))],
+                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => formatMoneyForDisplay(getPropertyValue($p, 1172))],
                 ['label' => 'Районный коэффициент', 'value' => getPropertyValue($p, 1235)],
                 ['label' => 'Северная надбавка %%', 'value' => getPropertyValue($p, 1234)],
             ],
@@ -456,7 +485,7 @@ while ($ob = $res->GetNextElement()) {
                 ['label' => 'Испытательный срок', 'value' => getPropertyValue($p, 2001)],
                 ['label' => 'Договор с сотрудником', 'value' => getPropertyValue($p, 2002)],
                 ['label' => 'Социальный пакет', 'value' => getPropertyValue($p, 1177)],
-                ['label' => 'Компенсация аренды жилья', 'value' => getPropertyValue($p, 2755)],
+                ['label' => 'Компенсация аренды жилья', 'value' => formatMoneyForDisplay(getPropertyValue($p, 2755))],
                 ['label' => 'Регион-локация кандидата', 'value' => getPropertyValue($p, 1767)],
             ],
         ],
@@ -485,7 +514,7 @@ while ($ob = $res->GetNextElement()) {
         'DATE_CREATE' => (string)$f['DATE_CREATE'],
         'CANDIDATE_FIO' => getFieldValue($f, PROP_CANDIDATE_FIO),
         'POSITION' => getFieldValue($f, PROP_POSITION),
-        'ORGANIZATION' => getFieldValue($f, PROP_ORGANIZATION),
+        'ORGANIZATION' => getPropertyValue($p, 2753) ?: getFieldValue($f, PROP_ORGANIZATION),
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
