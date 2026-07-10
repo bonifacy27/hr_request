@@ -743,23 +743,10 @@ if (($candidateId > 0 && $candidate) || $requestItem) {
     }
 }
 
-
-$applyReadonlySourceFields = static function () use (&$formData, $sourceSnapshot): void {
-    if (!is_array($sourceSnapshot)) {
-        return;
-    }
-    foreach ($sourceSnapshot as $key => $value) {
-        if (array_key_exists($key, $formData)) {
-            $formData[$key] = (string)$value;
-        }
-    }
-};
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
-    $applyReadonlySourceFields();
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
     $formData['chief'] = (string)parseUserSelectorId($_POST['chief'] ?? '');
     if ($candidateId <= 0 && $requestId <= 0) {
@@ -965,12 +952,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'equipment' => 'Оборудование',
                     'equipment_text' => 'Оборудование для работы (текст)',
                 ];
+                $moneyChangeKeys = ['salary', 'isn'];
                 foreach ($labelMap as $key => $label) {
                     if (!array_key_exists($key, $sourceSnapshot)) {
                         continue;
                     }
                     $old = trim((string)($sourceSnapshot[$key] ?? ''));
                     $new = trim((string)($formData[$key] ?? ''));
+                    if (in_array($key, $moneyChangeKeys, true)) {
+                        $old = normalizeMoneyForStorage($old);
+                        $new = normalizeMoneyForStorage($new);
+                    }
                     if ($old === $new) {
                         continue;
                     }
@@ -1025,15 +1017,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         'PREVIEW_TEXT_TYPE' => 'text',
                     ]);
 
-                    if (Loader::includeModule('bizproc')) {
-                        $documentId = ['lists', 'BizprocDocument', (int)$offerId];
-                        $bpParams = [
-                            'par_Changes_type' => 'recruiter',
-                            'par_Changes' => (string)$historyBlock,
-                        ];
-                        $bpErrors = [];
-                        CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
-                    }
+                    $bpParams = [
+                        'par_Changes_type' => 'recruiter',
+                        'par_Changes' => (string)$historyBlock,
+                    ];
+                    $bpErrors = [];
+                    startOfferListWorkflow(1323, (int)$offerId, $bpParams, $bpErrors);
                 }
             }
             LocalRedirect('/services/lists/218/view/0/?list_section_id=');
