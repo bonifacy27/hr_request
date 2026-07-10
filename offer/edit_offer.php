@@ -63,6 +63,7 @@ const OFFER_PROP_ORGANIZATION = 2753;
 const OFFER_PROP_HOUSING_COMPENSATION = 2755;
 const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
+const OFFER_PROP_PERSONAL_ALLOWANCE_CODE = 'PERSONALNAYA_NADBAVKA';
 const OFFER_PROP_RAYON_COEFFICIENT = 1235;
 const OFFER_PROP_RECRUITER = 1190;
 const OFFER_PROP_REQUEST_ID = 1601;
@@ -274,6 +275,29 @@ function getRequestById(int $requestId): ?array
     ];
 }
 
+
+function getOfferPropertyValue(int $offerId, array $filter): string
+{
+    $rs = CIBlockElement::GetProperty(IBL_OFFERS, $offerId, ['sort' => 'asc'], $filter);
+    $values = [];
+    while ($p = $rs->Fetch()) {
+        $value = $p['VALUE'] ?? '';
+        if ((is_array($value) || $value === '' || $value === null) && isset($p['VALUE_ENUM'])) {
+            $value = $p['VALUE_ENUM'];
+        }
+        if (is_array($value)) {
+            $value = implode(', ', array_filter(array_map('strval', $value), static function ($part) {
+                return trim($part) !== '';
+            }));
+        }
+        $value = trim((string)$value);
+        if ($value !== '') {
+            $values[] = $value;
+        }
+    }
+    return implode(', ', $values);
+}
+
 function getOfferById(int $offerId): ?array
 {
     $row = CIBlockElement::GetList([], [
@@ -331,18 +355,10 @@ function getOfferById(int $offerId): ?array
 
     $values = [];
     foreach ($propIds as $propId) {
-        $values[$propId] = '';
-        $rs = CIBlockElement::GetProperty(IBL_OFFERS, (int)$row['ID'], ['sort' => 'asc'], ['ID' => $propId]);
-        while ($p = $rs->Fetch()) {
-            $value = trim((string)($p['VALUE'] ?? ''));
-            if ($value === '' && isset($p['VALUE_ENUM'])) {
-                $value = trim((string)$p['VALUE_ENUM']);
-            }
-            if ($value === '') {
-                continue;
-            }
-            $values[$propId] = $values[$propId] === '' ? $value : ($values[$propId] . ', ' . $value);
-        }
+        $values[$propId] = getOfferPropertyValue((int)$row['ID'], ['ID' => $propId]);
+    }
+    if ($values[OFFER_PROP_PERSONAL_ALLOWANCE] === '') {
+        $values[OFFER_PROP_PERSONAL_ALLOWANCE] = getOfferPropertyValue((int)$row['ID'], ['CODE' => OFFER_PROP_PERSONAL_ALLOWANCE_CODE]);
     }
 
     return [
