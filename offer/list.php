@@ -49,7 +49,7 @@ const PROP_EQUIPMENT = 'PROPERTY_2070';
 const PROP_EQUIPMENT_TEXT = 'PROPERTY_3130';
 const PROP_CONTRACT_TYPE = 'PROPERTY_2002';
 const PROP_ORGANIZATION = 'PROPERTY_2753';
-const PROP_HOUSING_COMPENSATION = 'PROPERTY_2755';
+const PROP_HOUSING_COMPENSATION = 'PROPERTY_3147';
 const PROP_REGION_LOCATION = 'PROPERTY_1767';
 const PROP_PERSONAL_ALLOWANCE = 'PROPERTY_1234';
 const PROP_RAYON_COEFFICIENT = 'PROPERTY_1235';
@@ -434,7 +434,7 @@ $userIds = [];
 $detailPropertyIds = [
     1157, 1158, 1161, 2753, 1996, 1163, 1164, 1168, 1169,
     1165, 1184, 1998, 1186, 1170, 1172, 1235, 1234,
-    1159, 1174, 2001, 2002, 1177, 2755, 1767,
+    1159, 1174, 2001, 2002, 1177, 3147, 1767,
     1327, 1326, 1328, 1329, 2070, 3130, 2857,
 ];
 while ($ob = $res->GetNextElement()) {
@@ -485,7 +485,7 @@ while ($ob = $res->GetNextElement()) {
                 ['label' => 'Испытательный срок', 'value' => getPropertyValue($p, 2001)],
                 ['label' => 'Договор с сотрудником', 'value' => getPropertyValue($p, 2002)],
                 ['label' => 'Социальный пакет', 'value' => getPropertyValue($p, 1177)],
-                ['label' => 'Компенсация аренды жилья', 'value' => formatMoneyForDisplay(getPropertyValue($p, 2755))],
+                ['label' => 'Компенсация аренды жилья', 'value' => formatMoneyForDisplay(getPropertyValue($p, 3147))],
                 ['label' => 'Регион-локация кандидата', 'value' => getPropertyValue($p, 1767)],
             ],
         ],

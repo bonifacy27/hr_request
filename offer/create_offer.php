@@ -60,7 +60,7 @@ const OFFER_PROP_EQUIPMENT = 2070;
 const OFFER_PROP_EQUIPMENT_TEXT = 3130;
 const OFFER_PROP_CONTRACT_TYPE = 2002;
 const OFFER_PROP_ORGANIZATION = 2753;
-const OFFER_PROP_HOUSING_COMPENSATION = 2755;
+const OFFER_PROP_HOUSING_COMPENSATION = 3147;
 const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
 const OFFER_PROP_RAYON_COEFFICIENT = 1235;
@@ -951,8 +951,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     'work_start' => 'Начало рабочего дня',
                     'equipment' => 'Оборудование',
                     'equipment_text' => 'Оборудование для работы (текст)',
+                    'housing_compensation' => 'Компенсация аренды жилья',
                 ];
-                $moneyChangeKeys = ['salary', 'isn'];
+                $moneyChangeKeys = ['salary', 'isn', 'housing_compensation'];
                 foreach ($labelMap as $key => $label) {
                     if (!array_key_exists($key, $sourceSnapshot)) {
                         continue;

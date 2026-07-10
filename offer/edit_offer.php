@@ -60,7 +60,8 @@ const OFFER_PROP_EQUIPMENT = 2070;
 const OFFER_PROP_EQUIPMENT_TEXT = 3130;
 const OFFER_PROP_CONTRACT_TYPE = 2002;
 const OFFER_PROP_ORGANIZATION = 2753;
-const OFFER_PROP_HOUSING_COMPENSATION = 2755;
+const OFFER_PROP_HOUSING_COMPENSATION = 3147;
+const OFFER_PROP_HOUSING_COMPENSATION_CODE = 'KOMPENSATSIYA_ARENDY_ZHILYA';
 const OFFER_PROP_REGION_LOCATION = 1767;
 const OFFER_PROP_PERSONAL_ALLOWANCE = 1234;
 const OFFER_PROP_PERSONAL_ALLOWANCE_CODE = 'PERSONALNAYA_NADBAVKA';
@@ -359,6 +360,9 @@ function getOfferById(int $offerId): ?array
     }
     if ($values[OFFER_PROP_PERSONAL_ALLOWANCE] === '') {
         $values[OFFER_PROP_PERSONAL_ALLOWANCE] = getOfferPropertyValue((int)$row['ID'], ['CODE' => OFFER_PROP_PERSONAL_ALLOWANCE_CODE]);
+    }
+    if ($values[OFFER_PROP_HOUSING_COMPENSATION] === '') {
+        $values[OFFER_PROP_HOUSING_COMPENSATION] = getOfferPropertyValue((int)$row['ID'], ['CODE' => OFFER_PROP_HOUSING_COMPENSATION_CODE]);
     }
 
     return [
@@ -955,9 +959,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'equipment' => 'Оборудование',
             'equipment_text' => 'Оборудование для работы (текст)',
         ];
+        $moneyChangeKeys = ['salary', 'isn', 'bonus_rub_gross', 'month_income_avg_gross', 'housing_compensation'];
         foreach ($labelMap as $key => $label) {
             $old = trim((string)($sourceSnapshot[$key] ?? ''));
             $new = trim((string)($formData[$key] ?? ''));
+            if (in_array($key, $moneyChangeKeys, true)) {
+                $old = normalizeMoneyForStorage($old);
+                $new = normalizeMoneyForStorage($new);
+            }
             if ($old === $new) {
                 continue;
             }
