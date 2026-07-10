@@ -19,11 +19,46 @@ CJSCore::Init(['popup']);
 
 const IBL_OFFERS = 218;
 const PROP_CANDIDATE_FIO = 'PROPERTY_1157';
+const PROP_CANDIDATE_PHONE = 'PROPERTY_1158';
 const PROP_PLANNED_SEND_DATE = 'PROPERTY_1159';
+const PROP_IS_CHIEF_POSITION = 'PROPERTY_1618';
 const PROP_POSITION = 'PROPERTY_1161';
+const PROP_DIRECTION = 'PROPERTY_1996';
+const PROP_DEPARTMENT = 'PROPERTY_1163';
+const PROP_CHIEF_FIO_FROM_LIST = 'PROPERTY_1164';
+const PROP_CHIEF_FIO_TEXT = 'PROPERTY_1168';
+const PROP_CHIEF_POSITION = 'PROPERTY_1169';
+const PROP_BONUS_RUB_GROSS = 'PROPERTY_1170';
+const PROP_MONTH_INCOME_AVG_GROSS = 'PROPERTY_1172';
+const PROP_SALARY_NDFL = 'PROPERTY_1166';
+const PROP_ISN_NDFL = 'PROPERTY_1167';
+const PROP_BONUS_RUB_NDFL = 'PROPERTY_1171';
+const PROP_MONTH_INCOME_AVG_NDFL = 'PROPERTY_1173';
+const PROP_SALARY = 'PROPERTY_1165';
+const PROP_ISN = 'PROPERTY_1184';
+const PROP_BONUS_TYPE = 'PROPERTY_1998';
+const PROP_BONUS_PERCENT = 'PROPERTY_1186';
+const PROP_TRIAL_PERIOD = 'PROPERTY_2001';
+const PROP_PLANNED_START_DATE = 'PROPERTY_1174';
+const PROP_BENEFITS = 'PROPERTY_1177';
+const PROP_WORK_FORMAT = 'PROPERTY_1327';
+const PROP_OFFICE = 'PROPERTY_1326';
+const PROP_WORK_SCHEDULE = 'PROPERTY_1328';
+const PROP_WORK_START = 'PROPERTY_1329';
+const PROP_EQUIPMENT = 'PROPERTY_2070';
+const PROP_EQUIPMENT_TEXT = 'PROPERTY_3130';
+const PROP_CONTRACT_TYPE = 'PROPERTY_2002';
 const PROP_ORGANIZATION = 'PROPERTY_2753';
+const PROP_HOUSING_COMPENSATION = 'PROPERTY_2755';
+const PROP_REGION_LOCATION = 'PROPERTY_1767';
+const PROP_PERSONAL_ALLOWANCE = 'PROPERTY_1234';
+const PROP_RAYON_COEFFICIENT = 'PROPERTY_1235';
 const PROP_RECRUITER = 'PROPERTY_1190';
 const PROP_STATUS = 'PROPERTY_1189';
+const PROP_REQUEST_ID = 'PROPERTY_1601';
+const PROP_CANDIDATE_ID = 'PROPERTY_1603';
+const PROP_FW_CANDIDATE_ID = 'PROPERTY_1602';
+const PROP_COMMENT = 'PROPERTY_2857';
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
@@ -31,7 +66,7 @@ function decodeStatusHistoryHtml(string $raw): string
 {
     $decoded = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     if (preg_match('/[ÐÑ]/u', $decoded)) {
-        $decoded = mb_convert_encoding($decoded, 'ISO-8859-1', 'UTF-8');
+        $decoded = mb_convert_encoding($decoded, 'UTF-8', 'ISO-8859-1');
     }
     $decoded = str_replace(["\\r\\n", "\\n", "\\r"], "\n", $decoded);
     $decoded = preg_replace('/<br\\s*\\/?>/iu', "<br>", $decoded);
@@ -60,6 +95,40 @@ function getStatusBadgeColor(string $status): string
 function h($s): string
 {
     return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+
+function displayValue($value): string
+{
+    if (is_array($value)) {
+        $value = implode(', ', array_filter(array_map('strval', $value), static function ($part) {
+            return trim($part) !== '';
+        }));
+    }
+    $decoded = html_entity_decode((string)$value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    return trim($decoded);
+}
+
+function getFieldValue(array $fields, string $property): string
+{
+    return displayValue($fields[$property . '_VALUE'] ?? '');
+}
+
+function renderOfferDetailsHtml(array $details): string
+{
+    $html = '';
+    foreach ($details as $section) {
+        $html .= '<div class="offer-detail-section">';
+        $html .= '<div class="offer-detail-title">' . h($section['title']) . '</div>';
+        $html .= '<div class="offer-detail-grid">';
+        foreach ($section['rows'] as $row) {
+            $value = trim((string)($row['value'] ?? ''));
+            $html .= '<div class="offer-detail-label">' . h($row['label']) . '</div>';
+            $html .= '<div class="offer-detail-value">' . h($value !== '' ? $value : '—') . '</div>';
+        }
+        $html .= '</div></div>';
+    }
+    return $html;
 }
 
 function buildUrl(array $paramsToSet = [], array $paramsToUnset = []): string
@@ -210,6 +279,7 @@ $request = Context::getCurrent()->getRequest();
 $q = trim((string)$request->get('q'));
 $fRecruiter = (int)$request->get('f_recruiter');
 $fStatus = (int)$request->get('f_status');
+$inWorkOnly = (string)$request->get('in_work') === 'Y';
 $sort = strtoupper((string)$request->get('sort') ?: 'ID');
 $dir = strtoupper((string)$request->get('dir') ?: 'DESC');
 $pageSize = 20;
@@ -225,6 +295,7 @@ $cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
 $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isCbManager = in_array($currentUserTagLower, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
+$currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
 $statusEnumOptions = [];
 $rsEnum = CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'VALUE' => 'ASC'], ['IBLOCK_ID' => IBL_OFFERS, 'PROPERTY_ID' => 1189]);
@@ -240,6 +311,10 @@ $filter = [
 if ($q !== '') $filter['%' . PROP_CANDIDATE_FIO] = $q;
 if ($fRecruiter > 0) $filter[PROP_RECRUITER] = $fRecruiter;
 if ($fStatus > 0) $filter[PROP_STATUS] = $fStatus;
+if ($inWorkOnly) {
+    $taskOfferIds = array_keys($currentUserTasksMap);
+    $filter['ID'] = !empty($taskOfferIds) ? $taskOfferIds : 0;
+}
 
 $arOrder = ['ID' => 'DESC'];
 if ($sort === 'ID') $arOrder = ['ID' => $dir];
@@ -250,11 +325,38 @@ if ($sort === 'STATUS') $arOrder = [PROP_STATUS => $dir, 'ID' => 'DESC'];
 $arSelect = [
     'ID', 'DATE_CREATE',
     PROP_CANDIDATE_FIO,
+    PROP_CANDIDATE_PHONE,
     PROP_PLANNED_SEND_DATE,
     PROP_POSITION,
+    PROP_DIRECTION,
+    PROP_DEPARTMENT,
+    PROP_CHIEF_FIO_FROM_LIST,
+    PROP_CHIEF_FIO_TEXT,
+    PROP_CHIEF_POSITION,
+    PROP_SALARY,
+    PROP_ISN,
+    PROP_BONUS_TYPE,
+    PROP_BONUS_PERCENT,
+    PROP_BONUS_RUB_GROSS,
+    PROP_MONTH_INCOME_AVG_GROSS,
+    PROP_RAYON_COEFFICIENT,
+    PROP_PERSONAL_ALLOWANCE,
+    PROP_PLANNED_START_DATE,
+    PROP_TRIAL_PERIOD,
+    PROP_CONTRACT_TYPE,
+    PROP_BENEFITS,
+    PROP_HOUSING_COMPENSATION,
+    PROP_REGION_LOCATION,
+    PROP_WORK_FORMAT,
+    PROP_OFFICE,
+    PROP_WORK_SCHEDULE,
+    PROP_WORK_START,
+    PROP_EQUIPMENT,
+    PROP_EQUIPMENT_TEXT,
     PROP_ORGANIZATION,
     PROP_RECRUITER,
     PROP_STATUS,
+    PROP_COMMENT,
     'PREVIEW_TEXT',
 ];
 
@@ -262,8 +364,6 @@ $res = CIBlockElement::GetList($arOrder, $filter, false, ['nPageSize' => $pageSi
 
 $items = [];
 $userIds = [];
-$currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
-
 while ($ob = $res->GetNextElement()) {
     $f = $ob->GetFields();
     $id = (int)$f['ID'];
@@ -271,16 +371,80 @@ while ($ob = $res->GetNextElement()) {
 
     $taskIdForCurrentUser = (int)($currentUserTasksMap[$id] ?? 0);
 
+    $detailSections = [
+        [
+            'title' => 'Кандидат',
+            'rows' => [
+                ['label' => 'Полное ФИО кандидата', 'value' => getFieldValue($f, PROP_CANDIDATE_FIO)],
+                ['label' => 'Контактный телефон кандидата (в формате +7 ....)', 'value' => getFieldValue($f, PROP_CANDIDATE_PHONE)],
+            ],
+        ],
+        [
+            'title' => 'Позиция и структура',
+            'rows' => [
+                ['label' => 'Должность (если отсутствует в списке)', 'value' => getFieldValue($f, PROP_POSITION)],
+                ['label' => 'Юридическое лицо', 'value' => getFieldValue($f, PROP_ORGANIZATION)],
+                ['label' => 'Дирекция', 'value' => getFieldValue($f, PROP_DIRECTION)],
+                ['label' => 'Подразделение (если отсутствует в списке)', 'value' => getFieldValue($f, PROP_DEPARTMENT)],
+                ['label' => 'ФИО руководителя (из списка)', 'value' => getFieldValue($f, PROP_CHIEF_FIO_FROM_LIST) ?: getFieldValue($f, PROP_CHIEF_FIO_TEXT)],
+                ['label' => 'Должность руководителя', 'value' => getFieldValue($f, PROP_CHIEF_POSITION)],
+            ],
+        ],
+        [
+            'title' => 'Компенсация',
+            'rows' => [
+                ['label' => 'Оклад, руб. Гросс', 'value' => getFieldValue($f, PROP_SALARY)],
+                ['label' => 'ИСН, руб. Гросс', 'value' => getFieldValue($f, PROP_ISN)],
+                ['label' => 'Премиальная часть', 'value' => getFieldValue($f, PROP_BONUS_TYPE)],
+                ['label' => 'Премиальная часть, % премии от оклада', 'value' => getFieldValue($f, PROP_BONUS_PERCENT)],
+                ['label' => 'Премиальная часть, руб. Гросс', 'value' => getFieldValue($f, PROP_BONUS_RUB_GROSS)],
+                ['label' => 'Доход в месяц в среднем, руб. Гросс', 'value' => getFieldValue($f, PROP_MONTH_INCOME_AVG_GROSS)],
+                ['label' => 'Районный коэффициент', 'value' => getFieldValue($f, PROP_RAYON_COEFFICIENT)],
+                ['label' => 'Северная надбавка %%', 'value' => getFieldValue($f, PROP_PERSONAL_ALLOWANCE)],
+            ],
+        ],
+        [
+            'title' => 'Даты и условия',
+            'rows' => [
+                ['label' => 'Планируемая дата отправки оффера кандидату', 'value' => getFieldValue($f, PROP_PLANNED_SEND_DATE)],
+                ['label' => 'Планируемая дата выхода на работу', 'value' => getFieldValue($f, PROP_PLANNED_START_DATE)],
+                ['label' => 'Испытательный срок', 'value' => getFieldValue($f, PROP_TRIAL_PERIOD)],
+                ['label' => 'Договор с сотрудником', 'value' => getFieldValue($f, PROP_CONTRACT_TYPE)],
+                ['label' => 'Социальный пакет', 'value' => getFieldValue($f, PROP_BENEFITS)],
+                ['label' => 'Компенсация аренды жилья', 'value' => getFieldValue($f, PROP_HOUSING_COMPENSATION)],
+                ['label' => 'Регион-локация кандидата', 'value' => getFieldValue($f, PROP_REGION_LOCATION)],
+            ],
+        ],
+        [
+            'title' => 'Рабочее место',
+            'rows' => [
+                ['label' => 'Формат работы', 'value' => getFieldValue($f, PROP_WORK_FORMAT)],
+                ['label' => 'Адрес офиса', 'value' => getFieldValue($f, PROP_OFFICE)],
+                ['label' => 'График работы', 'value' => getFieldValue($f, PROP_WORK_SCHEDULE)],
+                ['label' => 'Начало рабочего дня', 'value' => getFieldValue($f, PROP_WORK_START)],
+                ['label' => 'Оборудование для работы', 'value' => getFieldValue($f, PROP_EQUIPMENT)],
+                ['label' => 'Оборудование для работы (текст)', 'value' => getFieldValue($f, PROP_EQUIPMENT_TEXT)],
+            ],
+        ],
+        [
+            'title' => 'Дополнительно',
+            'rows' => [
+                ['label' => 'Комментарии', 'value' => getFieldValue($f, PROP_COMMENT)],
+                ['label' => 'Путь создания оффера', 'value' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? ''))],
+            ],
+        ],
+    ];
+
     $items[] = [
         'ID' => $id,
         'DATE_CREATE' => (string)$f['DATE_CREATE'],
-        'CANDIDATE_FIO' => (string)($f[PROP_CANDIDATE_FIO . '_VALUE'] ?? ''),
-        'PLANNED_SEND_DATE' => (string)($f[PROP_PLANNED_SEND_DATE . '_VALUE'] ?? ''),
-        'POSITION' => (string)($f[PROP_POSITION . '_VALUE'] ?? ''),
-        'ORGANIZATION' => html_entity_decode((string)($f[PROP_ORGANIZATION . '_VALUE'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'),
+        'CANDIDATE_FIO' => getFieldValue($f, PROP_CANDIDATE_FIO),
+        'POSITION' => getFieldValue($f, PROP_POSITION),
+        'ORGANIZATION' => getFieldValue($f, PROP_ORGANIZATION),
         'RECRUITER_ID' => $recruiterId,
-        'STATUS' => (string)($f[PROP_STATUS . '_VALUE'] ?? ''),
+        'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
+        'DETAILS_HTML' => renderOfferDetailsHtml($detailSections),
         'TASK_ID_FOR_CURRENT_USER' => $taskIdForCurrentUser,
         'VIEW_URL' => '/forms/staff_recruitment/offer/view_offer.php?id=' . $id,
         'EDIT_URL' => '/forms/staff_recruitment/offer/edit_offer.php?id=' . $id,
@@ -358,6 +522,11 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .modal-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid #e5e5e5; }
 .offer-list-page .modal-title { font-weight:600; }
 .offer-list-page .modal-body { padding:16px; white-space:pre-line; overflow:auto; max-height:calc(82vh - 60px); }
+.offer-list-page .offer-detail-section { margin-bottom:18px; }
+.offer-list-page .offer-detail-title { font-weight:700; margin-bottom:8px; color:#343a40; }
+.offer-list-page .offer-detail-grid { display:grid; grid-template-columns:minmax(240px, 38%) 1fr; gap:6px 14px; }
+.offer-list-page .offer-detail-label { color:#6c757d; }
+.offer-list-page .offer-detail-value { font-weight:500; white-space:pre-wrap; }
 </style>
 
 <div class="container-fluid offer-list-page">
@@ -396,9 +565,16 @@ function navPageUrl(int $pageNum): string
                 </select>
             </div>
 
+            <div class="filter-item">
+                <label class="d-flex align-items-center mt-4">
+                    <input type="checkbox" name="in_work" value="Y" <?= $inWorkOnly ? 'checked' : '' ?>>
+                    <span class="ml-2">В работе</span>
+                </label>
+            </div>
+
             <div class="ml-auto d-flex" style="gap:8px;">
                 <button type="submit" class="btn btn-primary btn-sm">Применить</button>
-                <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+                <a href="<?= h(buildUrl([], ['q', 'f_recruiter', 'f_status', 'in_work', 'sort', 'dir', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
             </div>
         </div>
         </form>
@@ -411,18 +587,17 @@ function navPageUrl(int $pageNum): string
         <tr>
             <th><?= sortLink('ID', 'ID', $sort, $dir) ?></th>
             <th><?= sortLink('CANDIDATE_FIO', 'Полное ФИО кандидата', $sort, $dir) ?></th>
-            <th>Планируемая дата отправки оффера кандидату</th>
+            <th><?= sortLink('DATE_CREATE', 'Дата создания', $sort, $dir) ?></th>
             <th>Должность</th>
             <th>Юридическое лицо</th>
             <th>Рекрутер</th>
             <th><?= sortLink('STATUS', 'Статус + история', $sort, $dir) ?></th>
-            <th><?= sortLink('DATE_CREATE', 'Дата создания', $sort, $dir) ?></th>
             <th>Действия</th>
         </tr>
         </thead>
         <tbody>
         <?php if (empty($items)): ?>
-            <tr><td colspan="9" class="muted">Ничего не найдено.</td></tr>
+            <tr><td colspan="8" class="muted">Ничего не найдено.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $row): ?>
                 <?php
@@ -433,9 +608,9 @@ function navPageUrl(int $pageNum): string
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
                 <tr>
-                    <td><?= (int)$row['ID'] ?></td>
+                    <td><a href="#" class="js-offer-details" data-offer-id="<?= (int)$row['ID'] ?>">#<?= (int)$row['ID'] ?></a><div class="d-none" id="offer-details-<?= (int)$row['ID'] ?>"><?= $row['DETAILS_HTML'] ?></div></td>
                     <td><?= h($row['CANDIDATE_FIO'] ?: '—') ?></td>
-                    <td><?= h($row['PLANNED_SEND_DATE'] ?: '—') ?></td>
+                    <td><?= h($row['DATE_CREATE']) ?></td>
                     <td><?= h($row['POSITION'] ?: '—') ?></td>
                     <td><?= h($row['ORGANIZATION'] ?: '—') ?></td>
                     <td><?= h(isset($userMap[$recruiterId]) ? formatUserName($userMap[$recruiterId]) : '—') ?></td>
@@ -453,7 +628,6 @@ function navPageUrl(int $pageNum): string
                             <?php endif; ?>
                         </div>
                     </td>
-                    <td><?= h($row['DATE_CREATE']) ?></td>
                     <td>
                         <div class="actions">
                             <?php if ($canManage): ?>
@@ -489,23 +663,23 @@ function navPageUrl(int $pageNum): string
 </div>
 
 <div class="offer-list-page">
-    <div id="status-history-backdrop" class="modal-backdrop"></div>
-    <div id="status-history-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="status-history-title">
+    <div id="offer-modal-backdrop" class="modal-backdrop"></div>
+    <div id="offer-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="offer-modal-title">
         <div class="modal-head">
-            <div id="status-history-title" class="modal-title">История статуса</div>
-            <button type="button" class="btn btn-secondary btn-sm" id="status-history-close">Закрыть</button>
+            <div id="offer-modal-title" class="modal-title">История статуса</div>
+            <button type="button" class="btn btn-secondary btn-sm" id="offer-modal-close">Закрыть</button>
         </div>
-        <div class="modal-body" id="status-history-content"></div>
+        <div class="modal-body" id="offer-modal-content"></div>
     </div>
 </div>
 
 <script>
 (function() {
-  var backdrop = document.getElementById('status-history-backdrop');
-  var modal = document.getElementById('status-history-modal');
-  var closeBtn = document.getElementById('status-history-close');
-  var content = document.getElementById('status-history-content');
-  var title = document.getElementById('status-history-title');
+  var backdrop = document.getElementById('offer-modal-backdrop');
+  var modal = document.getElementById('offer-modal');
+  var closeBtn = document.getElementById('offer-modal-close');
+  var content = document.getElementById('offer-modal-content');
+  var title = document.getElementById('offer-modal-title');
 
   function closeModal() {
     backdrop.style.display = 'none';
@@ -513,21 +687,43 @@ function navPageUrl(int $pageNum): string
     content.textContent = '';
   }
 
-  function openModal(offerId, history) {
-    title.textContent = 'История статуса (оффер #' + offerId + ')';
-    content.innerHTML = history || 'История отсутствует.';
+  function openModal(modalTitle, html) {
+    title.textContent = modalTitle;
+    content.innerHTML = html || 'Данные отсутствуют.';
     backdrop.style.display = 'block';
     modal.style.display = 'block';
   }
 
+  function decodeBase64Utf8(encoded) {
+    if (!encoded) return '';
+    try {
+      var binary = window.atob(encoded);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder('utf-8').decode(bytes);
+    } catch (err) {
+      try { return window.atob(encoded); } catch (fallbackErr) { return ''; }
+    }
+  }
+
   document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.js-status-info');
-    if (!btn) return;
-    e.preventDefault();
-    var encoded = btn.getAttribute('data-history-b64') || '';
-    var decoded = '';
-    try { decoded = encoded ? window.atob(encoded) : ''; } catch (err) {}
-    openModal(btn.getAttribute('data-offer-id') || '', decoded);
+    var historyBtn = e.target.closest('.js-status-info');
+    if (historyBtn) {
+      e.preventDefault();
+      openModal(
+        'История статуса (оффер #' + (historyBtn.getAttribute('data-offer-id') || '') + ')',
+        decodeBase64Utf8(historyBtn.getAttribute('data-history-b64') || '') || 'История отсутствует.'
+      );
+      return;
+    }
+
+    var detailsBtn = e.target.closest('.js-offer-details');
+    if (detailsBtn) {
+      e.preventDefault();
+      var offerId = detailsBtn.getAttribute('data-offer-id') || '';
+      var details = document.getElementById('offer-details-' + offerId);
+      openModal('Информация по офферу #' + offerId, details ? details.innerHTML : 'Данные отсутствуют.');
+    }
   });
 
   backdrop.addEventListener('click', closeModal);
