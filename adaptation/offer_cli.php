@@ -191,7 +191,9 @@ class OFFERPDF extends TCPDF {
         $text,
         $paddingOverride = null,
         $isBold = false,
-        $fontSize = 10
+        $fontSize = 10,
+        $bottomNote = "",
+        $bottomNoteFontSize = 4
     ) {
         global $BLOCK_RADIUS, $BLOCK_PADDING, $BLOCK_BG, $font_regular, $font_bold;
 
@@ -207,12 +209,26 @@ class OFFERPDF extends TCPDF {
         $this->SetFont($fontToUse, "", $fontSize);
         $this->SetTextColor(255,255,255);
 
-        // Text height → vertical center
+        $noteH = 0;
+        if ($bottomNote !== "") {
+            $this->SetFont($font_regular, "", $bottomNoteFontSize);
+            $noteH = $this->getStringHeight($w - $padding * 2, $bottomNote);
+            $this->SetFont($fontToUse, "", $fontSize);
+        }
+
+        // Text height → vertical center in area above bottom note
         $textH = $this->getStringHeight($w - $padding * 2, $text);
-        $topPad = ($h - $textH) / 2;
+        $textAreaH = max(1, $h - $noteH - $padding);
+        $topPad = max(1, ($textAreaH - $textH) / 2);
 
         $this->SetXY($x + $padding, $y + $topPad);
         $this->MultiCell($w - $padding*2, 5, $text, 0, "L");
+
+        if ($bottomNote !== "") {
+            $this->SetFont($font_regular, "", $bottomNoteFontSize);
+            $this->SetXY($x + $padding, $y + $h - $noteH - 1);
+            $this->MultiCell($w - $padding*2, 2, $bottomNote, 0, "R");
+        }
 
         $this->SetTextColor(0,0,0);
     }
@@ -236,7 +252,7 @@ function fmtPercentValue($value) {
     return (strpos($value, "%") !== false) ? $value : $value . "%";
 }
 
-function calcBlockHeight($pdf, $text, $width, $padding = null, $fontSize = 10)
+function calcBlockHeight($pdf, $text, $width, $padding = null, $fontSize = 10, $bottomNote = "", $bottomNoteFontSize = 4)
 {
     global $BLOCK_HEIGHT_MIN, $BLOCK_PADDING;
 
@@ -244,6 +260,11 @@ function calcBlockHeight($pdf, $text, $width, $padding = null, $fontSize = 10)
 
     $pdf->SetFont("montserrat", "", $fontSize);
     $h = $pdf->getStringHeight($width - $pad * 2, $text);
+
+    if ($bottomNote !== "") {
+        $pdf->SetFont("montserrat", "", $bottomNoteFontSize);
+        $h += $pdf->getStringHeight($width - $pad * 2, $bottomNote) + 1;
+    }
 
     return max($BLOCK_HEIGHT_MIN, $h + $pad * 2);
 }
@@ -339,9 +360,10 @@ $hasRkAndSn = (!$rk_is_one && $hasSn);
 // Fixed salary
 $fix = fmtRub(propNum("ZARABOTNAYA_PLATA_FIKSIROVANNAYA_CHAST_ZA_MESYATS_"));
 $col2Data[] = [
-    "label"    => "Фиксированная часть за месяц",
+    "label"    => "Фиксированная часть за месяц*",
     "value"    => $fix,
-    "footnote" => ""
+    "footnote" => "",
+    "taxNote"  => true
 ];
 
 // Premium
@@ -353,18 +375,20 @@ if ($premiaType == "Ежемесячно" || $premiaType == "Ежекварта�
     $premOut = $premRub . " / " . $premPct . " / " . $premiaType;
 
     $col2Data[] = [
-        "label"    => "Премиальная часть по итогам работы за период до",
+        "label"    => "Премиальная часть по итогам работы за период до*",
         "value"    => $premOut,
-        "footnote" => ""
+        "footnote" => "",
+        "taxNote"  => true
     ];
 }
 
 // ISN
 if ($isn > 0) {
     $col2Data[] = [
-        "label"    => "ИСН за месяц",
+        "label"    => "ИСН за месяц*",
         "value"    => fmtRub($isn),
-        "footnote" => ""
+        "footnote" => "",
+        "taxNote"  => true
     ];
 }
 
@@ -402,7 +426,8 @@ else
 $col2Data[] = [
     "label" => $labelAvg,
     "value" => $dohod,
-    "footnote" => ""
+    "footnote" => "",
+    "taxNote" => true
 ];
 
 
@@ -493,12 +518,16 @@ function renderColumnStatic(
         $blockFontSize = $isCol2 ? 14 : 13;
         $blockBold     = $isCol2;
 
+        $taxNote = !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "";
+
         $blockH = calcBlockHeight(
             $pdf,
             $row["value"],
             $w,
             null,
-            $blockFontSize
+            $blockFontSize,
+            $taxNote,
+            3.8
         );
 
         // label
@@ -516,7 +545,9 @@ function renderColumnStatic(
             $row["value"],
             null,
             $blockBold,
-            $blockFontSize
+            $blockFontSize,
+            !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "",
+            3.8
         );
 
         // footnote
@@ -539,12 +570,16 @@ function prepareColumn2Rows($pdf, $items, $w, $labelFontSize, $blockFontSize, $f
         $pdf->SetFont("montserrat", "", $labelFontSize);
         $labelH = $pdf->getStringHeight($w, $row["label"]);
 
+        $taxNote = !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "";
+
         $blockH = calcBlockHeight(
             $pdf,
             $row["value"],
             $w,
             null,
-            $blockFontSize
+            $blockFontSize,
+            $taxNote,
+            3.8
         );
 
         $footnoteH = 0;
@@ -644,7 +679,9 @@ function renderColumn2Dynamic(
             $row["value"],
             null,
             $blockBold,
-            $blockFontSize
+            $blockFontSize,
+            !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "",
+            3.8
         );
 
         $top += $rowMeta["blockH"];
@@ -907,14 +944,14 @@ $col2EndY = renderColumn2Dynamic(
     $col2Data,
     $COL2_X,
     $COL_TOP,
-    194,
+    186,
     $COL_WIDTH
 );
 
 // Footnote under column 2
-$pdf->SetFont($font_regular, "", 7);
+$pdf->SetFont($font_regular, "", 4.5);
 $pdf->SetTextColor(0,0,0);
-$col2BottomFootnoteY = max(196, $col2EndY + 2);
+$col2BottomFootnoteY = max(187, min(190, $col2EndY + 1));
 $pdf->SetXY($COL2_X, $col2BottomFootnoteY);
 $footnoteText = "* Суммы до вычета НДФЛ. С 01.01.2025 вступил в силу закон о прогрессивной шкале НДФЛ, где ставка НДФЛ может меняться от 13% до 22%.";
 if ($hasRkAndSn) {
@@ -927,7 +964,7 @@ if ($hasRkAndSn) {
 
 $pdf->MultiCell(
     $COL_WIDTH,
-    1,
+    2,
     $footnoteText,
     0,
     "L"
