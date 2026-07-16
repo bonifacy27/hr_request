@@ -949,7 +949,7 @@ $col2EndY = renderColumn2Dynamic(
 );
 
 // Footnote under column 2
-$pdf->SetFont($font_regular, "", 4.5);
+$pdf->SetFont($font_regular, "", 9);
 $pdf->SetTextColor(0,0,0);
 $col2BottomFootnoteY = max(187, min(190, $col2EndY + 1));
 $pdf->SetXY($COL2_X, $col2BottomFootnoteY);
