@@ -227,6 +227,15 @@ function fmtRub($num) {
     return number_format($num, 0, ',', ' ') . " рублей";
 }
 
+function fmtPercentValue($value) {
+    $value = trim((string)$value);
+    if ($value === "") {
+        return "";
+    }
+
+    return (strpos($value, "%") !== false) ? $value : $value . "%";
+}
+
 function calcBlockHeight($pdf, $text, $width, $padding = null, $fontSize = 10)
 {
     global $BLOCK_HEIGHT_MIN, $BLOCK_PADDING;
@@ -318,9 +327,14 @@ $premiaType = propEnumName("PREMIALNAYA_CHAST_");
 // ISN
 $isn = propNum("ISN_RUB_GROSS");
 
-// RK
+// RK / SN
 $rk = propStr("RAYONNYY_KOEFFITSIENT");
-$rk_is_one = ($rk == "1");
+$rkValue = propNum("RAYONNYY_KOEFFITSIENT");
+$rk_is_one = ($rkValue <= 1);
+$sn = propStr("PERSONALNAYA_NADBAVKA");
+$snValue = propNum("PERSONALNAYA_NADBAVKA");
+$hasSn = ($snValue > 0);
+$hasRkAndSn = (!$rk_is_one && $hasSn);
 
 // Fixed salary
 $fix = fmtRub(propNum("ZARABOTNAYA_PLATA_FIKSIROVANNAYA_CHAST_ZA_MESYATS_"));
@@ -354,11 +368,13 @@ if ($isn > 0) {
     ];
 }
 
-// RK
+// RK / SN
 if (!$rk_is_one) {
     $col2Data[] = [
-        "label"    => "Региональный коэффициент",
-        "value"    => $rk,
+        "label"    => $hasRkAndSn
+            ? "Региональный коэффициента (РК) / Северная надбавка (СН)"
+            : "Региональный коэффициент",
+        "value"    => $hasRkAndSn ? $rk . " / " . fmtPercentValue($sn) : $rk,
         "footnote" => ""
     ];
 }
@@ -366,7 +382,9 @@ if (!$rk_is_one) {
 // Average income
 $dohod = fmtRub(propNum("DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS"));
 
-if (!$rk_is_one && $isn > 0)
+if ($hasRkAndSn && $isn > 0)
+    $labelAvg = "Доход в среднем в месяц, с учетом РК, СН и ИСН до*";
+elseif (!$rk_is_one && $isn > 0)
     $labelAvg = "Доход в среднем в месяц, с учетом РК и ИСН до*";
 elseif (!$rk_is_one)
     $labelAvg = "Доход в среднем в месяц, с учетом РК до*";
@@ -506,26 +524,11 @@ function renderColumnStatic(
     }
 }
 
-function renderColumn2Dynamic(
-    $pdf,
-    $items,
-    $x,
-    $top,
-    $bottom,
-    $w
-){
-    $GAP_DEFAULT = 12;
-    $GAP_MIN = 0;
-    $LABEL_GAP = 2;
-    $FOOTNOTE_GAP = 2;
-
-    $labelFontSize = 11;
-    $blockFontSize = 14;
-    $blockBold = true;
-
-    // Предварительно считаем высоты всех строк, чтобы гарантировать размещение в колонке
+function prepareColumn2Rows($pdf, $items, $w, $labelFontSize, $blockFontSize, $footnoteFontSize, $labelGap, $footnoteGap)
+{
     $rows = [];
     $totalRowsHeight = 0;
+
     foreach ($items as $row) {
         $pdf->SetFont("montserrat", "", $labelFontSize);
         $labelH = $pdf->getStringHeight($w, $row["label"]);
@@ -540,11 +543,11 @@ function renderColumn2Dynamic(
 
         $footnoteH = 0;
         if (!empty($row["footnote"])) {
-            $pdf->SetFont("montserrat", "", 8);
+            $pdf->SetFont("montserrat", "", $footnoteFontSize);
             $footnoteH = $pdf->getStringHeight($w, $row["footnote"]);
         }
 
-        $rowHeight = $labelH + $LABEL_GAP + $blockH + ($footnoteH > 0 ? ($FOOTNOTE_GAP + $footnoteH) : 0);
+        $rowHeight = $labelH + $labelGap + $blockH + ($footnoteH > 0 ? ($footnoteGap + $footnoteH) : 0);
 
         $rows[] = [
             "data" => $row,
@@ -556,8 +559,61 @@ function renderColumn2Dynamic(
         $totalRowsHeight += $rowHeight;
     }
 
-    $count = count($rows);
+    return [$rows, $totalRowsHeight];
+}
+
+function renderColumn2Dynamic(
+    $pdf,
+    $items,
+    $x,
+    $top,
+    $bottom,
+    $w
+){
+    $GAP_DEFAULT = 12;
+    $GAP_MIN = 0;
+    $LABEL_GAP = 2;
+    $FOOTNOTE_GAP = 2;
+
+    $fontVariants = [
+        ["label" => 11, "block" => 14, "footnote" => 8],
+        ["label" => 10, "block" => 13, "footnote" => 7.5],
+        ["label" => 9.5, "block" => 12.5, "footnote" => 7],
+        ["label" => 9, "block" => 12, "footnote" => 7],
+    ];
+
+    $rows = [];
+    $totalRowsHeight = 0;
+    $labelFontSize = $fontVariants[0]["label"];
+    $blockFontSize = $fontVariants[0]["block"];
+    $footnoteFontSize = $fontVariants[0]["footnote"];
+    $blockBold = true;
+    $count = count($items);
     $available = $bottom - $top;
+
+    foreach ($fontVariants as $variant) {
+        [$candidateRows, $candidateTotalHeight] = prepareColumn2Rows(
+            $pdf,
+            $items,
+            $w,
+            $variant["label"],
+            $variant["block"],
+            $variant["footnote"],
+            $LABEL_GAP,
+            $FOOTNOTE_GAP
+        );
+
+        $rows = $candidateRows;
+        $totalRowsHeight = $candidateTotalHeight;
+        $labelFontSize = $variant["label"];
+        $blockFontSize = $variant["block"];
+        $footnoteFontSize = $variant["footnote"];
+
+        if ($totalRowsHeight <= $available || $count <= 1) {
+            break;
+        }
+    }
+
     $requiredWithDefaultGap = $totalRowsHeight + max(0, $count - 1) * $GAP_DEFAULT;
 
     $gap = $GAP_DEFAULT;
@@ -565,7 +621,7 @@ function renderColumn2Dynamic(
         $gap = max($GAP_MIN, ($available - $totalRowsHeight) / ($count - 1));
     }
 
-    // Отрисовка колоноки 2 строго в рамках доступной высоты
+    // Отрисовка колонки 2 строго в рамках доступной высоты
     foreach ($rows as $idx => $rowMeta) {
         $row = $rowMeta["data"];
 
@@ -588,7 +644,7 @@ function renderColumn2Dynamic(
         $top += $rowMeta["blockH"];
 
         if ($rowMeta["footnoteH"] > 0) {
-            $pdf->SetFont("montserrat", "", 8);
+            $pdf->SetFont("montserrat", "", $footnoteFontSize);
             $pdf->SetXY($x, $top + $FOOTNOTE_GAP);
             $pdf->MultiCell($w, 4, $row["footnote"], 0, "L");
             $top += $FOOTNOTE_GAP + $rowMeta["footnoteH"];
@@ -601,6 +657,7 @@ function renderColumn2Dynamic(
 
     return $top;
 }
+
 
 
 /*************************************************************
