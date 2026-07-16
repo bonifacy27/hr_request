@@ -32,7 +32,7 @@ if ($IS_CLI) {
 }
 
 // DOCUMENT_ROOT
-$_SERVER["DOCUMENT_ROOT"] = realpath(__DIR__ . "/../../");
+$_SERVER["DOCUMENT_ROOT"] = "/home/bitrix/www/";
 
 // Загружаем ядро Bitrix
 require($_SERVER["DOCUMENT_ROOT"] . "/bitrix/modules/main/include/prolog_before.php");
@@ -339,9 +339,9 @@ $hasRkAndSn = (!$rk_is_one && $hasSn);
 // Fixed salary
 $fix = fmtRub(propNum("ZARABOTNAYA_PLATA_FIKSIROVANNAYA_CHAST_ZA_MESYATS_"));
 $col2Data[] = [
-    "label"    => "Фиксированная часть за месяц*",
+    "label"    => "Фиксированная часть за месяц",
     "value"    => $fix,
-    "footnote" => "Сумма до вычета НДФЛ"
+    "footnote" => ""
 ];
 
 // Premium
@@ -353,18 +353,18 @@ if ($premiaType == "Ежемесячно" || $premiaType == "Ежекварта�
     $premOut = $premRub . " / " . $premPct . " / " . $premiaType;
 
     $col2Data[] = [
-        "label"    => "Премиальная часть по итогам работы за период до*",
+        "label"    => "Премиальная часть по итогам работы за период до",
         "value"    => $premOut,
-        "footnote" => "Сумма до вычета НДФЛ"
+        "footnote" => ""
     ];
 }
 
 // ISN
 if ($isn > 0) {
     $col2Data[] = [
-        "label"    => "ИСН за месяц*",
+        "label"    => "ИСН за месяц",
         "value"    => fmtRub($isn),
-        "footnote" => "Сумма до вычета НДФЛ"
+        "footnote" => ""
     ];
 }
 
@@ -382,21 +382,27 @@ if (!$rk_is_one) {
 // Average income
 $dohod = fmtRub(propNum("DOKHOD_V_MESYATS_V_SREDNEM_RUB_GROSS"));
 
+$hasRk = !$rk_is_one;
+$hasRkOrSn = ($hasRk || $hasSn);
+$avgFootnoteMark = $hasRkOrSn ? "**" : "*";
+
 if ($hasRkAndSn && $isn > 0)
-    $labelAvg = "Доход в среднем в месяц, с учетом РК, СН и ИСН до*";
-elseif (!$rk_is_one && $isn > 0)
-    $labelAvg = "Доход в среднем в месяц, с учетом РК и ИСН до*";
-elseif (!$rk_is_one)
-    $labelAvg = "Доход в среднем в месяц, с учетом РК до*";
+    $labelAvg = "Доход в среднем в месяц, с учетом РК, СН и ИСН до" . $avgFootnoteMark;
+elseif ($hasRk && $isn > 0)
+    $labelAvg = "Доход в среднем в месяц, с учетом РК и ИСН до" . $avgFootnoteMark;
+elseif ($hasRkAndSn)
+    $labelAvg = "Доход в среднем в месяц, с учетом РК и СН до" . $avgFootnoteMark;
+elseif ($hasRk)
+    $labelAvg = "Доход в среднем в месяц, с учетом РК до" . $avgFootnoteMark;
 elseif ($isn > 0)
-    $labelAvg = "Доход в среднем в месяц, с учетом ИСН до*";
+    $labelAvg = "Доход в среднем в месяц, с учетом ИСН до" . $avgFootnoteMark;
 else
-    $labelAvg = "Доход в среднем в месяц до*";
+    $labelAvg = "Доход в среднем в месяц до" . $avgFootnoteMark;
 
 $col2Data[] = [
     "label" => $labelAvg,
     "value" => $dohod,
-    "footnote" => "Сумма до вычета НДФЛ"
+    "footnote" => ""
 ];
 
 
@@ -872,7 +878,7 @@ $pdf->MultiCell($COL_WIDTH, 7, $EMPLOYEE_NAME, 0, "L");
 
 // Column 2 header
 $pdf->SetXY($COL2_X, $COL_HEADER_Y);
-$pdf->MultiCell($COL_WIDTH, 7, "Заработная плата", 0, "L");
+$pdf->MultiCell($COL_WIDTH, 7, "Заработная плата*", 0, "L");
 
 // Column 3 header
 $pdf->SetXY($COL3_X, $COL_HEADER_Y);
@@ -910,10 +916,19 @@ $pdf->SetFont($font_regular, "", 7);
 $pdf->SetTextColor(0,0,0);
 $col2BottomFootnoteY = max(196, $col2EndY + 2);
 $pdf->SetXY($COL2_X, $col2BottomFootnoteY);
+$footnoteText = "* Суммы до вычета НДФЛ. С 01.01.2025 вступил в силу закон о прогрессивной шкале НДФЛ, где ставка НДФЛ может меняться от 13% до 22%.";
+if ($hasRkAndSn) {
+    $footnoteText .= "\n** С учетом регионального коэффициента и северной надбавки";
+} elseif ($hasRk) {
+    $footnoteText .= "\n** С учетом регионального коэффициента";
+} elseif ($hasSn) {
+    $footnoteText .= "\n** С учетом северной надбавки";
+}
+
 $pdf->MultiCell(
     $COL_WIDTH,
     1,
-    "*Суммы до вычета НДФЛ. С 01.01.2025 вступил в силу закон о прогрессивной шкале НДФЛ, где ставка НДФЛ может меняться от 13% до 22%.",
+    $footnoteText,
     0,
     "L"
 );
