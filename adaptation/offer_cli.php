@@ -216,10 +216,10 @@ class OFFERPDF extends TCPDF {
             $this->SetFont($fontToUse, "", $fontSize);
         }
 
-        // Text height → vertical center in area above bottom note
+        // Text height → vertical center; bottom note is overlaid in the corner
+        // and must not affect blue block height or main value positioning.
         $textH = $this->getStringHeight($w - $padding * 2, $text);
-        $textAreaH = max(1, $h - $noteH - $padding);
-        $topPad = max(1, ($textAreaH - $textH) / 2);
+        $topPad = max(1, ($h - $textH) / 2);
 
         $this->SetXY($x + $padding, $y + $topPad);
         $this->MultiCell($w - $padding*2, 5, $text, 0, "L");
@@ -260,11 +260,6 @@ function calcBlockHeight($pdf, $text, $width, $padding = null, $fontSize = 10, $
 
     $pdf->SetFont("montserrat", "", $fontSize);
     $h = $pdf->getStringHeight($width - $pad * 2, $text);
-
-    if ($bottomNote !== "") {
-        $pdf->SetFont("montserrat", "", $bottomNoteFontSize);
-        $h += $pdf->getStringHeight($width - $pad * 2, $bottomNote) + 1;
-    }
 
     return max($BLOCK_HEIGHT_MIN, $h + $pad * 2);
 }
@@ -527,7 +522,7 @@ function renderColumnStatic(
             null,
             $blockFontSize,
             $taxNote,
-            3.8
+            6.65
         );
 
         // label
@@ -547,7 +542,7 @@ function renderColumnStatic(
             $blockBold,
             $blockFontSize,
             !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "",
-            3.8
+            6.65
         );
 
         // footnote
@@ -579,7 +574,7 @@ function prepareColumn2Rows($pdf, $items, $w, $labelFontSize, $blockFontSize, $f
             null,
             $blockFontSize,
             $taxNote,
-            3.8
+            6.65
         );
 
         $footnoteH = 0;
@@ -681,7 +676,7 @@ function renderColumn2Dynamic(
             $blockBold,
             $blockFontSize,
             !empty($row["taxNote"]) ? "Сумма до вычета НДФЛ" : "",
-            3.8
+            6.65
         );
 
         $top += $rowMeta["blockH"];
