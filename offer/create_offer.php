@@ -50,6 +50,7 @@ const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
 const OFFER_PROP_BONUS_PERCENT = 1186;
 const OFFER_PROP_TRIAL_PERIOD = 2001;
+const OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT = 1176;
 const OFFER_PROP_PLANNED_START_DATE = 1174;
 const OFFER_PROP_BENEFITS = 1177;
 const OFFER_PROP_WORK_FORMAT = 1327;
@@ -714,6 +715,7 @@ $scheduleNameById = $nameById($scheduleList);
 $startNameById = $nameById($startTimeList);
 $equipmentNameById = $nameById($equipmentList);
 $regionNameById = $nameById($regionLocationList);
+$trialPeriodNameById = $nameById($trialPeriodList);
 
 $sourceSnapshot = null;
 if (($candidateId > 0 && $candidate) || $requestItem) {
@@ -896,6 +898,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
+            OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT => (string)($trialPeriodNameById[$formData['trial_period']] ?? $formData['trial_period']),
             OFFER_PROP_PLANNED_START_DATE => dateToStorageFormat($formData['planned_start_date']),
             OFFER_PROP_BENEFITS => $formData['benefits'],
             OFFER_PROP_WORK_FORMAT => $formData['work_format'],
@@ -1026,7 +1029,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     startOfferListWorkflow(1323, (int)$offerId, $bpParams, $bpErrors);
                 }
             }
-            LocalRedirect('/services/lists/218/view/0/?list_section_id=');
+            LocalRedirect('/forms/staff_recruitment/offer/list.php');
         } else {
             $errors[] = 'Не удалось создать запись в списке офферов: ' . ($el->LAST_ERROR ?: 'неизвестная ошибка');
         }
