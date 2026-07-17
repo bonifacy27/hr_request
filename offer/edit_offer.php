@@ -78,6 +78,7 @@ const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 const DEFAULT_EQUIPMENT = '3263612';
 const DEFAULT_CONTRACT = '3263600';
 const DEFAULT_ORGANIZATION = '3197820';
+const OFFER_LIST_URL = '/forms/staff_recruitment/offer/list.php';
 
 function h($s): string
 {
@@ -1039,10 +1040,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         if (empty($changes)) {
             if ($trialPeriodTextChanged) {
                 CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, $props);
-                $saveMessage = [
-                    'type' => 'success',
-                    'text' => 'Текстовое значение испытательного срока обновлено.',
-                ];
+                LocalRedirect(OFFER_LIST_URL);
             } else {
                 $saveMessage = [
                     'type' => 'info',
@@ -1076,7 +1074,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 ];
                 $bpErrors = [];
                 CBPDocument::StartWorkflow(1323, $documentId, $bpParams, $bpErrors);
-                LocalRedirect('/services/lists/218/view/' . (int)$offerId . '/?list_section_id=');
+                LocalRedirect(OFFER_LIST_URL);
             }
         }
     }
