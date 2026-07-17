@@ -1,7 +1,7 @@
 <?php
 /**
  * list.php — список "Заявок на подбор" (ИБ 201) для рекрутера
- * Версия: 2.3.7 (2026-04-01)
+ * Версия: 2.3.8 (2026-07-10)
  *
  * v2.3.5:
  * - Фильтры Инициатор/Руководитель/Рекрутер: выпадашки строятся по ВСЕМУ списку (без учёта пагинации),
@@ -17,6 +17,11 @@
  * v2.3.7:
  * - Удалены столбец "Просмотр" и кнопка "Открыть".
  * - В меню "Действия" добавлено действие "Посмотреть заявку" (если есть доступ на просмотр).
+ *
+ * v2.3.8:
+ * - Таблица заявок адаптирована под ширину экрана: фиксированная раскладка, переносы длинных значений,
+ *   ограничение ширины основных столбцов.
+ * - Добавлена верхняя синхронизированная горизонтальная прокрутка, чтобы не тянуться до низа таблицы.
  *
  * v2.3.4:
  * - После делегирования: запускаем БП (шаблон 1291) по заявке.
@@ -1214,7 +1219,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   .sort-link { color: #fff; text-decoration: none; }
   .sort-link:hover { text-decoration: underline; }
   .actions-wrap { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-  .actions-compact { min-width: 190px; max-width: 220px; }
+  .actions-compact { min-width: 150px; max-width: 100%; }
   .status-wrap { display:inline-flex; align-items:center; gap:6px; }
   .history-btn { border:0; background:#6c757d; color:#fff; border-radius:50%; width:22px; height:22px; line-height:22px; padding:0; font-size:12px; margin-left:6px; }
   .history-btn:hover { background:#5a6268; }
@@ -1238,6 +1243,63 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   .popup-form-field { margin-top: 10px; }
   .popup-form-field label { font-size: 12px; font-weight: 600; margin-bottom: 6px; display:block; }
   .popup-form-required { color: #dc3545; }
+
+  .staffing-table-shell {
+    width: 100%;
+    max-width: calc(100vw - 48px);
+  }
+  .staffing-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 16px;
+    margin-bottom: 6px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background: #f8f9fa;
+  }
+  .staffing-scroll-top-inner { height: 1px; }
+  .staffing-table-scroll {
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+  .staffing-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 1120px;
+    font-size: 13px;
+  }
+  .staffing-table th,
+  .staffing-table td {
+    overflow-wrap: anywhere;
+    word-break: normal;
+    vertical-align: middle;
+  }
+  .staffing-table td {
+    white-space: normal;
+  }
+  .staffing-table .col-id { width: 64px; }
+  .staffing-table .col-position { width: 18%; }
+  .staffing-table .col-people { width: 17%; }
+  .staffing-table .col-recruiter { width: 12%; }
+  .staffing-table .col-executors { width: 14%; }
+  .staffing-table .col-date { width: 118px; }
+  .staffing-table .col-status { width: 150px; }
+  .staffing-table .col-relations { width: 19%; }
+  .staffing-table .col-actions { width: 190px; }
+  .staffing-table-hint {
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 6px;
+  }
+  @media (max-width: 1399.98px) {
+    .page-wrap { padding-left: 12px; padding-right: 12px; }
+    .staffing-table-shell { max-width: calc(100vw - 24px); }
+    .staffing-table { min-width: 1040px; font-size: 12px; }
+    .staffing-table .col-date { width: 106px; }
+    .staffing-table .col-status { width: 136px; }
+    .staffing-table .col-actions { width: 172px; }
+    .btn-sm, .form-control-sm { font-size: 12px; }
+  }
 </style>
 
 <div class="page-wrap">
@@ -1246,7 +1308,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     Источник: инфоблок <?= (int)$IBLOCK_ID ?>.
     Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>.
     Пагинация: 50 / страница.
-    Версия скрипта: 2.3.7.
+    Версия скрипта: 2.3.8.
   </p>
 
   <?php if ($flashMessage !== ''): ?>
@@ -1334,8 +1396,24 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
   <?php if (empty($items)): ?>
     <div class="alert alert-info">Нет доступных заявок по заданным условиям.</div>
   <?php else: ?>
-    <div class="table-responsive">
-      <table class="table table-sm table-bordered table-hover">
+    <div class="staffing-table-shell">
+      <div class="staffing-table-hint">Если таблица шире окна, горизонтальная прокрутка доступна и сверху, и снизу.</div>
+      <div class="staffing-scroll-top" aria-hidden="true"><div class="staffing-scroll-top-inner"></div></div>
+      <div class="table-responsive staffing-table-scroll">
+      <table class="table table-sm table-bordered table-hover staffing-table">
+        <colgroup>
+          <col class="col-id">
+          <col class="col-position">
+          <col class="col-people">
+          <col class="col-recruiter">
+          <col class="col-executors">
+          <col class="col-date">
+          <col class="col-status">
+          <?php if ($canSeeRelationsColumn): ?>
+            <col class="col-relations">
+          <?php endif; ?>
+          <col class="col-actions">
+        </colgroup>
         <thead class="thead-dark">
           <tr>
             <th><?= sortLink('ID','ID',$sort,$dir) ?></th>
@@ -1409,7 +1487,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
               </span>
             </td>
             <?php if ($canSeeRelationsColumn): ?>
-              <td style="min-width:260px; white-space:normal; word-break:break-word;">
+              <td>
                 <?= renderRelationsColumn((array)$row['CANDIDATE_FORM_IDS'], (array)$row['OFFER_IDS'], (array)$row['EMPLOYEE_CARD_IDS'], (int)($row['FRIENDWORK_VACANCY_ID'] ?? 0)) ?>
               </td>
             <?php endif; ?>
@@ -1452,6 +1530,7 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
         <?php endforeach; ?>
         </tbody>
       </table>
+      </div>
     </div>
 
     <?php if ($pageCount > 1): ?>
@@ -1879,6 +1958,41 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
       openHistoryPopup(elementId, comments);
     });
   });
+
+  function initStaffingTableScroll() {
+    var topScroll = document.querySelector('.staffing-scroll-top');
+    var topInner = document.querySelector('.staffing-scroll-top-inner');
+    var tableScroll = document.querySelector('.staffing-table-scroll');
+    var table = document.querySelector('.staffing-table');
+    if (!topScroll || !topInner || !tableScroll || !table) return;
+
+    var syncingTop = false;
+    var syncingTable = false;
+
+    function updateTopWidth() {
+      topInner.style.width = table.scrollWidth + 'px';
+      topScroll.style.display = table.scrollWidth > tableScroll.clientWidth ? 'block' : 'none';
+    }
+
+    topScroll.addEventListener('scroll', function() {
+      if (syncingTop) return;
+      syncingTable = true;
+      tableScroll.scrollLeft = topScroll.scrollLeft;
+      syncingTable = false;
+    });
+
+    tableScroll.addEventListener('scroll', function() {
+      if (syncingTable) return;
+      syncingTop = true;
+      topScroll.scrollLeft = tableScroll.scrollLeft;
+      syncingTop = false;
+    });
+
+    updateTopWidth();
+    window.addEventListener('resize', updateTopWidth);
+  }
+
+  initStaffingTableScroll();
 })();
 </script>
 
