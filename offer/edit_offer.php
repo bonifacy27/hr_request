@@ -50,6 +50,7 @@ const OFFER_PROP_ISN = 1184;
 const OFFER_PROP_BONUS_TYPE = 1998;
 const OFFER_PROP_BONUS_PERCENT = 1186;
 const OFFER_PROP_TRIAL_PERIOD = 2001;
+const OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT = 1176;
 const OFFER_PROP_PLANNED_START_DATE = 1174;
 const OFFER_PROP_BENEFITS = 1177;
 const OFFER_PROP_WORK_FORMAT = 1327;
@@ -333,6 +334,7 @@ function getOfferById(int $offerId): ?array
         OFFER_PROP_BONUS_TYPE,
         OFFER_PROP_BONUS_PERCENT,
         OFFER_PROP_TRIAL_PERIOD,
+        OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT,
         OFFER_PROP_PLANNED_START_DATE,
         OFFER_PROP_BENEFITS,
         OFFER_PROP_WORK_FORMAT,
@@ -649,6 +651,7 @@ $formData = [
     'bonus_rub_ndfl' => '',
     'month_income_avg_ndfl' => '',
     'trial_period' => '',
+    'trial_period_other_text' => '',
     'planned_start_date' => '',
     'region_location' => '',
     'rayon_coefficient' => '',
@@ -694,6 +697,7 @@ $formData['isn_ndfl'] = (string)$props[OFFER_PROP_ISN_NDFL];
 $formData['bonus_rub_ndfl'] = (string)$props[OFFER_PROP_BONUS_RUB_NDFL];
 $formData['month_income_avg_ndfl'] = (string)$props[OFFER_PROP_MONTH_INCOME_AVG_NDFL];
 $formData['trial_period'] = (string)$props[OFFER_PROP_TRIAL_PERIOD];
+$formData['trial_period_other_text'] = (string)$props[OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT];
 $formData['planned_start_date'] = dateToInputFormat((string)$props[OFFER_PROP_PLANNED_START_DATE]);
 $formData['benefits'] = ((string)$props[OFFER_PROP_BENEFITS] !== '' ? (string)$props[OFFER_PROP_BENEFITS] : $formData['benefits']);
 $formData['work_format'] = (string)$props[OFFER_PROP_WORK_FORMAT];
@@ -775,6 +779,7 @@ $scheduleNameById = $nameById($scheduleList);
 $startNameById = $nameById($startTimeList);
 $equipmentNameById = $nameById($equipmentList);
 $regionNameById = $nameById($regionLocationList);
+$trialPeriodNameById = $nameById($trialPeriodList);
 
 $sourceSnapshot = $formData;
 $recruiterDisplayName = getUserDisplayNameById((int)$formData['recruiter']);
@@ -783,7 +788,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     foreach ($formData as $key => $defaultValue) {
         $formData[$key] = trim((string)($_POST[$key] ?? ''));
     }
-    foreach (['request_id', 'candidate_id', 'fw_candidate_id', 'recruiter', 'comment'] as $readonlyKey) {
+    foreach (['request_id', 'candidate_id', 'fw_candidate_id', 'recruiter', 'comment', 'trial_period_other_text'] as $readonlyKey) {
         $formData[$readonlyKey] = (string)($sourceSnapshot[$readonlyKey] ?? $formData[$readonlyKey] ?? '');
     }
     $formData['region_not_in_list'] = (isset($_POST['region_not_in_list']) ? 'Y' : '');
@@ -902,6 +907,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $formData['month_income_avg_ndfl'] = (string)round(calcNetAfterNdfl((float)$monthIncomeAvg)['net']);
 
     if (empty($errors)) {
+        $selectedTrialPeriodText = (string)($trialPeriodNameById[$formData['trial_period']] ?? $formData['trial_period']);
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
             OFFER_PROP_CANDIDATE_PHONE => $formData['candidate_phone'],
@@ -923,6 +929,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_BONUS_TYPE => $formData['bonus_type'],
             OFFER_PROP_BONUS_PERCENT => $formData['bonus_percent'],
             OFFER_PROP_TRIAL_PERIOD => $formData['trial_period'],
+            OFFER_PROP_TRIAL_PERIOD_OTHER_TEXT => $selectedTrialPeriodText,
             OFFER_PROP_PLANNED_START_DATE => dateToStorageFormat($formData['planned_start_date']),
             OFFER_PROP_BENEFITS => $formData['benefits'],
             OFFER_PROP_WORK_FORMAT => $formData['work_format'],
@@ -957,6 +964,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'chief' => 'ФИО руководителя (из списка)',
             'is_chief_position' => 'Кандидат на руководящую должность',
             'contract_type' => 'Тип трудового договора',
+            'trial_period' => 'Испытательный срок',
             'salary' => 'Оклад, руб.',
             'isn' => 'ИСН, руб.',
             'bonus_type' => 'Тип премирования',
@@ -995,6 +1003,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             } elseif ($key === 'bonus_type') {
                 $oldDisplay = $bonusTypeNameById[$old] ?? $old;
                 $newDisplay = $bonusTypeNameById[$new] ?? $new;
+            } elseif ($key === 'trial_period') {
+                $oldDisplay = $trialPeriodNameById[$old] ?? $old;
+                $newDisplay = $trialPeriodNameById[$new] ?? $new;
             } elseif ($key === 'office') {
                 $oldDisplay = $officeNameById[$old] ?? $old;
                 $newDisplay = $officeNameById[$new] ?? $new;
@@ -1023,11 +1034,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             $changes[] = $label . ': ' . $oldDisplay . ' → ' . $newDisplay;
         }
 
+        $trialPeriodTextChanged = trim((string)($sourceSnapshot['trial_period_other_text'] ?? '')) !== $selectedTrialPeriodText;
+
         if (empty($changes)) {
-            $saveMessage = [
-                'type' => 'info',
-                'text' => 'Изменений не обнаружено.',
-            ];
+            if ($trialPeriodTextChanged) {
+                CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, $props);
+                $saveMessage = [
+                    'type' => 'success',
+                    'text' => 'Текстовое значение испытательного срока обновлено.',
+                ];
+            } else {
+                $saveMessage = [
+                    'type' => 'info',
+                    'text' => 'Изменений не обнаружено.',
+                ];
+            }
         } else {
             CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, $props);
             $el = new CIBlockElement();
