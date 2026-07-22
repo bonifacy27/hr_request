@@ -1089,7 +1089,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-<div class="container my-4">
+
+<style>
+.offer-page .card {
+    border: 0;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+}
+.offer-page .card-header {
+    background: linear-gradient(90deg, #f1f5f9 0%, #e0f2fe 100%);
+    border-bottom: 1px solid #dbeafe;
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: .01em;
+}
+.offer-page .card-body {
+    background: #f8fafc;
+}
+.offer-page .form-group {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px;
+}
+.offer-page .form-group label {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.offer-page .form-control[readonly] {
+    background-color: #eef2ff;
+}
+.offer-page .links-card .card-body {
+    background: #ffffff;
+}
+</style>
+<div class="container my-4 offer-page">
     <div class="d-flex align-items-center mb-3">
         <h1 class="h3 mb-0">Заявка на оффер</h1>
     </div>
@@ -1371,7 +1408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             </div>
         </div>
 
-        <div class="card mb-3">
+        <div class="card mb-3 links-card">
             <div class="card-header">Связи</div>
             <div class="card-body py-2">
                 <input type="hidden" name="request_id" value="<?=h($formData['request_id'])?>">
