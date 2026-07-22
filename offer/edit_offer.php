@@ -1097,33 +1097,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
     overflow: hidden;
 }
+.offer-page .card:nth-of-type(1) { background: #eff6ff; }
+.offer-page .card:nth-of-type(2) { background: #fefce8; }
+.offer-page .card:nth-of-type(3) { background: #f0fdf4; }
+.offer-page .card:nth-of-type(4) { background: #f8fafc; }
 .offer-page .card-header {
-    background: linear-gradient(90deg, #f1f5f9 0%, #e0f2fe 100%);
-    border-bottom: 1px solid #dbeafe;
+    background: transparent;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
     color: #0f172a;
     font-weight: 700;
     letter-spacing: .01em;
 }
 .offer-page .card-body {
-    background: #f8fafc;
+    background: transparent;
 }
 .offer-page .form-group {
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 10px;
     padding: 12px;
 }
 .offer-page .form-group label {
     color: #475569;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 400;
     margin-bottom: 6px;
 }
-.offer-page .form-control[readonly] {
-    background-color: #eef2ff;
+.offer-page .form-control {
+    font-weight: 600;
 }
-.offer-page .links-card .card-body {
-    background: #ffffff;
+.offer-page .form-control[readonly] {
+    background-color: rgba(238, 242, 255, 0.8);
+}
+.offer-page .links-card {
+    background: #f8fafc;
 }
 </style>
 <div class="container my-4 offer-page">

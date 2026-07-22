@@ -864,11 +864,15 @@ $viewSections = [
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 <style>
 .offer-page .offer-section { border: 0; border-radius: 14px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); overflow: hidden; }
-.offer-page .offer-section .card-header { background: linear-gradient(90deg, #f1f5f9 0%, #e0f2fe 100%); border-bottom: 1px solid #dbeafe; color: #0f172a; font-weight: 700; letter-spacing: .01em; }
-.offer-page .offer-section .card-body { background: #f8fafc; }
-.offer-page .offer-field { height: 100%; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-.offer-page .offer-label { color: #64748b; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
-.offer-page .offer-value { color: #111827; font-size: 16px; white-space: pre-wrap; }
+.offer-page .offer-section-blue { background: #eff6ff; }
+.offer-page .offer-section-yellow { background: #fefce8; }
+.offer-page .offer-section-green { background: #f0fdf4; }
+.offer-page .offer-section-gray { background: #f8fafc; }
+.offer-page .offer-section .card-header { background: transparent; border-bottom: 1px solid rgba(15, 23, 42, 0.08); color: #0f172a; font-weight: 700; letter-spacing: .01em; }
+.offer-page .offer-section .card-body { background: transparent; }
+.offer-page .offer-field { height: 100%; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 10px; padding: 12px; }
+.offer-page .offer-label { color: #64748b; font-size: 13px; font-weight: 400; margin-bottom: 6px; }
+.offer-page .offer-value { color: #111827; font-size: 16px; font-weight: 600; white-space: pre-wrap; }
 .offer-page .offer-value-empty { color: #94a3b8; }
 </style>
 <div class="container my-4 offer-page">
@@ -881,8 +885,9 @@ $viewSections = [
     </div>
     <div class="alert alert-info" role="alert">Оффер ID: <strong><?=h($offerId)?></strong>.</div>
 
-    <?php foreach ($viewSections as $section): ?>
-        <div class="card offer-section mb-3">
+    <?php $sectionColors = ['offer-section-blue', 'offer-section-yellow', 'offer-section-green', 'offer-section-gray']; ?>
+    <?php foreach ($viewSections as $sectionIndex => $section): ?>
+        <div class="card offer-section <?=h($sectionColors[$sectionIndex % count($sectionColors)])?> mb-3">
             <div class="card-header"><?=h($section['title'])?></div>
             <div class="card-body">
                 <div class="row">
