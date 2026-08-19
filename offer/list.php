@@ -55,6 +55,7 @@ const PROP_PERSONAL_ALLOWANCE = 'PROPERTY_1234';
 const PROP_RAYON_COEFFICIENT = 'PROPERTY_1235';
 const PROP_RECRUITER = 'PROPERTY_1190';
 const PROP_STATUS = 'PROPERTY_1189';
+const PROP_OFFER_PDF = 'PROPERTY_1222';
 const PROP_REQUEST_ID = 'PROPERTY_1601';
 const PROP_CANDIDATE_ID = 'PROPERTY_1603';
 const PROP_FW_CANDIDATE_ID = 'PROPERTY_1602';
@@ -138,6 +139,17 @@ function getUserDisplayNameById(int $userId): string
 function getFieldValue(array $fields, string $property): string
 {
     return displayValue($fields[$property . '_VALUE'] ?? '');
+}
+
+function getFileUrlFromField(array $fields, string $property): string
+{
+    $fileValue = $fields[$property . '_VALUE'] ?? '';
+    if (is_array($fileValue)) {
+        $fileValue = reset($fileValue);
+    }
+
+    $fileId = (int)$fileValue;
+    return $fileId > 0 ? (string)CFile::GetPath($fileId) : '';
 }
 
 
@@ -424,6 +436,7 @@ $arSelect = [
     PROP_ORGANIZATION,
     PROP_RECRUITER,
     PROP_STATUS,
+    PROP_OFFER_PDF,
     'PREVIEW_TEXT',
 ];
 
@@ -517,6 +530,7 @@ while ($ob = $res->GetNextElement()) {
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
+        'OFFER_PDF_URL' => getFileUrlFromField($f, PROP_OFFER_PDF),
         'DETAILS_HTML' => renderOfferDetailsHtml($detailSections),
         'TASK_ID_FOR_CURRENT_USER' => $taskIdForCurrentUser,
         'VIEW_URL' => '/forms/staff_recruitment/offer/view_offer.php?id=' . $id,
@@ -587,6 +601,9 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:0; background:#6c757d; color:#fff; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
 .offer-list-page .info-btn:hover { background:#5a6268; color:#fff; text-decoration:none; }
 .offer-list-page .status-badge { display:inline-block; padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; color:#111827; }
+.offer-list-page .pdf-link { display:inline-flex; align-items:center; justify-content:center; color:#dc3545; }
+.offer-list-page .pdf-link:hover { color:#bd2130; }
+.offer-list-page .pdf-icon { width:26px; height:32px; display:block; }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
@@ -665,12 +682,13 @@ function navPageUrl(int $pageNum): string
             <th>Юридическое лицо</th>
             <th>Рекрутер</th>
             <th><?= sortLink('STATUS', 'Статус + история', $sort, $dir) ?></th>
+            <th>PDF</th>
             <th>Действия</th>
         </tr>
         </thead>
         <tbody>
         <?php if (empty($items)): ?>
-            <tr><td colspan="8" class="muted">Ничего не найдено.</td></tr>
+            <tr><td colspan="9" class="muted">Ничего не найдено.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $row): ?>
                 <?php
@@ -700,6 +718,19 @@ function navPageUrl(int $pageNum): string
                                    data-offer-id="<?= (int)$row['ID'] ?>">i</a>
                             <?php endif; ?>
                         </div>
+                    </td>
+                    <td class="text-center align-middle">
+                        <?php if ($row['OFFER_PDF_URL'] !== ''): ?>
+                            <a class="pdf-link" href="<?= h($row['OFFER_PDF_URL']) ?>" target="_blank" rel="noopener" title="Открыть PDF оффера" aria-label="Открыть PDF оффера">
+                                <svg class="pdf-icon" viewBox="0 0 26 32" aria-hidden="true" focusable="false">
+                                    <path fill="currentColor" d="M3 0h13l7 7v22a3 3 0 0 1-3 3H3a3 3 0 0 1-3-3V3a3 3 0 0 1 3-3Z"/>
+                                    <path fill="#fff" fill-opacity=".45" d="M16 0v7h7Z"/>
+                                    <text x="13" y="23" fill="#fff" font-size="8" font-family="Arial, sans-serif" font-weight="700" text-anchor="middle">PDF</text>
+                                </svg>
+                            </a>
+                        <?php else: ?>
+                            <span class="muted">—</span>
+                        <?php endif; ?>
                     </td>
                     <td>
                         <div class="actions">
