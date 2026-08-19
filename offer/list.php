@@ -141,15 +141,21 @@ function getFieldValue(array $fields, string $property): string
     return displayValue($fields[$property . '_VALUE'] ?? '');
 }
 
-function getFileUrlFromField(array $fields, string $property): string
+function getUrlFromHtmlField(array $fields, string $property): string
 {
-    $fileValue = $fields[$property . '_VALUE'] ?? '';
-    if (is_array($fileValue)) {
-        $fileValue = reset($fileValue);
+    $htmlValue = $fields[$property . '_VALUE'] ?? '';
+    if (is_array($htmlValue)) {
+        $htmlValue = $htmlValue['TEXT'] ?? reset($htmlValue);
     }
 
-    $fileId = (int)$fileValue;
-    return $fileId > 0 ? (string)CFile::GetPath($fileId) : '';
+    $htmlValue = html_entity_decode((string)$htmlValue, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (!preg_match('/<a\b[^>]*\bhref\s*=\s*(["\'])(.*?)\1/is', $htmlValue, $matches)) {
+        return '';
+    }
+
+    $url = html_entity_decode(trim($matches[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+    return in_array($scheme, ['http', 'https'], true) ? $url : '';
 }
 
 
@@ -530,7 +536,7 @@ while ($ob = $res->GetNextElement()) {
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
-        'OFFER_PDF_URL' => getFileUrlFromField($f, PROP_OFFER_PDF),
+        'OFFER_PDF_URL' => getUrlFromHtmlField($f, PROP_OFFER_PDF),
         'DETAILS_HTML' => renderOfferDetailsHtml($detailSections),
         'TASK_ID_FOR_CURRENT_USER' => $taskIdForCurrentUser,
         'VIEW_URL' => '/forms/staff_recruitment/offer/view_offer.php?id=' . $id,
