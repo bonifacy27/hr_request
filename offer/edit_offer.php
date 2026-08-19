@@ -38,6 +38,7 @@ const OFFER_PROP_POSITION = 1161;
 const OFFER_PROP_DIRECTION = 1996;
 const OFFER_PROP_DEPARTMENT = 1163;
 const OFFER_PROP_CHIEF_FIO_FROM_LIST = 1164;
+const OFFER_PROP_CHIEF_FIO_TEXT = 1168;
 const OFFER_PROP_CHIEF_POSITION = 1169;
 const OFFER_PROP_BONUS_RUB_GROSS = 1170;
 const OFFER_PROP_MONTH_INCOME_AVG_GROSS = 1172;
@@ -323,6 +324,7 @@ function getOfferById(int $offerId): ?array
         OFFER_PROP_DIRECTION,
         OFFER_PROP_DEPARTMENT,
         OFFER_PROP_CHIEF_FIO_FROM_LIST,
+        OFFER_PROP_CHIEF_FIO_TEXT,
         OFFER_PROP_CHIEF_POSITION,
         OFFER_PROP_BONUS_RUB_GROSS,
         OFFER_PROP_MONTH_INCOME_AVG_GROSS,
@@ -374,6 +376,24 @@ function getOfferById(int $offerId): ?array
         'PREVIEW_TEXT' => (string)($row['PREVIEW_TEXT'] ?? ''),
         'PROPS' => $values,
     ];
+}
+
+function getUserFullFioById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    return trim(implode(' ', array_filter([
+        trim((string)($user['LAST_NAME'] ?? '')),
+        trim((string)($user['NAME'] ?? '')),
+        trim((string)($user['SECOND_NAME'] ?? '')),
+    ], static function ($part) {
+        return $part !== '';
+    })));
 }
 
 function normalizeChiefPosition(string $flag): string
@@ -554,6 +574,9 @@ function appendOfferToRequest(int $requestId, int $offerId): void
 }
 
 if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
     header('Content-Type: application/json; charset=UTF-8');
     $userId = userIdFromValue($_GET['user_id'] ?? '');
     $position = getUserWorkPosition($userId);
@@ -561,6 +584,7 @@ if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
         'ok' => ($userId > 0),
         'user_id' => $userId,
         'position' => $position,
+        'fio' => getUserFullFioById($userId),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -640,6 +664,7 @@ $formData = [
     'direction' => '',
     'department' => '',
     'chief' => '',
+    'chief_fio' => '',
     'chief_position' => '',
     'salary' => '',
     'isn' => '',
@@ -686,6 +711,7 @@ $formData['position'] = (string)$props[OFFER_PROP_POSITION];
 $formData['direction'] = (string)$props[OFFER_PROP_DIRECTION];
 $formData['department'] = (string)$props[OFFER_PROP_DEPARTMENT];
 $formData['chief'] = (string)userIdFromValue($props[OFFER_PROP_CHIEF_FIO_FROM_LIST]);
+$formData['chief_fio'] = (string)$props[OFFER_PROP_CHIEF_FIO_TEXT];
 $formData['chief_position'] = (string)$props[OFFER_PROP_CHIEF_POSITION];
 $formData['salary'] = (string)$props[OFFER_PROP_SALARY];
 $formData['isn'] = (string)$props[OFFER_PROP_ISN];
@@ -742,6 +768,9 @@ if ($changeType === null) {
 if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
     $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
 }
+if ((int)$formData['chief'] > 0 && $formData['chief_fio'] === '') {
+    $formData['chief_fio'] = getUserFullFioById((int)$formData['chief']);
+}
 
 $formatList = getIblockOptions(234);
 $officeList = getIblockOptions(233);
@@ -797,6 +826,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     if ((int)$formData['chief'] > 0 && $formData['chief_position'] === '') {
         $formData['chief_position'] = getUserWorkPosition((int)$formData['chief']);
     }
+    if ((int)$formData['chief'] > 0 && $formData['chief_fio'] === '') {
+        $formData['chief_fio'] = getUserFullFioById((int)$formData['chief']);
+    }
 
     if ($formData['candidate_fio'] === '') {
         $errors[] = 'Заполните поле «ФИО кандидата».';
@@ -811,7 +843,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $errors[] = 'Заполните поле «Подразделение».';
     }
     if ((int)$formData['chief'] <= 0) {
-        $errors[] = 'Заполните поле «ФИО руководителя (из списка)».';
+        $errors[] = 'Заполните поле «Руководитель».';
+    }
+    if ($formData['chief_fio'] === '') {
+        $errors[] = 'Заполните поле «ФИО руководителя».';
     }
     if ($formData['chief_position'] === '') {
         $errors[] = 'Заполните поле «Должность руководителя».';
@@ -918,6 +953,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             OFFER_PROP_DIRECTION => $formData['direction'],
             OFFER_PROP_DEPARTMENT => $formData['department'],
             OFFER_PROP_CHIEF_FIO_FROM_LIST => parseUserSelectorId($_POST['chief'] ?? $formData['chief']),
+            OFFER_PROP_CHIEF_FIO_TEXT => $formData['chief_fio'],
             OFFER_PROP_CHIEF_POSITION => $formData['chief_position'],
             OFFER_PROP_BONUS_RUB_GROSS => normalizeMoneyForStorage($formData['bonus_rub_gross']),
             OFFER_PROP_MONTH_INCOME_AVG_GROSS => normalizeMoneyForStorage($formData['month_income_avg_gross']),
@@ -962,7 +998,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'position' => 'Должность',
             'department' => 'Подразделение',
             'direction' => 'Дирекция',
-            'chief' => 'ФИО руководителя (из списка)',
+            'chief' => 'Руководитель',
+            'chief_fio' => 'ФИО руководителя',
             'is_chief_position' => 'Кандидат на руководящую должность',
             'contract_type' => 'Тип трудового договора',
             'trial_period' => 'Испытательный срок',
@@ -1187,20 +1224,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                 </div>
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label>ФИО руководителя (из списка) <span class="text-danger">*</span></label>
+                        <label>Руководитель <span class="text-danger">*</span></label>
                         <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
                         <div id="chiefSelector"></div>
+                        <small class="form-text text-muted">Укажите руководителя, который будет согласовывать оффер.</small>
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>ФИО руководителя <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="chief_fio" value="<?=h($formData['chief_fio'])?>" required>
+                        <small class="form-text text-muted">Указанный руководитель будет указан в оффере. При необходимости ФИО можно отредактировать.</small>
                     </div>
                     <div class="form-group col-md-4">
                         <label>Должность руководителя <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="chief_position" value="<?=h($formData['chief_position'])?>" required>
-                    </div>
-                    <div class="form-group col-md-4">
-                        <label>Кандидат на руководящую должность</label>
-                        <select name="is_chief_position" class="form-control">
-                            <option value="1160" <?=$formData['is_chief_position'] === '1160' ? 'selected' : ''?>>Нет</option>
-                            <option value="1159" <?=$formData['is_chief_position'] === '1159' ? 'selected' : ''?>>Да</option>
-                        </select>
+                        <small class="form-text text-muted">Указанная должность будет указана в оффере. При необходимости ее можно исправить.</small>
                     </div>
                 </div>
             </div>
@@ -1307,6 +1344,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>Компенсация аренды жилья</label>
+                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
+                </div>
             </div>
         </div>
 
@@ -1408,9 +1449,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     <textarea class="form-control" name="equipment_text" rows="2"><?=h($formData['equipment_text'])?></textarea>
                 </div>
 
-                <div class="form-group">
-                    <label>Компенсация аренды жилья</label>
-                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <label>Кандидат на руководящую должность</label>
+                        <select name="is_chief_position" class="form-control">
+                            <option value="1160" <?=$formData['is_chief_position'] === '1160' ? 'selected' : ''?>>Нет</option>
+                            <option value="1159" <?=$formData['is_chief_position'] === '1159' ? 'selected' : ''?>>Да</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1458,6 +1504,7 @@ BX.ready(function () {
     var isnInput = document.querySelector('input[name=\"isn\"]');
     var chiefInput = document.getElementById('chiefInputHidden');
     var chiefSelectorNode = document.getElementById('chiefSelector');
+    var chiefFioInput = document.querySelector('input[name=\"chief_fio\"]');
     var chiefPositionInput = document.querySelector('input[name=\"chief_position\"]');
     var bonusRubGrossInput = document.querySelector('input[name=\"bonus_rub_gross\"]');
     var monthIncomeAvgInput = document.querySelector('input[name=\"month_income_avg_gross\"]');
@@ -1750,6 +1797,7 @@ BX.ready(function () {
             onsuccess: function (response) {
                 if (!response || !response.ok) return;
                 chiefPositionInput.value = response.position || '';
+                if (chiefFioInput) chiefFioInput.value = response.fio || '';
             }
         });
     }
@@ -1775,6 +1823,11 @@ BX.ready(function () {
             position = '';
         }
         return String(position || '').trim();
+    }
+
+    function extractChiefFioFromItem(item) {
+        if (!item || typeof item.getTitle !== 'function') return '';
+        return String(item.getTitle() || '').trim();
     }
 
     function setChiefValue(userId) {
@@ -1867,15 +1920,18 @@ BX.ready(function () {
                 return;
             }
             setChiefValue(userId);
+            if (chiefFioInput) {
+                chiefFioInput.value = extractChiefFioFromItem(item);
+            }
             var instantPosition = extractChiefPositionFromItem(item);
             if (instantPosition && chiefPositionInput) {
                 chiefPositionInput.value = instantPosition;
-            } else {
-                loadChiefPositionByUser(userId);
             }
+            loadChiefPositionByUser(userId);
         });
         chiefDialog.subscribe('Item:onDeselect', function () {
             setChiefValue('');
+            if (chiefFioInput) chiefFioInput.value = '';
             loadChiefPositionByUser('');
         });
     }

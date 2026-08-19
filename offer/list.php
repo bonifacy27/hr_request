@@ -460,7 +460,7 @@ while ($ob = $res->GetNextElement()) {
                 ['label' => 'Юридическое лицо', 'value' => getPropertyValue($p, 2753)],
                 ['label' => 'Дирекция', 'value' => getPropertyValue($p, 1996)],
                 ['label' => 'Подразделение', 'value' => getPropertyValue($p, 1163)],
-                ['label' => 'ФИО руководителя', 'value' => getPropertyValue($p, 1164) ?: getPropertyValue($p, 1168)],
+                ['label' => 'ФИО руководителя', 'value' => getPropertyValue($p, 1168)],
                 ['label' => 'Должность руководителя', 'value' => getPropertyValue($p, 1169)],
             ],
         ],
