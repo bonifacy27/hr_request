@@ -1089,7 +1089,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-<div class="container my-4">
+
+<style>
+.offer-page .card {
+    border: 0;
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+}
+.offer-page .card:nth-of-type(1) { background: #eff6ff; }
+.offer-page .card:nth-of-type(2) { background: #fefce8; }
+.offer-page .card:nth-of-type(3) { background: #f0fdf4; }
+.offer-page .card:nth-of-type(4) { background: #f8fafc; }
+.offer-page .card-header {
+    background: transparent;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+    font-weight: 700;
+    letter-spacing: .01em;
+}
+.offer-page .card-body {
+    background: transparent;
+}
+.offer-page .form-group {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 10px;
+    padding: 12px;
+}
+.offer-page .form-group label {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 400;
+    margin-bottom: 6px;
+}
+.offer-page .form-control {
+    font-weight: 600;
+}
+.offer-page .form-control[readonly] {
+    background-color: rgba(238, 242, 255, 0.8);
+}
+.offer-page .links-card {
+    background: #f8fafc;
+}
+</style>
+<div class="container my-4 offer-page">
     <div class="d-flex align-items-center mb-3">
         <h1 class="h3 mb-0">Заявка на оффер</h1>
     </div>
@@ -1371,7 +1415,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             </div>
         </div>
 
-        <div class="card mb-3">
+        <div class="card mb-3 links-card">
             <div class="card-header">Связи</div>
             <div class="card-body py-2">
                 <input type="hidden" name="request_id" value="<?=h($formData['request_id'])?>">
