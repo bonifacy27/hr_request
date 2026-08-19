@@ -603,6 +603,7 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .filter-item { flex:0 0 auto; min-width:180px; }
 .offer-list-page .filter-item.search-item { width:320px; }
 .offer-list-page .actions { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.offer-list-page .actions-select { min-width:150px; max-width:100%; }
 .offer-list-page .muted { color:#6c757d; }
 .offer-list-page .info-btn { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:0; background:#6c757d; color:#fff; font-size:12px; text-decoration:none; margin-left:6px; cursor:pointer; }
 .offer-list-page .info-btn:hover { background:#5a6268; color:#fff; text-decoration:none; }
@@ -740,13 +741,21 @@ function navPageUrl(int $pageNum): string
                     </td>
                     <td>
                         <div class="actions">
-                            <?php if ($canManage): ?>
-                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['VIEW_URL']) ?>" target="_blank" rel="noopener">Просмотр</a>
-                                <a class="btn btn-outline-secondary btn-sm" href="<?= h($row['EDIT_URL']) ?>" target="_blank" rel="noopener">Редактирование</a>
-                            <?php endif; ?>
                             <?php if ($taskUrl !== ''): ?>
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
+
+                            <?php if ($canManage): ?>
+                                <select class="form-control form-control-sm actions-select js-offer-action-select"
+                                        aria-label="Действия с оффером"
+                                        data-view-url="<?= h($row['VIEW_URL']) ?>"
+                                        data-edit-url="<?= h($row['EDIT_URL']) ?>">
+                                    <option value="">Действия…</option>
+                                    <option value="view">Просмотр</option>
+                                    <option value="edit">Редактирование</option>
+                                </select>
+                            <?php endif; ?>
+
                             <?php if (!$canManage && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
@@ -815,6 +824,22 @@ function navPageUrl(int $pageNum): string
       try { return window.atob(encoded); } catch (fallbackErr) { return ''; }
     }
   }
+
+  document.querySelectorAll('.js-offer-action-select').forEach(function(select) {
+    select.addEventListener('change', function() {
+      var action = select.value || '';
+      var url = '';
+
+      if (action === 'view') {
+        url = select.getAttribute('data-view-url') || '';
+      } else if (action === 'edit') {
+        url = select.getAttribute('data-edit-url') || '';
+      }
+
+      if (url) window.open(url, '_blank', 'noopener');
+      select.value = '';
+    });
+  });
 
   document.addEventListener('click', function(e) {
     var historyBtn = e.target.closest('.js-status-info');
