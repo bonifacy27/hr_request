@@ -62,6 +62,8 @@ const PROP_FW_CANDIDATE_ID = 'PROPERTY_1602';
 const PROP_COMMENT = 'PROPERTY_2857';
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
+const PDF_WORKFLOW_TEMPLATE_ID = 1353;
+const PDF_WORKFLOW_EXTRA_USER_ID = 3532;
 
 function decodeStatusHistoryHtml(string $raw): string
 {
@@ -410,6 +412,49 @@ $isCbManager = in_array($currentUserTagLower, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
 $currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
+if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf') {
+    $offerId = (int)$request->getPost('offer_id');
+    $result = 'error';
+
+    if (!check_bitrix_sessid()) {
+        $result = 'session_error';
+    } elseif ($offerId > 0) {
+        $offer = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID', PROP_RECRUITER]
+        )->Fetch();
+        $offerRecruiterId = $offer ? userIdFromValue($offer[PROP_RECRUITER . '_VALUE'] ?? '') : 0;
+        $canGeneratePdf = $offer && (
+            $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID
+            || ($currentUserId > 0 && $offerRecruiterId > 0 && $currentUserId === $offerRecruiterId)
+        );
+
+        if (!$canGeneratePdf) {
+            $result = 'denied';
+        } else {
+            try {
+                $errors = [];
+                $workflowId = CBPDocument::StartWorkflow(
+                    PDF_WORKFLOW_TEMPLATE_ID,
+                    ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId],
+                    [],
+                    $errors
+                );
+                $result = (string)$workflowId !== '' ? 'started' : 'error';
+            } catch (\Throwable $e) {
+                $result = 'error';
+            }
+        }
+    }
+
+    LocalRedirect(buildUrl(['pdf_bp' => $result], []));
+}
+
+$pdfWorkflowResult = (string)$request->get('pdf_bp');
+
 $statusEnumOptions = [];
 $rsEnum = CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'VALUE' => 'ASC'], ['IBLOCK_ID' => IBL_OFFERS, 'PROPERTY_ID' => 1189]);
 while ($e = $rsEnum->Fetch()) {
@@ -629,6 +674,16 @@ function navPageUrl(int $pageNum): string
 <div class="container-fluid offer-list-page">
     <h2 class="mb-3">Заявки на оффер</h2>
 
+    <?php if ($pdfWorkflowResult === 'started'): ?>
+        <div class="alert alert-success">Процесс формирования PDF запущен.</div>
+    <?php elseif ($pdfWorkflowResult === 'denied'): ?>
+        <div class="alert alert-danger">Недостаточно прав для формирования PDF этого оффера.</div>
+    <?php elseif ($pdfWorkflowResult === 'session_error'): ?>
+        <div class="alert alert-danger">Сессия истекла. Обновите страницу и повторите действие.</div>
+    <?php elseif ($pdfWorkflowResult === 'error'): ?>
+        <div class="alert alert-danger">Не удалось запустить процесс формирования PDF.</div>
+    <?php endif; ?>
+
     <div class="d-flex flex-wrap align-items-center mb-3">
         <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn btn-success mr-3 mb-2">Создать оффер</a>
     </div>
@@ -702,6 +757,7 @@ function navPageUrl(int $pageNum): string
                 $recruiterId = (int)$row['RECRUITER_ID'];
                 $isRecruiterForOffer = ($recruiterId > 0 && $recruiterId === $currentUserId);
                 $canManage = $isAdmin || $isRecruiterForOffer || $isCbManager || $isRecruitHead;
+                $canGeneratePdf = $isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID;
                 $taskId = (int)$row['TASK_ID_FOR_CURRENT_USER'];
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
@@ -745,18 +801,25 @@ function navPageUrl(int $pageNum): string
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
 
-                            <?php if ($canManage): ?>
+                            <?php if ($canManage || $canGeneratePdf): ?>
                                 <select class="form-control form-control-sm actions-select js-offer-action-select"
                                         aria-label="Действия с оффером"
+                                        data-offer-id="<?= (int)$row['ID'] ?>"
+                                        data-sessid="<?= h(bitrix_sessid()) ?>"
                                         data-view-url="<?= h($row['VIEW_URL']) ?>"
                                         data-edit-url="<?= h($row['EDIT_URL']) ?>">
                                     <option value="">Действия…</option>
-                                    <option value="view">Просмотр</option>
-                                    <option value="edit">Редактирование</option>
+                                    <?php if ($canManage): ?>
+                                        <option value="view">Просмотр</option>
+                                        <option value="edit">Редактирование</option>
+                                    <?php endif; ?>
+                                    <?php if ($canGeneratePdf): ?>
+                                        <option value="generate_pdf">Сформировать PDF</option>
+                                    <?php endif; ?>
                                 </select>
                             <?php endif; ?>
 
-                            <?php if (!$canManage && $taskUrl === ''): ?>
+                            <?php if (!$canManage && !$canGeneratePdf && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
                         </div>
@@ -834,6 +897,26 @@ function navPageUrl(int $pageNum): string
         url = select.getAttribute('data-view-url') || '';
       } else if (action === 'edit') {
         url = select.getAttribute('data-edit-url') || '';
+      } else if (action === 'generate_pdf') {
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = window.location.href;
+
+        [
+          ['action', 'generate_pdf'],
+          ['offer_id', select.getAttribute('data-offer-id') || '0'],
+          ['sessid', select.getAttribute('data-sessid') || '']
+        ].forEach(function(field) {
+          var input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = field[0];
+          input.value = field[1];
+          form.appendChild(input);
+        });
+
+        document.body.appendChild(form);
+        form.submit();
+        return;
       }
 
       if (url) window.open(url, '_blank', 'noopener');
