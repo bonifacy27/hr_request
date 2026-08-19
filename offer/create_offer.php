@@ -485,6 +485,9 @@ function appendOfferToRequest(int $requestId, int $offerId): void
 }
 
 if ((string)($_GET['ajax'] ?? '') === 'get_user_position') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
     header('Content-Type: application/json; charset=UTF-8');
     $userId = userIdFromValue($_GET['user_id'] ?? '');
     $position = getUserWorkPosition($userId);
@@ -1797,6 +1800,11 @@ BX.ready(function () {
         return String(position || '').trim();
     }
 
+    function extractChiefFioFromItem(item) {
+        if (!item || typeof item.getTitle !== 'function') return '';
+        return String(item.getTitle() || '').trim();
+    }
+
     function setChiefValue(userId) {
         if (!chiefInput) return;
         chiefInput.value = String(userId || '');
@@ -1887,6 +1895,9 @@ BX.ready(function () {
                 return;
             }
             setChiefValue(userId);
+            if (chiefFioInput) {
+                chiefFioInput.value = extractChiefFioFromItem(item);
+            }
             var instantPosition = extractChiefPositionFromItem(item);
             if (instantPosition && chiefPositionInput) {
                 chiefPositionInput.value = instantPosition;
