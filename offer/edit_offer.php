@@ -1179,28 +1179,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     </div>
                 </div>
                 <div class="form-row">
-                    <div class="form-group col-md-3">
+                    <div class="form-group col-md-4">
                         <label>Руководитель <span class="text-danger">*</span></label>
                         <input type="hidden" name="chief" id="chiefInputHidden" value="<?=h($formData['chief'])?>">
                         <div id="chiefSelector"></div>
                         <small class="form-text text-muted">Укажите руководителя, который будет согласовывать оффер.</small>
                     </div>
-                    <div class="form-group col-md-3">
+                    <div class="form-group col-md-4">
                         <label>ФИО руководителя <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="chief_fio" value="<?=h($formData['chief_fio'])?>" required>
                         <small class="form-text text-muted">Указанный руководитель будет указан в оффере. При необходимости ФИО можно отредактировать.</small>
                     </div>
-                    <div class="form-group col-md-3">
+                    <div class="form-group col-md-4">
                         <label>Должность руководителя <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" name="chief_position" value="<?=h($formData['chief_position'])?>" required>
                         <small class="form-text text-muted">Указанная должность будет указана в оффере. При необходимости ее можно исправить.</small>
-                    </div>
-                    <div class="form-group col-md-3">
-                        <label>Кандидат на руководящую должность</label>
-                        <select name="is_chief_position" class="form-control">
-                            <option value="1160" <?=$formData['is_chief_position'] === '1160' ? 'selected' : ''?>>Нет</option>
-                            <option value="1159" <?=$formData['is_chief_position'] === '1159' ? 'selected' : ''?>>Да</option>
-                        </select>
                     </div>
                 </div>
             </div>
@@ -1307,6 +1300,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                         <small class="form-text text-muted" id="monthIncomeNdflInfo"></small>
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>Компенсация аренды жилья</label>
+                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
+                </div>
             </div>
         </div>
 
@@ -1408,9 +1405,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     <textarea class="form-control" name="equipment_text" rows="2"><?=h($formData['equipment_text'])?></textarea>
                 </div>
 
-                <div class="form-group">
-                    <label>Компенсация аренды жилья</label>
-                    <input type="text" class="form-control" name="housing_compensation" value="<?=h(formatMoneyForDisplay($formData['housing_compensation']))?>">
+                <div class="form-row">
+                    <div class="form-group col-md-12">
+                        <label>Кандидат на руководящую должность</label>
+                        <select name="is_chief_position" class="form-control">
+                            <option value="1160" <?=$formData['is_chief_position'] === '1160' ? 'selected' : ''?>>Нет</option>
+                            <option value="1159" <?=$formData['is_chief_position'] === '1159' ? 'selected' : ''?>>Да</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
