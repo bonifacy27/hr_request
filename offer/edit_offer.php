@@ -421,11 +421,6 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
-function getBonusPeriodDivisor(string $bonusTypeName): int
-{
-    return mb_stripos($bonusTypeName, 'ежекварт') !== false ? 3 : 1;
-}
-
 function appendHistory($old, $add): string
 {
     $old = trim((string)$old);
@@ -937,9 +932,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $isnNum = parseNumericInput($formData['isn']);
     $rayonNum = parseNumericInput($formData['rayon_coefficient']);
     $northPercentNum = parseNumericInput($formData['personal_allowance']);
-    $bonusPeriodDivisor = getBonusPeriodDivisor((string)($bonusTypeNameById[$formData['bonus_type']] ?? ''));
-    $bonusRubGross = round(($salaryNum * $bonusPercentNum / 100) / $bonusPeriodDivisor);
-    $baseIncome = $salaryNum + $bonusRubGross + $isnNum;
+    $bonusRubGross = round($salaryNum * $bonusPercentNum / 100);
+    $monthlyBonusForIncome = $bonusRubGross;
+    if (strpos($bonusTypeName, 'ежекварт') !== false) {
+        $monthlyBonusForIncome = $bonusRubGross / 3;
+    }
+    $baseIncome = $salaryNum + $monthlyBonusForIncome + $isnNum;
     $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
     $formData['bonus_rub_gross'] = (string)$bonusRubGross;
     $formData['month_income_avg_gross'] = (string)$monthIncomeAvg;
@@ -1733,16 +1731,17 @@ BX.ready(function () {
         var isn = toNum(isnInput && isnInput.value);
         var rayon = toNum(rayonInput && rayonInput.value);
         var northPercent = toNum(allowanceInput && allowanceInput.value);
-        var bonusPeriodDivisor = 1;
+        var bonusTypeText = '';
         if (bonusTypeSelect && bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
-            var bonusTypeText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
-            if (bonusTypeText.indexOf('ежекварт') !== -1) {
-                bonusPeriodDivisor = 3;
-            }
+            bonusTypeText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
         }
 
-        var bonusRub = Math.round((salary * bonusPercent / 100) / bonusPeriodDivisor);
-        var baseIncome = salary + bonusRub + isn;
+        var bonusRub = Math.round(salary * bonusPercent / 100);
+        var bonusForMonthIncome = bonusRub;
+        if (bonusTypeText.indexOf('ежекварт') !== -1) {
+            bonusForMonthIncome = bonusRub / 3;
+        }
+        var baseIncome = salary + bonusForMonthIncome + isn;
         var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
         var canShowMonthIncome = (rayon > 0);
 
