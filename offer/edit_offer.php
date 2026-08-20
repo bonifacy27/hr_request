@@ -421,6 +421,11 @@ function parseNumericInput($value): float
     return (float)$normalized;
 }
 
+function getBonusPeriodDivisor(string $bonusTypeName): int
+{
+    return mb_stripos($bonusTypeName, 'ежекварт') !== false ? 3 : 1;
+}
+
 function appendHistory($old, $add): string
 {
     $old = trim((string)$old);
@@ -932,7 +937,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $isnNum = parseNumericInput($formData['isn']);
     $rayonNum = parseNumericInput($formData['rayon_coefficient']);
     $northPercentNum = parseNumericInput($formData['personal_allowance']);
-    $bonusRubGross = round($salaryNum * $bonusPercentNum / 100);
+    $bonusPeriodDivisor = getBonusPeriodDivisor((string)($bonusTypeNameById[$formData['bonus_type']] ?? ''));
+    $bonusRubGross = round(($salaryNum * $bonusPercentNum / 100) / $bonusPeriodDivisor);
     $baseIncome = $salaryNum + $bonusRubGross + $isnNum;
     $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
     $formData['bonus_rub_gross'] = (string)$bonusRubGross;
@@ -1000,6 +1006,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'direction' => 'Дирекция',
             'chief' => 'Руководитель',
             'chief_fio' => 'ФИО руководителя',
+            'chief_position' => 'Должность руководителя',
             'is_chief_position' => 'Кандидат на руководящую должность',
             'contract_type' => 'Тип трудового договора',
             'trial_period' => 'Испытательный срок',
