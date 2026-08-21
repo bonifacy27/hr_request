@@ -424,10 +424,14 @@ BX.ready(function () {
         }
         const tagSelector = new BX.UI.EntitySelector.TagSelector({
             multiple: false,
+            textBoxWidth: '100%',
+            placeholder: 'Выберите сотрудника',
             dialogOptions: {
                 context: code + '_context',
                 entities: [{id: 'user'}],
                 multiple: false,
+                enableSearch: true,
+                dropdownMode: true,
                 preselectedItems: preselected
             },
             events: {
@@ -446,21 +450,9 @@ BX.ready(function () {
             const dialog = tagSelector.getDialog();
             dialog.subscribe('Item:onSelect', function (event) {
                 const item = event.getData().item;
-                const userId = item ? parseInt(String(item.getId()).replace(/\D+/g, ''), 10) : 0;
-                if (!fioInput || userId <= 0) {
-                    return;
+                if (fioInput && item && typeof item.getTitle === 'function') {
+                    fioInput.value = String(item.getTitle() || '').trim();
                 }
-                BX.ajax({
-                    url: 'ajax_user_fio.php',
-                    method: 'POST',
-                    dataType: 'json',
-                    data: {user_id: userId, sessid: BX.bitrix_sessid()},
-                    onsuccess: function (response) {
-                        if (response && response.success && String(hidden.value) === String(userId)) {
-                            fioInput.value = String(response.fio || '').trim();
-                        }
-                    }
-                });
             });
             dialog.subscribe('Item:onDeselect', function () {
                 if (fioInput) {
