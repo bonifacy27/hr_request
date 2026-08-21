@@ -392,7 +392,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
                         <?php endif; ?>
                         <?php if ($code === 'RUKOVODITEL'): ?>
-                            <small class="anketa-hint">Выбранному руководителю будет сформирован план ввода в должность.</small>
+                            <small class="anketa-hint">Выбранному руководителю будет отправлено задание на заполнение плана ввода в должность.</small>
                         <?php elseif ($code === 'FIO_RUKOVODITELYA'): ?>
                             <small class="anketa-hint">Поле можно редактировать. Это ФИО будет использовано для создания заявки на учетную запись.</small>
                         <?php endif; ?>
@@ -423,6 +423,7 @@ BX.ready(function () {
             }
         }
         const tagSelector = new BX.UI.EntitySelector.TagSelector({
+            multiple: false,
             dialogOptions: {
                 context: code + '_context',
                 entities: [{id: 'user'}],
@@ -445,9 +446,21 @@ BX.ready(function () {
             const dialog = tagSelector.getDialog();
             dialog.subscribe('Item:onSelect', function (event) {
                 const item = event.getData().item;
-                if (fioInput && item && typeof item.getTitle === 'function') {
-                    fioInput.value = String(item.getTitle() || '').trim();
+                const userId = item ? parseInt(String(item.getId()).replace(/\D+/g, ''), 10) : 0;
+                if (!fioInput || userId <= 0) {
+                    return;
                 }
+                BX.ajax({
+                    url: 'ajax_user_fio.php',
+                    method: 'POST',
+                    dataType: 'json',
+                    data: {user_id: userId, sessid: BX.bitrix_sessid()},
+                    onsuccess: function (response) {
+                        if (response && response.success && String(hidden.value) === String(userId)) {
+                            fioInput.value = String(response.fio || '').trim();
+                        }
+                    }
+                });
             });
             dialog.subscribe('Item:onDeselect', function () {
                 if (fioInput) {
