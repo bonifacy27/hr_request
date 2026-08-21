@@ -112,6 +112,20 @@ function getUserFullFioById(int $userId): string
     return trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
 }
 
+if ((string)($_GET['ajax'] ?? '') === 'get_user_fio') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    header('Content-Type: application/json; charset=UTF-8');
+    $userId = (int)($_GET['user_id'] ?? 0);
+    echo json_encode([
+        'ok' => ($userId > 0),
+        'user_id' => $userId,
+        'fio' => getUserFullFioById($userId),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $fields = [
     ['id' => 951, 'code' => 'FAMILIYA', 'label' => 'Фамилия', 'type' => 'S'],
     ['id' => 952, 'code' => 'IMYA', 'label' => 'Имя', 'type' => 'S'],
@@ -409,6 +423,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 </div>
 <script>
 BX.ready(function () {
+    function loadUserFullFio(userId, input) {
+        if (!input || userId <= 0) {
+            return;
+        }
+        BX.ajax({
+            url: window.location.pathname + '?ajax=get_user_fio&user_id=' + encodeURIComponent(userId),
+            method: 'GET',
+            dataType: 'json',
+            onsuccess: function (response) {
+                if (response && response.ok && String(BX('RUKOVODITEL').value) === String(userId)) {
+                    input.value = response.fio || '';
+                }
+            }
+        });
+    }
+
     function initUserSelector(code) {
         const hidden = BX(code);
         const container = BX(code + '_selector');
@@ -452,6 +482,8 @@ BX.ready(function () {
                 const item = event.getData().item;
                 if (fioInput && item && typeof item.getTitle === 'function') {
                     fioInput.value = String(item.getTitle() || '').trim();
+                    const userId = parseInt(String(item.getId()).replace(/\D+/g, ''), 10) || 0;
+                    loadUserFullFio(userId, fioInput);
                 }
             });
             dialog.subscribe('Item:onDeselect', function () {
