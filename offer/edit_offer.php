@@ -933,7 +933,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $rayonNum = parseNumericInput($formData['rayon_coefficient']);
     $northPercentNum = parseNumericInput($formData['personal_allowance']);
     $bonusRubGross = round($salaryNum * $bonusPercentNum / 100);
-    $baseIncome = $salaryNum + $bonusRubGross + $isnNum;
+    $monthlyBonusForIncome = $bonusRubGross;
+    if (strpos($bonusTypeName, 'ежекварт') !== false) {
+        $monthlyBonusForIncome = $bonusRubGross / 3;
+    }
+    $baseIncome = $salaryNum + $monthlyBonusForIncome + $isnNum;
     $monthIncomeAvg = round(($baseIncome * $rayonNum) + ($baseIncome * ($northPercentNum / 100)));
     $formData['bonus_rub_gross'] = (string)$bonusRubGross;
     $formData['month_income_avg_gross'] = (string)$monthIncomeAvg;
@@ -1000,6 +1004,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'direction' => 'Дирекция',
             'chief' => 'Руководитель',
             'chief_fio' => 'ФИО руководителя',
+            'chief_position' => 'Должность руководителя',
             'is_chief_position' => 'Кандидат на руководящую должность',
             'contract_type' => 'Тип трудового договора',
             'trial_period' => 'Испытательный срок',
@@ -1726,16 +1731,17 @@ BX.ready(function () {
         var isn = toNum(isnInput && isnInput.value);
         var rayon = toNum(rayonInput && rayonInput.value);
         var northPercent = toNum(allowanceInput && allowanceInput.value);
-        var bonusPeriodDivisor = 1;
+        var bonusTypeText = '';
         if (bonusTypeSelect && bonusTypeSelect.options.length > 0 && bonusTypeSelect.selectedIndex >= 0) {
-            var bonusTypeText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
-            if (bonusTypeText.indexOf('ежекварт') !== -1) {
-                bonusPeriodDivisor = 3;
-            }
+            bonusTypeText = (bonusTypeSelect.options[bonusTypeSelect.selectedIndex].text || '').toLowerCase();
         }
 
-        var bonusRub = Math.round((salary * bonusPercent / 100) / bonusPeriodDivisor);
-        var baseIncome = salary + bonusRub + isn;
+        var bonusRub = Math.round(salary * bonusPercent / 100);
+        var bonusForMonthIncome = bonusRub;
+        if (bonusTypeText.indexOf('ежекварт') !== -1) {
+            bonusForMonthIncome = bonusRub / 3;
+        }
+        var baseIncome = salary + bonusForMonthIncome + isn;
         var monthIncome = Math.round((baseIncome * rayon) + (baseIncome * (northPercent / 100)));
         var canShowMonthIncome = (rayon > 0);
 
