@@ -15,7 +15,7 @@ if (
     die("Не удалось подключить модули (iblock, lists, bizproc).");
 }
 
-echo "<div style='font-size:11px;color:#777'>check_mass.php v4.0 (Hybrid FW API + Sorting + Whitelist)</div>";
+echo "<div style='font-size:11px;color:#777'>check_mass.php v4.1 (Optimized pagination + Logging)</div>";
 
 /* ================================================================
     CONFIG
@@ -32,7 +32,36 @@ const FW_API_EXTERNAL   = 'https://api.friend.work';
 // ↓↓↓ БЕЛЫЙ СПИСОК ID РЕКРУТЕРОВ ↓↓↓
 const ALLOWED_RECRUITER_IDS = [5790,4797,5749,5856,5755,6049,5748,6258,5500,5931,5968,5558,5725,6163]; // ← ← ← ЗАМЕНИТЕ НА РЕАЛЬНЫЕ ID
 
+// FriendWork accepts candidates page by page. A larger page dramatically cuts
+// the number of remote calls (and therefore the chance of an nginx 502).
+const FW_CANDIDATES_PER_PAGE = 100;
+const FW_REQUESTS_PER_MINUTE = 20;
+const FW_MAX_RETRIES = 3;
+const FW_CONNECT_TIMEOUT = 10;
+const FW_REQUEST_TIMEOUT = 45;
+
+const CHECK_MASS_LOG_NAME = 'check_mass.log';
+
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
+
+function checkMassLog($message, array $context = [])
+{
+    $logDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/logs';
+    if (!is_dir($logDir) && !@mkdir($logDir, 0755, true) && !is_dir($logDir)) {
+        error_log('check_mass: cannot create log directory ' . $logDir);
+        return;
+    }
+
+    $record = [
+        'time' => date('c'),
+        'message' => $message,
+        'context' => $context,
+    ];
+    $line = json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($line === false || @file_put_contents($logDir . '/' . CHECK_MASS_LOG_NAME, $line . PHP_EOL, FILE_APPEND | LOCK_EX) === false) {
+        error_log('check_mass: cannot write log file');
+    }
+}
 
 /* =====================================================================
     UNIVERSAL HTTP FUNCTION FOR EXTERNAL API
@@ -50,7 +79,9 @@ function fwExternal($method, $url, $payload = null)
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_HTTPHEADER     => $headers
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
+        CURLOPT_TIMEOUT        => FW_REQUEST_TIMEOUT,
     ];
     if ($method === "POST") {
         $opts[CURLOPT_POST] = true;
@@ -89,7 +120,9 @@ function fwInternalAuth()
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_COOKIEJAR      => $tmpCookie,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
+        CURLOPT_TIMEOUT        => FW_REQUEST_TIMEOUT
     ]);
     curl_exec($ch);
     curl_close($ch);
@@ -107,7 +140,9 @@ function fwInternal($method, $url, $payload = null)
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_COOKIEFILE     => $tmpCookie,
         CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
+        CURLOPT_TIMEOUT        => FW_REQUEST_TIMEOUT
     ];
     if ($method === "POST") {
         $opts[CURLOPT_POST] = true;
@@ -218,9 +253,12 @@ fwInternalAuth();
 echo "<h3>Загрузка кандидатов из FriendWork…</h3>";
 $allCandidates = [];
 $page = 1;
-$perPage = 20;
+$perPage = FW_CANDIDATES_PER_PAGE;
 $requests = 0;
+$totalRequests = 0;
 $minuteStart = time();
+$loadStartedAt = microtime(true);
+checkMassLog('Candidate loading started', ['job_id' => $jobId, 'per_page' => $perPage]);
 
 while (true) {
     $now = time();
@@ -229,12 +267,12 @@ while (true) {
         $minuteStart = $now;
         $requests = 0;
     }
-    if ($requests >= 20) {
+    if ($requests >= FW_REQUESTS_PER_MINUTE) {
         $wait = 60 - $elapsed;
         if ($wait < 1) $wait = 1;
         echo "<b>Лимит 20 запросов/мин достигнут → ждем $wait сек…</b><br>";
         sleep($wait);
-        $minuteStart = $now;
+        $minuteStart = time();
         $requests = 0;
     }
 
@@ -244,17 +282,30 @@ while (true) {
         "statuses"      => [212069],
         "jobId"         => $jobId
     ];
-    $fwPage = fwInternal("POST", "/Candidates", $payload);
-    $requests++;
+    $attempt = 0;
+    do {
+        $attempt++;
+        $fwPage = fwInternal("POST", "/Candidates", $payload);
+        $requests++;
+        $totalRequests++;
+        $rateLimited = $fwPage['http'] == 429 || stripos((string)$fwPage['raw'], 'too many calls') !== false;
+        if ($rateLimited && $attempt < FW_MAX_RETRIES) {
+            $wait = 5 * $attempt;
+            checkMassLog('FriendWork rate limit, retry scheduled', [
+                'job_id' => $jobId, 'page' => $page, 'attempt' => $attempt, 'wait_seconds' => $wait,
+            ]);
+            echo "<b>FriendWork: лимит запросов, повтор через $wait сек…</b><br>";
+            flush();
+            sleep($wait);
+        }
+    } while ($rateLimited && $attempt < FW_MAX_RETRIES);
 
     if ($fwPage['http'] != 200) {
         $raw = $fwPage['raw'];
-        if (strpos($raw, 'too many calls') !== false) {
-            echo "<b>FriendWork: too many calls → ждём 10 сек…</b><br>";
-            flush();
-            sleep(10);
-            continue;
-        }
+        checkMassLog('Candidate loading failed', [
+            'job_id' => $jobId, 'page' => $page, 'http' => $fwPage['http'],
+            'curl_error' => $fwPage['err'], 'response' => mb_substr((string)$raw, 0, 1000),
+        ]);
         echo "<h2>Ошибка получения кандидатов (страница $page)</h2>";
         echo "<pre>".htmlspecialchars($raw)."</pre>";
         require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
@@ -270,14 +321,23 @@ while (true) {
         echo "<b>FriendWork перестал отдавать данные — останов.</b><br>";
         break;
     }
-    $allCandidates = array_merge($allCandidates, $chunk);
-    if ($count < $perPage) {
-        break;
+    foreach ($chunk as $candidate) {
+        $allCandidates[] = $candidate;
     }
+    // Do not use "$count < $perPage" as the end condition: older API
+    // installations may silently cap a requested page size at 20.
     $page++;
 }
 
 $candidates = $allCandidates;
+checkMassLog('Candidate loading completed', [
+    'job_id' => $jobId,
+    'candidates' => count($candidates),
+    'pages' => $page,
+    'requests' => $totalRequests,
+    'duration_seconds' => round(microtime(true) - $loadStartedAt, 3),
+    'peak_memory_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
+]);
 echo "<br><b>Всего кандидатов загружено: " . count($candidates) . "</b><br><hr>";
 
 if (!$candidates) {
@@ -310,7 +370,7 @@ foreach ($fwAccounts['data'] as $acc) {
 /* =====================================================================
     EXPORT TO EXCEL
    ===================================================================== */
-if ($_REQUEST['export'] === 'excel' && isset($_REQUEST['results'])) {
+if (($_REQUEST['export'] ?? '') === 'excel' && isset($_REQUEST['results'])) {
     $results = json_decode($_REQUEST['results'], true);
     header("Content-Type: application/vnd.ms-excel; charset=utf-8");
     header("Content-Disposition: attachment; filename=ankety_{$jobId}.xls");
@@ -365,16 +425,22 @@ if ($doProcess) {
         exit;
     }
 
+    $selectedLookup = array_fill_keys(array_map('strval', $selected), true);
     $currentUserId = (int)$USER->GetID();
     $diagnostic = [];
     $createdElements = [];
     $elementData = [];
 
+    $processStartedAt = microtime(true);
+    checkMassLog('Candidate processing started', [
+        'job_id' => $jobId, 'selected' => count($selectedLookup), 'assign_mode' => $assignMode,
+    ]);
+
     echo "<h2>Обработка выбранных кандидатов</h2>";
 
     foreach ($candidates as $c) {
         $candidateId = $c['candidateId'];
-        if (!in_array($candidateId, $selected)) continue;
+        if (!isset($selectedLookup[(string)$candidateId])) continue;
 
         $ln = $c['lastName'] ?? '';
         $fn = $c['firstName'] ?? '';
@@ -543,6 +609,9 @@ if ($doProcess) {
                 echo "<span style='color:red'>Ошибка обновления статуса (FW external)</span><br>";
             }
         } else {
+            checkMassLog('Candidate element creation failed', [
+                'job_id' => $jobId, 'candidate_id' => $candidateId, 'error' => $el->LAST_ERROR,
+            ]);
             echo "<span style='color:red'>Ошибка создания элемента: {$el->LAST_ERROR}</span><br>";
         }
     }
@@ -628,6 +697,14 @@ if ($doProcess) {
         echo "</pre></details><hr>";
         echo "</div>";
     }
+
+    checkMassLog('Candidate processing completed', [
+        'job_id' => $jobId,
+        'selected' => count($selectedLookup),
+        'created' => count($createdElements),
+        'duration_seconds' => round(microtime(true) - $processStartedAt, 3),
+        'peak_memory_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
+    ]);
 
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
     exit;
