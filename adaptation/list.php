@@ -87,6 +87,17 @@ function getPropertyValue(array $properties, $propertyId, $valueKey = 'VALUE')
 }
 
 
+function getElementPropertyValue($elementId, array $filter, $valueKey = 'VALUE')
+{
+    $property = CIBlockElement::GetProperty(
+        ANKETA_IBLOCK_ID,
+        (int)$elementId,
+        ['SORT' => 'ASC'],
+        $filter
+    )->Fetch();
+    return $property ? ($property[$valueKey] ?? '') : '';
+}
+
 function getPropertyValueByCode(array $properties, $propertyCode, $valueKey = 'VALUE')
 {
     foreach ($properties as $property) {
@@ -392,19 +403,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'ACTIVE' => 'Y',
         'CHECK_PERMISSIONS' => 'Y',
         'MIN_PERMISSION' => 'R',
-    ], false, ['nTopCount' => 1], ['ID'])->GetNextElement();
+    ], false, ['nTopCount' => 1], ['ID', 'IBLOCK_ID'])->GetNext();
     if (!$element) {
         redirectWithMessage('danger', 'Анкета не найдена или недоступна.');
     }
 
-    $properties = $element->GetProperties();
-    $recruiterId = (int)getPropertyValue($properties, PROP_RECRUITER, 'VALUE');
+    // Read action-critical properties directly: GetProperties() depends on the
+    // element query containing enough iblock metadata and could return an empty set.
+    $recruiterId = (int)getElementPropertyValue($elementId, ['ID' => PROP_RECRUITER]);
     if (!$isAdministrator && !$isRecruitHead && $recruiterId !== $currentUserId) {
         redirectWithMessage('danger', 'Недостаточно прав для выполнения действия.');
     }
 
     if ($action === 'start_adaptation') {
-        $questionnaireStatus = trim((string)getPropertyValueByCode($properties, 'STATUS_ANKETY', 'VALUE'));
+        $questionnaireStatus = trim((string)getElementPropertyValue($elementId, ['CODE' => 'STATUS_ANKETY']));
         if ($questionnaireStatus !== '') {
             redirectWithMessage('danger', 'Процесс можно запустить только для анкеты без назначенного статуса.');
         }
@@ -422,7 +434,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'stop_adaptation') {
-        $organizationId = (int)getPropertyValue($properties, PROP_ORGANIZATSIYA, 'VALUE');
+        $organizationId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ORGANIZATSIYA]);
         $reason = trim((string)($_POST['cancel_reason'] ?? ''));
         if ($organizationId !== REQUIRED_ORGANIZATION_ID) {
             redirectWithMessage('danger', 'Остановка адаптации недоступна для организации анкеты.');
@@ -436,7 +448,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $user = CUser::GetByID($currentUserId)->Fetch();
         $author = $user ? shortUserName($user) : ('ID ' . $currentUserId);
-        $history = (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE');
+        $history = (string)getElementPropertyValue($elementId, ['ID' => PROP_HISTORY]);
         $historyLine = '[' . date('d.m.Y H:i') . '] ' . $author . ' остановил адаптацию. Причина: ' . $reason;
         CIBlockElement::SetPropertyValuesEx($elementId, ANKETA_IBLOCK_ID, [
             PROP_EMPLOYEE_STATUS => $cancelEmployeeStatusId,
