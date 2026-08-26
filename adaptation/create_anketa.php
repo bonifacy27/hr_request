@@ -684,7 +684,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <?php $options = getIblockElementsById((int)$f['link_iblock']); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>" <?= $code === 'KABINET_SPISOK' ? 'data-role="location"' : '' ?>>
                                 <option value="">— не выбрано —</option>
-                                <?php foreach ($options as $opt): ?><option value="<?= h($opt['ID']) ?>" data-name="<?= h(decodeName($opt['NAME'])) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h(decodeName($opt['NAME'])) ?></option><?php endforeach; ?>
+                                <?php foreach ($options as $opt): ?>
+                                    <?php if ($code === 'KABINET_SPISOK' && normalizeFurnitureText($opt['NAME']) === 'Без рабочего места') { continue; } ?>
+                                    <option value="<?= h($opt['ID']) ?>" data-name="<?= h(decodeName($opt['NAME'])) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h(decodeName($opt['NAME'])) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         <?php elseif ($f['type'] === 'DATE'): ?>
                             <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
