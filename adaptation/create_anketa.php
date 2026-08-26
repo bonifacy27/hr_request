@@ -30,6 +30,8 @@ const IBL_REQUESTS = 201;
 const IBL_OFFERS = 218;
 const IBL_CANDIDATES = 207;
 const IBL_FURNITURE = 400;
+const IBL_EQUIPMENT = 326;
+const BP_TEMPLATE_CHANGES = 1358;
 const NEWS_REQUIRED_ORGANIZATION_ID = 3197820;
 
 function h($s): string
@@ -101,6 +103,48 @@ function getElementById(int $iblockId, int $id, array $select): ?array
 {
     $row = CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $id, 'ACTIVE' => 'Y'], false, ['nTopCount' => 1], $select)->GetNext();
     return $row ?: null;
+}
+
+function findEquipmentIdByText(string $value, array $equipmentRows): string
+{
+    $needle = mb_strtolower(normalizeFurnitureText($value));
+    if ($needle === '') {
+        return '';
+    }
+    foreach ($equipmentRows as $row) {
+        if (mb_strtolower(normalizeFurnitureText($row['NAME'])) === $needle) {
+            return (string)$row['ID'];
+        }
+    }
+    foreach ($equipmentRows as $row) {
+        $name = mb_strtolower(normalizeFurnitureText($row['NAME']));
+        if ($name !== '' && mb_stripos($needle, $name) !== false) {
+            return (string)$row['ID'];
+        }
+    }
+    return '';
+}
+
+function normalizedComparisonValue($value): string
+{
+    return mb_strtolower(normalizeFurnitureText((string)$value));
+}
+
+function buildSourceChanges(array $formData, array $source, array $labels, array $displayNames = []): array
+{
+    $changes = [];
+    foreach ($source as $code => $sourceValue) {
+        $formValue = (string)($formData[$code] ?? '');
+        if (normalizedComparisonValue($formValue) === normalizedComparisonValue($sourceValue)) {
+            continue;
+        }
+        $format = static function ($value) use ($code, $displayNames): string {
+            $value = (string)$value;
+            return (string)($displayNames[$code][$value] ?? ($value !== '' ? $value : 'не заполнено'));
+        };
+        $changes[] = ($labels[$code] ?? $code) . ': «' . $format($sourceValue) . '» → «' . $format($formValue) . '»';
+    }
+    return $changes;
 }
 
 function splitFio(string $fio): array
@@ -193,6 +237,7 @@ $fields = [
     ['id' => 2864, 'code' => 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'label' => 'Основные обязанности (для новости)', 'type' => 'S'],
     ['id' => 2865, 'code' => 'DOLZHNOST_DLYA_NOVOSTI', 'label' => 'Должность (для новости)', 'type' => 'S'],
     ['id' => 976, 'code' => 'RABOCHEE_MESTO', 'label' => 'Рабочее место', 'type' => 'L'],
+    ['id' => 3163, 'code' => 'OBORUDOVANIE_DLYA_RABOTY', 'label' => 'Оборудование для работы', 'type' => 'E', 'link_iblock' => IBL_EQUIPMENT],
     ['id' => 988, 'code' => 'PROPUSK_NUZHEN', 'label' => 'Пропуск нужен', 'type' => 'YESNO'],
     ['id' => 3162, 'code' => 'NEOBKHODIMAYA_MEBEL_TEKST', 'label' => 'Необходима ли мебель?', 'type' => 'FURNITURE'],
     ['id' => 991, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'label' => 'Комментарии к заявке на создание учетной записи', 'type' => 'S'],
@@ -208,7 +253,7 @@ $fields = [
 $requiredFields = [
     'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
-    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
+    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
 ];
 
 $sections = [
@@ -217,7 +262,7 @@ $sections = [
  '3'=>['title'=>'3. Обязательства','fields'=>['EST_LI_OBYAZATELSTVO_LST','SODERZHANIE_OBYAZATELSTV']],
  '4'=>['title'=>'4. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
  '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
- '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
+ '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
 $mode = 'manual';
@@ -241,6 +286,7 @@ $errors = [];
 $saveMessage = null;
 $offerList = getIblockElementsById(IBL_OFFERS, ['ID' => 'DESC']);
 $requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
+$equipmentRows = getIblockElementsById(IBL_EQUIPMENT);
 $furnitureRows = [];
 $furnitureRs = CIBlockElement::GetList(['SORT' => 'ASC', 'NAME' => 'ASC'], ['IBLOCK_ID' => IBL_FURNITURE, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME', 'PROPERTY_MULT_SELECT']);
 while ($furnitureRow = $furnitureRs->GetNext()) {
@@ -257,7 +303,7 @@ $furnitureSelectedIds = [];
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $fromRequest = [];
     if ($mode === 'offer' && $selectedOfferId > 0) {
-        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753']);
+        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753','PROPERTY_2070','PROPERTY_3130']);
         if ($of) {
             $selectedRequestId = (int)($of['PROPERTY_1601_VALUE'] ?? $selectedRequestId);
             $fio = splitFio((string)($of['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
@@ -273,6 +319,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $formData['NACHALO_RABOCHEGO_DNYA'] = (string)($of['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? '');
             $formData['KONTAKTNYY_NOMER_TELEFONA'] = (string)($of['PROPERTY_1158_VALUE'] ?? '');
             $formData['ORGANIZATSIYA'] = (string)($of['PROPERTY_2753_VALUE'] ?? '');
+            $formData['OBORUDOVANIE_DLYA_RABOTY'] = (string)($of['PROPERTY_2070_VALUE'] ?? '');
+            $formData['OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA'] = (string)($of['PROPERTY_3130_VALUE'] ?? '');
             $date = (string)($of['PROPERTY_1174_VALUE'] ?? '');
             $formData['DATA_PRIEMA'] = $date;
             if ($date) { $formData['DATA_OKONCHANIYA_IS'] = date('d.m.Y', strtotime($date.' +90 days')); }
@@ -292,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         }
     }
     if ($selectedRequestId > 0) {
-        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3125']);
+        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3125','PROPERTY_3131','PROPERTY_2624']);
         if ($rq) {
             $fromRequest = [
                 'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
@@ -306,6 +354,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
                 'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
                 'NEOBKHODIMAYA_MEBEL_TEKST' => normalizeFurnitureText((string)($rq['PROPERTY_3125_VALUE'] ?? '')),
+                'OBORUDOVANIE_DLYA_RABOTY' => findEquipmentIdByText((string)($rq['PROPERTY_3131_VALUE'] ?? ''), $equipmentRows),
+                'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($rq['PROPERTY_2624_VALUE'] ?? ''),
             ];
         }
     }
@@ -424,6 +474,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     }
 
     if (!$errors) {
+        $comparisonLabels = [
+            'FAMILIYA' => 'Фамилия', 'IMYA' => 'Имя', 'OTCHESTVO' => 'Отчество',
+            'ORGANIZATSIYA' => 'Организация', 'DOLZHNOST' => 'Должность', 'OTDEL' => 'Отдел',
+            'DIREKTSIYA' => 'Дирекция', 'RUKOVODITEL' => 'Руководитель', 'FORMAT_RABOTY_' => 'Формат работы',
+            'ADRES_OFISA_LST' => 'Офис', 'NACHALO_RABOCHEGO_DNYA' => 'Начало рабочего дня',
+            'OBORUDOVANIE_DLYA_RABOTY' => 'Оборудование для работы',
+            'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => 'Комментарии к заявке на создание АРМ сотрудника',
+            'NEOBKHODIMAYA_MEBEL_TEKST' => 'Необходима ли мебель?',
+        ];
+        $displayNames = [];
+        foreach ([
+            'ORGANIZATSIYA' => IBL_ORGANIZATION, 'FORMAT_RABOTY_' => IBL_WORK_FORMAT,
+            'ADRES_OFISA_LST' => IBL_OFFICE, 'NACHALO_RABOCHEGO_DNYA' => IBL_WORK_START,
+            'OBORUDOVANIE_DLYA_RABOTY' => IBL_EQUIPMENT,
+        ] as $code => $iblockId) {
+            foreach (getIblockElementsById($iblockId) as $row) {
+                $displayNames[$code][(string)$row['ID']] = decodeName((string)$row['NAME']);
+            }
+        }
+        $sourceChangeGroups = [];
+        if ($mode === 'offer' && $selectedOfferId > 0) {
+            $offer = getElementById(IBL_OFFERS, $selectedOfferId, [
+                'ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE',
+                'PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FORMAT_RABOTY_NEW',
+                'PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_2753','PROPERTY_3130'
+            ]);
+            if ($offer) {
+                $fio = splitFio((string)($offer['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
+                $offerSource = [
+                    'FAMILIYA' => $fio[0], 'IMYA' => $fio[1], 'OTCHESTVO' => $fio[2],
+                    'ORGANIZATSIYA' => (string)($offer['PROPERTY_2753_VALUE'] ?? ''),
+                    'DOLZHNOST' => (string)($offer['PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? ''),
+                    'OTDEL' => (string)($offer['PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? ''),
+                    'DIREKTSIYA' => (string)($offer['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
+                    'RUKOVODITEL' => (string)($offer['PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA_VALUE'] ?? ''),
+                    'FORMAT_RABOTY_' => (string)($offer['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? ''),
+                    'ADRES_OFISA_LST' => (string)($offer['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? ''),
+                    'NACHALO_RABOCHEGO_DNYA' => (string)($offer['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? ''),
+                    'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($offer['PROPERTY_3130_VALUE'] ?? ''),
+                ];
+                $offerChanges = buildSourceChanges($formData, $offerSource, $comparisonLabels, $displayNames);
+                if ($offerChanges) { $sourceChangeGroups['оффер'] = $offerChanges; }
+            }
+        }
+        if (in_array($mode, ['offer', 'request'], true) && $selectedRequestId > 0) {
+            $request = getElementById(IBL_REQUESTS, $selectedRequestId, [
+                'ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL',
+                'PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
+                'PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3131','PROPERTY_2624','PROPERTY_3125'
+            ]);
+            if ($request) {
+                $requestSource = [
+                    'ORGANIZATSIYA' => (string)($request['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
+                    'DOLZHNOST' => (string)($request['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
+                    'OTDEL' => (string)($request['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
+                    'DIREKTSIYA' => (string)($request['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
+                    'RUKOVODITEL' => (string)($request['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
+                    'FORMAT_RABOTY_' => (string)($request['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+                    'ADRES_OFISA_LST' => (string)($request['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
+                    'NACHALO_RABOCHEGO_DNYA' => (string)($request['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
+                    'OBORUDOVANIE_DLYA_RABOTY' => findEquipmentIdByText((string)($request['PROPERTY_3131_VALUE'] ?? ''), $equipmentRows),
+                    'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($request['PROPERTY_2624_VALUE'] ?? ''),
+                    'NEOBKHODIMAYA_MEBEL_TEKST' => normalizeFurnitureText((string)($request['PROPERTY_3125_VALUE'] ?? '')),
+                ];
+                $requestChanges = buildSourceChanges($formData, $requestSource, $comparisonLabels, $displayNames);
+                if ($requestChanges) { $sourceChangeGroups['заявка на подбор'] = $requestChanges; }
+            }
+        }
+        $historyBlock = '';
+        if ($sourceChangeGroups) {
+            $historyLines = [];
+            foreach ($sourceChangeGroups as $sourceName => $sourceChanges) {
+                $historyLines[] = 'По сравнению с источником «' . $sourceName . '»:';
+                foreach ($sourceChanges as $change) { $historyLines[] = '- ' . $change; }
+            }
+            $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании анкеты:\n" . implode("\n", $historyLines);
+            $propertyValues['ISTORIYA_ANKETY'] = $historyBlock;
+        }
+
         $el = new CIBlockElement();
         $newId = $el->Add([
             'IBLOCK_ID' => IBL_ADAPTATION,
@@ -436,6 +565,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $errors[] = (string)$el->LAST_ERROR;
         } else {
             $saveMessage = 'Анкета успешно создана. ID: ' . (int)$newId;
+            if ($historyBlock !== '') {
+                if (Loader::includeModule('bizproc')) {
+                    $bpErrors = [];
+                    $changeType = implode(', ', array_keys($sourceChangeGroups));
+                    $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', (int)$newId], [
+                        'par_Changes_type' => $changeType,
+                        'par_Changes' => $historyBlock,
+                    ], $bpErrors);
+                    if (!$workflowId || $bpErrors) {
+                        $saveMessage .= ' История записана, но процесс уведомления об изменениях не запущен.';
+                    }
+                } else {
+                    $saveMessage .= ' История записана, но модуль бизнес-процессов недоступен.';
+                }
+            }
             foreach ($fields as $f) {
                 $formData[$f['code']] = '';
             }
