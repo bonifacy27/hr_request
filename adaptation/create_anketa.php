@@ -90,6 +90,13 @@ function decodeName(string $name): string
     return html_entity_decode($name, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
 
+function normalizeFurnitureText(string $value): string
+{
+    $value = decodeName($value);
+    $value = str_replace(["\r\n", "\r", "\n"], ' ', $value);
+    return trim((string)preg_replace('/\s+/u', ' ', $value));
+}
+
 function getElementById(int $iblockId, int $id, array $select): ?array
 {
     $row = CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $id, 'ACTIVE' => 'Y'], false, ['nTopCount' => 1], $select)->GetNext();
@@ -285,7 +292,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         }
     }
     if ($selectedRequestId > 0) {
-        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_NEOBKHODIMAYA_MEBEL']);
+        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3125']);
         if ($rq) {
             $fromRequest = [
                 'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
@@ -298,16 +305,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
                 'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
                 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
                 'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
-                'NEOBKHODIMAYA_MEBEL_TEKST' => trim((string)($rq['PROPERTY_NEOBKHODIMAYA_MEBEL_VALUE'] ?? '')),
+                'NEOBKHODIMAYA_MEBEL_TEKST' => normalizeFurnitureText((string)($rq['PROPERTY_3125_VALUE'] ?? '')),
             ];
         }
     }
     foreach ($fromRequest as $k => $v) {
         if (empty($formData[$k])) { $formData[$k] = $v; }
     }
-    $prefilledFurnitureNames = array_map('trim', explode(',', (string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']));
+    $prefilledFurnitureText = normalizeFurnitureText((string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']);
     foreach ($furnitureRows as $furnitureRow) {
-        if (in_array($furnitureRow['NAME'], $prefilledFurnitureNames, true)) {
+        $furnitureName = normalizeFurnitureText($furnitureRow['NAME']);
+        if ($furnitureName !== '' && mb_stripos($prefilledFurnitureText, $furnitureName) !== false) {
             $furnitureSelectedIds[] = $furnitureRow['ID'];
         }
     }
