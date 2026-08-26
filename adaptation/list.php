@@ -376,6 +376,7 @@ function buildQueryUrl(array $override = [])
 
 $currentUserId = (int)$USER->GetID();
 $currentUserTag = mb_strtolower('user_' . $currentUserId);
+$isAdministrator = $USER->IsAdmin() || in_array(1, array_map('intval', CUser::GetUserGroup($currentUserId)), true);
 $isRecruitHead = in_array($currentUserTag, getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID), true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -398,7 +399,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $properties = $element->GetProperties();
     $recruiterId = (int)getPropertyValue($properties, PROP_RECRUITER, 'VALUE');
-    if (!$isRecruitHead && $recruiterId !== $currentUserId) {
+    if (!$isAdministrator && !$isRecruitHead && $recruiterId !== $currentUserId) {
         redirectWithMessage('danger', 'Недостаточно прав для выполнения действия.');
     }
 
@@ -866,7 +867,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                     </td>
                     <td class="nowrap">
                         <?php
-                        $canManage = $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
+                        $canManage = $isAdministrator || $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
                         $canStart = $canManage && $row['QUESTIONNAIRE_STATUS'] === '';
                         $isRequiredOrganization = (int)$row['ORGANIZATION_ID'] === REQUIRED_ORGANIZATION_ID;
                         ?>
