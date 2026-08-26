@@ -315,8 +315,11 @@ $loadedProperties = [];
 CIBlockElement::GetPropertyValuesArray($loadedProperties, IBL_ADAPTATION, ['ID' => $anketaId], ['CODE' => $propertyCodes]);
 $loadedProperties = $loadedProperties[$anketaId] ?? [];
 
-$propertyValue = static function (array $properties, string $code) {
-    $value = $properties[$code]['VALUE'] ?? '';
+$propertyValue = static function (array $properties, string $code, bool $enumId = false) {
+    $property = $properties[$code] ?? [];
+    $value = $enumId
+        ? ($property['VALUE_ENUM_ID'] ?? $property['VALUE'] ?? '')
+        : ($property['VALUE'] ?? '');
     if (is_array($value)) {
         $value = reset($value);
     }
@@ -337,7 +340,9 @@ foreach ($fields as $field) {
     if (!empty($field['virtual'])) {
         continue;
     }
-    $value = $propertyValue($loadedProperties, $code);
+    // For list properties VALUE contains the displayed enum text in this API,
+    // while the HTML select expects the enum ID stored in VALUE_ENUM_ID.
+    $value = $propertyValue($loadedProperties, $code, $field['type'] === 'L');
     if ($field['type'] === 'FILE') {
         $currentPhotoId = (int)$value;
         $value = '';
