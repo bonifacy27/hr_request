@@ -29,7 +29,7 @@ const IBL_WORK_START = 237;
 const IBL_REQUESTS = 201;
 const IBL_OFFERS = 218;
 const IBL_CANDIDATES = 207;
-const NEWS_REQUIRED_ORGANIZATION = 'НАО "Национальная спутниковая компания"';
+const NEWS_REQUIRED_ORGANIZATION_ID = 3197820;
 
 function h($s): string
 {
@@ -93,15 +93,6 @@ function getElementById(int $iblockId, int $id, array $select): ?array
 {
     $row = CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, 'ID' => $id, 'ACTIVE' => 'Y'], false, ['nTopCount' => 1], $select)->GetNext();
     return $row ?: null;
-}
-
-function getElementNameById(int $iblockId, int $id): string
-{
-    if ($id <= 0) {
-        return '';
-    }
-    $element = getElementById($iblockId, $id, ['ID', 'NAME']);
-    return $element ? decodeName((string)$element['NAME']) : '';
 }
 
 function splitFio(string $fio): array
@@ -377,8 +368,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $errors[] = 'Не заполнено обязательное поле: ' . $rf;
         }
     }
-    $organizationName = getElementNameById(IBL_ORGANIZATION, (int)($formData['ORGANIZATSIYA'] ?? 0));
-    if ($organizationName === NEWS_REQUIRED_ORGANIZATION && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
+    $isNewsRequiredOrganization = (int)($formData['ORGANIZATSIYA'] ?? 0) === NEWS_REQUIRED_ORGANIZATION_ID;
+    if ($isNewsRequiredOrganization && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
         $errors[] = 'Не заполнено обязательное поле: Основные обязанности (для новости)';
     }
 
@@ -589,14 +580,8 @@ BX.ready(function () {
     initUserSelector('RUKOVODITEL');
     initUserSelector('OTVETSTVENNYY_MENEDZHER_OPIA');
 
-    const newsRequiredOrganization = <?= json_encode(NEWS_REQUIRED_ORGANIZATION, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    const newsRequiredOrganizationId = <?= NEWS_REQUIRED_ORGANIZATION_ID ?>;
     let photoDeadlineRequest = 0;
-
-    function selectedDataName(select) {
-        if (!select || select.selectedIndex < 0) { return ''; }
-        const option = select.options[select.selectedIndex];
-        return option && option.dataset ? String(option.dataset.name || '').trim() : '';
-    }
 
     function updateOrganizationDependentFields() {
         const requestId = ++photoDeadlineRequest;
@@ -606,7 +591,7 @@ BX.ready(function () {
         const photo = BX('FOTO_SOTRUDNIKA');
         const warning = BX('photo_deadline_warning');
         const startDate = BX('DATA_PRIEMA');
-        const requiresNews = selectedDataName(organization) === newsRequiredOrganization;
+        const requiresNews = organization && parseInt(organization.value, 10) === newsRequiredOrganizationId;
         if (duties) { duties.required = requiresNews; }
         if (dutiesLabel) {
             dutiesLabel.classList.toggle('organization-required', requiresNews);
