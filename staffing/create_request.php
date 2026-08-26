@@ -343,6 +343,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['a
         $furnitureNames[] = $furnitureNameById[$furnitureId];
     }
     $furnitureText = implode(', ', $furnitureNames);
+    if ($furnitureText === '' && !$saveMessage) {
+        $saveMessage = [
+            'type' => 'danger',
+            'text' => 'Поле «Необходима ли мебель?» обязательно для заполнения.',
+        ];
+    }
 
     $reasonMap = [
         'new_unit'   => 'Новая штатная единица',
@@ -1045,6 +1051,10 @@ BX.ready(function(){
       hasMulti = false;
     }
     $('#furnitureRequired').val((hasMulti || hasSingle) ? 'Y' : '');
+    var firstFurnitureInput = document.querySelector('.furniture-input');
+    if (firstFurnitureInput) {
+      firstFurnitureInput.setCustomValidity((hasMulti || hasSingle) ? '' : 'Выберите необходимую мебель.');
+    }
   }
   $('.furniture-input').on('change', syncFurnitureValue);
   syncFurnitureValue();
