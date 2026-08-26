@@ -72,6 +72,16 @@ function getPropertyEnums(int $iblockId, string $propertyCode): array
     return $res;
 }
 
+function getPropertyEnumIdByValue(int $iblockId, string $propertyCode, string $value): string
+{
+    foreach (getPropertyEnums($iblockId, $propertyCode) as $option) {
+        if (trim($option['VALUE']) === trim($value)) {
+            return $option['ID'];
+        }
+    }
+    return '';
+}
+
 
 function decodeName(string $name): string
 {
@@ -147,16 +157,17 @@ $fields = [
     ['id' => 1198, 'code' => 'KABINET_SPISOK', 'label' => 'Местоположение сотрудника', 'type' => 'E', 'link_iblock' => IBL_LOCATION],
     ['id' => 967, 'code' => 'NOMER_KABINETA', 'label' => 'Номер кабинета', 'type' => 'S'],
     ['id' => 1623, 'code' => 'NACHALO_RABOCHEGO_DNYA', 'label' => 'Начало рабочего дня', 'type' => 'E', 'link_iblock' => IBL_WORK_START],
-    ['id' => 989, 'code' => 'EST_LI_OBYAZATELSTVO_LST', 'label' => 'Есть ли обязательство?', 'type' => 'L'],
-    ['id' => 1076, 'code' => 'SODERZHANIE_OBYAZATELSTV', 'label' => 'Содержание обязательств', 'type' => 'S'],
+    ['id' => 989, 'code' => 'EST_LI_OBYAZATELSTVO_LST', 'label' => 'Есть обязательства', 'type' => 'L'],
+    ['id' => 1076, 'code' => 'SODERZHANIE_OBYAZATELSTV', 'label' => 'Содержимое обязательств', 'type' => 'S'],
     ['id' => 969, 'code' => 'FOTO_SOTRUDNIKA', 'label' => 'Фото сотрудника (jpg, png)', 'type' => 'FILE'],
-    ['id' => 3108, 'code' => 'PRINYAT_PO_REKOMENDATSII', 'label' => 'Принят по рекомендации', 'type' => 'S'],
+    ['id' => null, 'code' => 'EST_REKOMENDATSIYA', 'label' => 'Принят по рекомендации?', 'type' => 'YESNO', 'virtual' => true],
+    ['id' => 3108, 'code' => 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET', 'label' => 'По чьей рекомендации принят сотрудник?', 'type' => 'S'],
     ['id' => 970, 'code' => 'FIO_V_DATELNOM_PADEZHE', 'label' => 'ФИО в дательном падеже', 'type' => 'S'],
     ['id' => 971, 'code' => 'FIO_V_RODITELNOM_PADEZHE', 'label' => 'ФИО в винительном падеже', 'type' => 'S'],
     ['id' => 2864, 'code' => 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'label' => 'Основные обязанности (для новости)', 'type' => 'S'],
     ['id' => 2865, 'code' => 'DOLZHNOST_DLYA_NOVOSTI', 'label' => 'Должность (для новости)', 'type' => 'S'],
     ['id' => 976, 'code' => 'RABOCHEE_MESTO', 'label' => 'Рабочее место', 'type' => 'L'],
-    ['id' => 988, 'code' => 'PROPUSK_NUZHEN', 'label' => 'Пропуск нужен?', 'type' => 'CHK'],
+    ['id' => 988, 'code' => 'PROPUSK_NUZHEN', 'label' => 'Пропуск нужен', 'type' => 'YESNO'],
     ['id' => 990, 'code' => 'NEOBKHODIMAYA_MEBEL', 'label' => 'Необходимая мебель', 'type' => 'L'],
     ['id' => 991, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'label' => 'Комментарии к заявке на создание учетной записи', 'type' => 'S'],
     ['id' => 992, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'label' => 'Комментарии к заявке на создание АРМ сотрудника', 'type' => 'S'],
@@ -171,15 +182,16 @@ $fields = [
 $requiredFields = [
     'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
-    'KONTAKTNYY_NOMER_TELEFONA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','NEOBKHODIMAYA_MEBEL'
+    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL'
 ];
 
 $sections = [
  '1'=>['title'=>'1. Основные данные','fields'=>['FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA']],
  '2'=>['title'=>'2. Условия выхода','fields'=>['DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA']],
- '3'=>['title'=>'3. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
- '4'=>['title'=>'4. Новость и ФИО','fields'=>['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
- '5'=>['title'=>'5. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
+ '3'=>['title'=>'3. Обязательства','fields'=>['EST_LI_OBYAZATELSTVO_LST','SODERZHANIE_OBYAZATELSTV']],
+ '4'=>['title'=>'4. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
+ '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
+ '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
 $mode = 'manual';
@@ -196,7 +208,7 @@ if (isset($_POST['MODE'])) {
 
 $formData = [];
 foreach ($fields as $f) {
-    $formData[$f['code']] = ($f['type'] === 'CHK') ? 'N' : '';
+    $formData[$f['code']] = '';
 }
 
 $errors = [];
@@ -246,6 +258,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $date = (string)($of['PROPERTY_1174_VALUE'] ?? '');
             $formData['DATA_PRIEMA'] = $date;
             if ($date) { $formData['DATA_OKONCHANIYA_IS'] = date('d.m.Y', strtotime($date.' +90 days')); }
+
+            $candidateId = (int)($of['PROPERTY_1603_VALUE'] ?? 0);
+            if ($candidateId > 0) {
+                $candidate = getElementById(IBL_CANDIDATES, $candidateId, ['ID', 'PROPERTY_ODOBRENIE_SB', 'PROPERTY_KOMMENTARIY_SB_PO_OGRANICHENIYAM']);
+                $approval = trim((string)($candidate['PROPERTY_ODOBRENIE_SB_VALUE'] ?? ''));
+                if ($approval === 'Согласован СБ') {
+                    $formData['EST_LI_OBYAZATELSTVO_LST'] = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Нет');
+                    $formData['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
+                } elseif ($approval === 'Согласован СБ с ограничениями') {
+                    $formData['EST_LI_OBYAZATELSTVO_LST'] = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Да');
+                    $formData['SODERZHANIE_OBYAZATELSTV'] = trim((string)($candidate['PROPERTY_KOMMENTARIY_SB_PO_OGRANICHENIYAM_VALUE'] ?? ''));
+                }
+            }
         }
     }
     foreach ($fromRequest as $k => $v) {
@@ -265,8 +290,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $value = $_FILES[$code] ?? null;
         }
 
-        if ($f['type'] === 'CHK') {
-            $value = parseCheckbox($value);
+        if ($f['type'] === 'YESNO') {
+            $value = in_array((string)$value, ['Y', 'N'], true) ? (string)$value : '';
         } elseif ($f['type'] === 'DATE') {
             $value = normalizeDate((string)$value);
         } elseif ($f['type'] === 'USER') {
@@ -284,9 +309,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             if (is_array($value) && !empty($value['name'])) {
                 $propertyValues[$code] = $value;
             }
-        } elseif ($value !== '') {
+        } elseif (empty($f['virtual']) && $value !== '') {
             $propertyValues[$code] = $value;
         }
+    }
+
+    $yesObligationId = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Да');
+    $noObligationId = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Нет');
+    if (!in_array($formData['EST_LI_OBYAZATELSTVO_LST'], [$yesObligationId, $noObligationId], true)) {
+        $formData['EST_LI_OBYAZATELSTVO_LST'] = '';
+        unset($propertyValues['EST_LI_OBYAZATELSTVO_LST']);
+    }
+    if ($formData['EST_LI_OBYAZATELSTVO_LST'] === $yesObligationId) {
+        if ($formData['SODERZHANIE_OBYAZATELSTV'] === '') {
+            $errors[] = 'Заполните обязательное поле: Содержимое обязательств';
+        }
+    } else {
+        $formData['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
+        $propertyValues['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
+    }
+    if ($formData['EST_REKOMENDATSIYA'] === 'Y') {
+        if ($formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] === '') {
+            $errors[] = 'Укажите, по чьей рекомендации принят сотрудник.';
+        }
+    } else {
+        $formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
+        $propertyValues['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
     }
 
     $lastName = trim((string)($formData['FAMILIYA'] ?? ''));
@@ -317,7 +365,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         } else {
             $saveMessage = 'Анкета успешно создана. ID: ' . (int)$newId;
             foreach ($fields as $f) {
-                $formData[$f['code']] = ($f['type'] === 'CHK') ? 'N' : '';
+                $formData[$f['code']] = '';
             }
         }
     }
@@ -327,6 +375,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-wrap{max-width:960px;margin:24px auto;padding:0 12px}.anketa-title{font-size:24px;font-weight:600;margin:0 0 18px}
 .anketa-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}.anketa-field{display:flex;flex-direction:column;gap:6px}
 .anketa-field label{font-size:13px;color:#525c69}.anketa-field input,.anketa-field select{height:38px;padding:0 10px;border:1px solid #c6cdd3;border-radius:6px}
+.anketa-field textarea{min-height:110px;padding:10px;border:1px solid #c6cdd3;border-radius:6px;resize:vertical}
 .anketa-full{grid-column:1/-1}.anketa-actions{margin-top:18px}.anketa-msg{padding:10px 12px;border-radius:6px;margin-bottom:14px}
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
@@ -377,13 +426,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                     <h3 class="anketa-section-title"><?= h($sec['title']) ?></h3>
                     <div class="anketa-grid">
                     <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
-                        <div class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
-                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= in_array($code, $requiredFields, true) ? '<span class="req">*</span>' : '' ?></label>
+                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
+                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'], true)) ? '<span class="req">*</span>' : '' ?></label>
                         <?php if ($f['type'] === 'L'): ?>
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>">
                                 <option value="">— не выбрано —</option>
                                 <?php foreach ($options as $opt): ?><option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['VALUE']) ?></option><?php endforeach; ?>
+                            </select>
+                        <?php elseif ($f['type'] === 'YESNO'): ?>
+                            <select name="<?= h($code) ?>" id="<?= h($code) ?>">
+                                <option value="">— не выбрано —</option>
+                                <option value="Y" <?= $formData[$code] === 'Y' ? 'selected' : '' ?>>Да</option>
+                                <option value="N" <?= $formData[$code] === 'N' ? 'selected' : '' ?>>Нет</option>
                             </select>
                         <?php elseif ($f['type'] === 'E'): ?>
                             <?php $options = getIblockElementsById((int)$f['link_iblock']); ?>
@@ -399,8 +454,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
                         <?php elseif ($f['type'] === 'FILE'): ?>
                             <input type="file" name="<?= h($code) ?>" id="<?= h($code) ?>" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
-                        <?php elseif ($code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'): ?>
-                            <textarea name="<?= h($code) ?>" id="<?= h($code) ?>" style="min-height:120px;padding:8px;border:1px solid #c6cdd3;border-radius:6px;"><?= h($formData[$code]) ?></textarea>
+                        <?php elseif (in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'OPISANIE_K_ZAYAVKE_NA_PROPUSK'], true)): ?>
+                            <textarea name="<?= h($code) ?>" id="<?= h($code) ?>"><?= h($formData[$code]) ?></textarea>
                         <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
                             <div style="display:flex; gap:8px; align-items:center;"><input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>"><?php if ($code === 'FIO_V_DATELNOM_PADEZHE'): ?><button type="button" id="fill_fio_cases_btn" class="ui-btn ui-btn-light-border ui-btn-xs">Заполнить склонения ФИО</button><?php endif; ?></div>
                         <?php else: ?>
@@ -410,6 +465,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <small class="anketa-hint">Выбранному руководителю будет отправлено задание на заполнение плана ввода в должность.</small>
                         <?php elseif ($code === 'FIO_RUKOVODITELYA'): ?>
                             <small class="anketa-hint">Поле можно редактировать. Это ФИО будет использовано для создания заявки на учетную запись.</small>
+                        <?php elseif ($code === 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'): ?>
+                            <small class="anketa-hint">Укажите, по чьей рекомендации принят этот сотрудник.</small>
                         <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
@@ -497,6 +554,53 @@ BX.ready(function () {
 
     initUserSelector('RUKOVODITEL');
     initUserSelector('OTVETSTVENNYY_MENEDZHER_OPIA');
+
+    function selectedOptionText(select) {
+        return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text.trim() : '';
+    }
+
+    function toggleConditionalFields() {
+        const pass = BX('PROPUSK_NUZHEN');
+        const passCommentRow = BX('field_OPISANIE_K_ZAYAVKE_NA_PROPUSK');
+        if (pass && passCommentRow) {
+            passCommentRow.style.display = pass.value === 'Y' ? '' : 'none';
+        }
+
+        const obligation = BX('EST_LI_OBYAZATELSTVO_LST');
+        const obligationContent = BX('SODERZHANIE_OBYAZATELSTV');
+        const hasObligations = selectedOptionText(obligation) === 'Да';
+        if (obligationContent) {
+            obligationContent.readOnly = !hasObligations;
+            obligationContent.required = hasObligations;
+            if (!hasObligations) {
+                obligationContent.value = 'Нет обязательств';
+            } else if (obligationContent.value === 'Нет обязательств') {
+                obligationContent.value = '';
+            }
+        }
+
+        const recommendation = BX('EST_REKOMENDATSIYA');
+        const recommendationRow = BX('field_REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET');
+        const recommendationText = BX('REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET');
+        const hasRecommendation = recommendation && recommendation.value === 'Y';
+        if (recommendationRow) {
+            recommendationRow.style.display = hasRecommendation ? '' : 'none';
+        }
+        if (recommendationText) {
+            recommendationText.required = hasRecommendation;
+            if (!hasRecommendation) {
+                recommendationText.value = 'Принят без рекомендации';
+            } else if (recommendationText.value === 'Принят без рекомендации') {
+                recommendationText.value = '';
+            }
+        }
+    }
+
+    ['PROPUSK_NUZHEN', 'EST_LI_OBYAZATELSTVO_LST', 'EST_REKOMENDATSIYA'].forEach(function (code) {
+        const input = BX(code);
+        if (input) { input.addEventListener('change', toggleConditionalFields); }
+    });
+    toggleConditionalFields();
 
     document.querySelectorAll('input[name="MODE"]').forEach(function (el) {
         el.addEventListener('change', function () {
