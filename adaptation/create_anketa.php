@@ -33,6 +33,7 @@ const IBL_FURNITURE = 400;
 const IBL_EQUIPMENT = 326;
 const BP_TEMPLATE_CHANGES = 1358;
 const NEWS_REQUIRED_ORGANIZATION_ID = 3197820;
+const ADAPTATION_LIST_URL = '/forms/staff_recruitment/adaptation/list.php';
 
 function h($s): string
 {
@@ -584,6 +585,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                 $formData[$f['code']] = '';
             }
             $furnitureSelectedIds = [];
+            LocalRedirect(ADAPTATION_LIST_URL);
+            return;
         }
     }
 }
@@ -715,6 +718,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         </div></div>
         <div class="anketa-actions">
             <button class="ui-btn ui-btn-success" type="submit">Сохранить</button>
+            <a class="ui-btn ui-btn-light-border" href="<?= h(ADAPTATION_LIST_URL) ?>">Вернуться в список</a>
         </div>
     </form>
 </div>
