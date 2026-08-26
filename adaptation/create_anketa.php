@@ -29,6 +29,7 @@ const IBL_WORK_START = 237;
 const IBL_REQUESTS = 201;
 const IBL_OFFERS = 218;
 const IBL_CANDIDATES = 207;
+const IBL_FURNITURE = 400;
 const NEWS_REQUIRED_ORGANIZATION_ID = 3197820;
 
 function h($s): string
@@ -186,7 +187,7 @@ $fields = [
     ['id' => 2865, 'code' => 'DOLZHNOST_DLYA_NOVOSTI', 'label' => 'Должность (для новости)', 'type' => 'S'],
     ['id' => 976, 'code' => 'RABOCHEE_MESTO', 'label' => 'Рабочее место', 'type' => 'L'],
     ['id' => 988, 'code' => 'PROPUSK_NUZHEN', 'label' => 'Пропуск нужен', 'type' => 'YESNO'],
-    ['id' => 990, 'code' => 'NEOBKHODIMAYA_MEBEL', 'label' => 'Необходимая мебель', 'type' => 'L'],
+    ['id' => 3162, 'code' => 'NEOBKHODIMAYA_MEBEL_TEKST', 'label' => 'Необходима ли мебель?', 'type' => 'FURNITURE'],
     ['id' => 991, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'label' => 'Комментарии к заявке на создание учетной записи', 'type' => 'S'],
     ['id' => 992, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'label' => 'Комментарии к заявке на создание АРМ сотрудника', 'type' => 'S'],
     ['id' => 994, 'code' => 'OPISANIE_K_ZAYAVKE_NA_PROPUSK', 'label' => 'Комментарии к заявке на пропуск', 'type' => 'S'],
@@ -200,7 +201,7 @@ $fields = [
 $requiredFields = [
     'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
-    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL'
+    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
 ];
 
 $sections = [
@@ -209,7 +210,7 @@ $sections = [
  '3'=>['title'=>'3. Обязательства','fields'=>['EST_LI_OBYAZATELSTVO_LST','SODERZHANIE_OBYAZATELSTV']],
  '4'=>['title'=>'4. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
  '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
- '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
+ '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
 $mode = 'manual';
@@ -233,33 +234,25 @@ $errors = [];
 $saveMessage = null;
 $offerList = getIblockElementsById(IBL_OFFERS, ['ID' => 'DESC']);
 $requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
+$furnitureRows = [];
+$furnitureRs = CIBlockElement::GetList(['SORT' => 'ASC', 'NAME' => 'ASC'], ['IBLOCK_ID' => IBL_FURNITURE, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME', 'PROPERTY_MULT_SELECT']);
+while ($furnitureRow = $furnitureRs->GetNext()) {
+    $furnitureRows[] = [
+        'ID' => (string)$furnitureRow['ID'],
+        'NAME' => decodeName((string)$furnitureRow['NAME']),
+        'MULTIPLE' => (string)($furnitureRow['PROPERTY_MULT_SELECT_VALUE'] ?? '') === 'Y',
+    ];
+}
+$furnitureSelectedIds = [];
 
 
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     $fromRequest = [];
-    if ($mode === 'request' && $selectedRequestId > 0) {
-            $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO']);
-        if ($rq) {
-            $fromRequest = [
-                'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
-                'OTDEL' => (string)($rq['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
-                'DOLZHNOST' => (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
-                'RUKOVODITEL' => (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
-                'OTVETSTVENNYY_MENEDZHER_OPIA' => (string)($rq['PROPERTY_1035_VALUE'] ?? ''),
-                'FORMAT_RABOTY_' => (string)($rq['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
-                'ADRES_OFISA_LST' => (string)($rq['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
-                'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
-                'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
-                'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
-            ];
-        }
-    }
     if ($mode === 'offer' && $selectedOfferId > 0) {
         $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753']);
         if ($of) {
             $selectedRequestId = (int)($of['PROPERTY_1601_VALUE'] ?? $selectedRequestId);
-            if ($selectedRequestId > 0 && !$fromRequest) { $_GET['id_request']=$selectedRequestId; }
             $fio = splitFio((string)($of['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
             $formData['FAMILIYA'] = $fio[0]; $formData['IMYA'] = $fio[1]; $formData['OTCHESTVO'] = $fio[2];
             $formData['DIREKTSIYA'] = (string)($of['PROPERTY_DIREKTSIYA_VALUE'] ?? '');
@@ -291,8 +284,32 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             }
         }
     }
+    if ($selectedRequestId > 0) {
+        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_NEOBKHODIMAYA_MEBEL']);
+        if ($rq) {
+            $fromRequest = [
+                'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
+                'OTDEL' => (string)($rq['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
+                'DOLZHNOST' => (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
+                'RUKOVODITEL' => (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
+                'OTVETSTVENNYY_MENEDZHER_OPIA' => (string)($rq['PROPERTY_1035_VALUE'] ?? ''),
+                'FORMAT_RABOTY_' => (string)($rq['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
+                'ADRES_OFISA_LST' => (string)($rq['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
+                'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
+                'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
+                'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
+                'NEOBKHODIMAYA_MEBEL_TEKST' => trim((string)($rq['PROPERTY_NEOBKHODIMAYA_MEBEL_VALUE'] ?? '')),
+            ];
+        }
+    }
     foreach ($fromRequest as $k => $v) {
         if (empty($formData[$k])) { $formData[$k] = $v; }
+    }
+    $prefilledFurnitureNames = array_map('trim', explode(',', (string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']));
+    foreach ($furnitureRows as $furnitureRow) {
+        if (in_array($furnitureRow['NAME'], $prefilledFurnitureNames, true)) {
+            $furnitureSelectedIds[] = $furnitureRow['ID'];
+        }
     }
     if ($formData['FIO_RUKOVODITELYA'] === '' && (int)$formData['RUKOVODITEL'] > 0) {
         $formData['FIO_RUKOVODITELYA'] = getUserFullFioById((int)$formData['RUKOVODITEL']);
@@ -306,6 +323,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $value = $_POST[$code] ?? '';
         if ($f['type'] === 'FILE') {
             $value = $_FILES[$code] ?? null;
+        } elseif ($f['type'] === 'FURNITURE') {
+            $postedFurniture = is_array($value) ? $value : [$value];
+            $postedFurniture = array_values(array_unique(array_map(static function ($id) {
+                return (string)(int)$id;
+            }, $postedFurniture)));
+            $singleFurniture = [];
+            $multiFurniture = [];
+            $furnitureNames = [];
+            foreach ($furnitureRows as $furnitureRow) {
+                if (!in_array($furnitureRow['ID'], $postedFurniture, true)) {
+                    continue;
+                }
+                if ($furnitureRow['MULTIPLE']) {
+                    $multiFurniture[] = $furnitureRow;
+                } else {
+                    $singleFurniture[] = $furnitureRow;
+                }
+            }
+            $validFurniture = $multiFurniture ?: array_slice($singleFurniture, 0, 1);
+            $furnitureSelectedIds = [];
+            foreach ($validFurniture as $furnitureRow) {
+                $furnitureSelectedIds[] = $furnitureRow['ID'];
+                $furnitureNames[] = $furnitureRow['NAME'];
+            }
+            $value = implode(', ', $furnitureNames);
         }
 
         if ($f['type'] === 'YESNO') {
@@ -318,7 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             if ($value === '0') {
                 $value = '';
             }
-        } else {
+        } elseif ($f['type'] !== 'FURNITURE') {
             $value = trim((string)$value);
         }
 
@@ -389,6 +431,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             foreach ($fields as $f) {
                 $formData[$f['code']] = '';
             }
+            $furnitureSelectedIds = [];
         }
     }
 }
@@ -404,6 +447,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-source-select{max-width:560px;width:100%}
 .anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
 .anketa-warning{padding:10px 12px;border-radius:6px;background:#fff4ce;color:#735c0f;line-height:1.4}
+.anketa-choice-box{padding:10px 12px;border:1px solid #c6cdd3;border-radius:6px}.anketa-choice{display:flex;align-items:center;gap:8px;margin-top:7px}.anketa-choice input{height:auto}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -449,7 +493,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                     <h3 class="anketa-section-title"><?= h($sec['title']) ?></h3>
                     <div class="anketa-grid">
                     <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
-                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
+                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
                         <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'], true)) ? '<span class="req">*</span>' : '' ?></label>
                         <?php if ($f['type'] === 'L'): ?>
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
@@ -463,6 +507,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                                 <option value="Y" <?= $formData[$code] === 'Y' ? 'selected' : '' ?>>Да</option>
                                 <option value="N" <?= $formData[$code] === 'N' ? 'selected' : '' ?>>Нет</option>
                             </select>
+                        <?php elseif ($f['type'] === 'FURNITURE'): ?>
+                            <input type="hidden" id="furniture_required" value="<?= $furnitureSelectedIds ? 'Y' : '' ?>">
+                            <div class="anketa-choice-box" id="furniture_wrap">
+                                <small class="anketa-hint">Можно выбрать несколько вариантов только у позиций с признаком множественного выбора.</small>
+                                <?php foreach ($furnitureRows as $furnitureRow): ?>
+                                    <label class="anketa-choice" for="furniture_<?= h($furnitureRow['ID']) ?>">
+                                        <input
+                                            class="furniture-input <?= $furnitureRow['MULTIPLE'] ? 'furniture-multi' : 'furniture-single' ?>"
+                                            type="<?= $furnitureRow['MULTIPLE'] ? 'checkbox' : 'radio' ?>"
+                                            name="<?= h($code) ?>[]"
+                                            value="<?= h($furnitureRow['ID']) ?>"
+                                            id="furniture_<?= h($furnitureRow['ID']) ?>"
+                                            <?= in_array($furnitureRow['ID'], $furnitureSelectedIds, true) ? 'checked' : '' ?>
+                                        >
+                                        <?= h($furnitureRow['NAME']) ?>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
                         <?php elseif ($f['type'] === 'E'): ?>
                             <?php $options = getIblockElementsById((int)$f['link_iblock']); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>" <?= $code === 'KABINET_SPISOK' ? 'data-role="location"' : '' ?>>
@@ -632,6 +694,31 @@ BX.ready(function () {
         if (input) { input.addEventListener('change', updateOrganizationDependentFields); }
     });
     updateOrganizationDependentFields();
+
+    function syncFurnitureValue() {
+        const multiInputs = Array.from(document.querySelectorAll('.furniture-multi'));
+        const singleInputs = Array.from(document.querySelectorAll('.furniture-single'));
+        let hasMulti = multiInputs.some(function (input) { return input.checked; });
+        let hasSingle = singleInputs.some(function (input) { return input.checked; });
+        if (hasMulti) {
+            singleInputs.forEach(function (input) { input.checked = false; });
+            hasSingle = false;
+        }
+        if (hasSingle) {
+            multiInputs.forEach(function (input) { input.checked = false; });
+            hasMulti = false;
+        }
+        const requiredValue = BX('furniture_required');
+        if (requiredValue) { requiredValue.value = (hasMulti || hasSingle) ? 'Y' : ''; }
+        const firstInput = document.querySelector('.furniture-input');
+        if (firstInput) {
+            firstInput.setCustomValidity((hasMulti || hasSingle) ? '' : 'Выберите необходимую мебель.');
+        }
+    }
+    document.querySelectorAll('.furniture-input').forEach(function (input) {
+        input.addEventListener('change', syncFurnitureValue);
+    });
+    syncFurnitureValue();
 
     function selectedOptionText(select) {
         return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text.trim() : '';
