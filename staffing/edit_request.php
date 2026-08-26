@@ -1098,8 +1098,8 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
           <div class="ui-form-content">
             <details class="req-diff-details" id="diff_details" open>
               <summary>Разница текстов</summary>
-              <div class="ui-ctl ui-ctl-textarea ui-ctl-w100" style="margin-top:8px;">
-                <textarea class="ui-ctl-element" id="field_'.$codeEsc.'" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
+              <div class="ui-ctl ui-ctl-textarea ui-ctl-w100 req-diff-textarea-wrap" style="margin-top:8px;">
+                <textarea class="ui-ctl-element req-diff-textarea" id="field_'.$codeEsc.'" rows="6" readonly>'.htmlspecialcharsbx($diffText).'</textarea>
               </div>
             </details>
           </div>
@@ -1211,6 +1211,14 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     cursor: pointer;
     color:#2067b0;
     font-weight: 600;
+  }
+  .req-diff-textarea-wrap{
+    height:auto !important;
+  }
+  .req-diff-textarea{
+    height:auto !important;
+    overflow-y:hidden;
+    resize:none;
   }
   .req-modal{
     display:none;
@@ -1458,11 +1466,17 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     lines.push(...(removed.length ? removed.map((i) => `- ${i.replace(/;+$/, '')};`) : ['- нет;']));
     return lines.join('\n');
   };
+  const resizeResponsibilitiesDiff = () => {
+    if (!responsibilitiesDiff) return;
+    responsibilitiesDiff.style.setProperty('height', 'auto', 'important');
+    responsibilitiesDiff.style.setProperty('height', `${responsibilitiesDiff.scrollHeight + 2}px`, 'important');
+  };
   const updateResponsibilitiesDiff = () => {
     if (!managerResponsibilities || !responsibilities1c || !responsibilitiesDiff || !diffRow) return;
     const diff = responsibilitiesDiffText(managerResponsibilities.value, responsibilities1c.value);
     responsibilitiesDiff.value = diff;
     diffRow.style.display = diff ? '' : 'none';
+    resizeResponsibilitiesDiff();
     if (managerEditedNote) {
       managerEditedNote.style.display = diff ? '' : 'none';
     }

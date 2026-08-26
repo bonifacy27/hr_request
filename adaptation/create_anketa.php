@@ -90,6 +90,42 @@ function splitFio(string $fio): array
     return [$parts[0] ?? '', $parts[1] ?? '', $parts[2] ?? ''];
 }
 
+function getUserFullFioById(int $userId): string
+{
+    if ($userId <= 0) {
+        return '';
+    }
+    $user = CUser::GetByID($userId)->Fetch();
+    if (!$user) {
+        return '';
+    }
+    $fio = trim(implode(' ', array_filter([
+        trim((string)($user['LAST_NAME'] ?? '')),
+        trim((string)($user['NAME'] ?? '')),
+        trim((string)($user['SECOND_NAME'] ?? '')),
+    ], static function ($part) {
+        return $part !== '';
+    })));
+    if ($fio !== '') {
+        return $fio;
+    }
+    return trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
+}
+
+if ((string)($_GET['ajax'] ?? '') === 'get_user_fio') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    header('Content-Type: application/json; charset=UTF-8');
+    $userId = (int)($_GET['user_id'] ?? 0);
+    echo json_encode([
+        'ok' => ($userId > 0),
+        'user_id' => $userId,
+        'fio' => getUserFullFioById($userId),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $fields = [
     ['id' => 951, 'code' => 'FAMILIYA', 'label' => 'Фамилия', 'type' => 'S'],
     ['id' => 952, 'code' => 'IMYA', 'label' => 'Имя', 'type' => 'S'],
@@ -101,6 +137,7 @@ $fields = [
     ['id' => 957, 'code' => 'OTDEL', 'label' => 'Отдел', 'type' => 'S'],
     ['id' => 958, 'code' => 'DOLZHNOST', 'label' => 'Должность', 'type' => 'S'],
     ['id' => 959, 'code' => 'RUKOVODITEL', 'label' => 'Руководитель', 'type' => 'USER'],
+    ['id' => 3161, 'code' => 'FIO_RUKOVODITELYA', 'label' => 'ФИО руководителя', 'type' => 'S'],
     ['id' => 961, 'code' => 'OTVETSTVENNYY_MENEDZHER_OPIA', 'label' => 'Рекрутер', 'type' => 'USER'],
     ['id' => 963, 'code' => 'DATA_PRIEMA', 'label' => 'Дата приема', 'type' => 'DATE'],
     ['id' => 964, 'code' => 'DATA_OKONCHANIYA_IS', 'label' => 'Дата окончания ИС', 'type' => 'DATE'],
@@ -132,13 +169,13 @@ $fields = [
 
 
 $requiredFields = [
-    'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','OTVETSTVENNYY_MENEDZHER_OPIA',
+    'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
     'KONTAKTNYY_NOMER_TELEFONA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','RABOCHEE_MESTO','DOSTUPY','NEOBKHODIMAYA_MEBEL'
 ];
 
 $sections = [
- '1'=>['title'=>'1. Основные данные','fields'=>['FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','OTVETSTVENNYY_MENEDZHER_OPIA']],
+ '1'=>['title'=>'1. Основные данные','fields'=>['FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA']],
  '2'=>['title'=>'2. Условия выхода','fields'=>['DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA']],
  '3'=>['title'=>'3. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
  '4'=>['title'=>'4. Новость и ФИО','fields'=>['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
@@ -189,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
         }
     }
     if ($mode === 'offer' && $selectedOfferId > 0) {
-        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753']);
+        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753']);
         if ($of) {
             $selectedRequestId = (int)($of['PROPERTY_1601_VALUE'] ?? $selectedRequestId);
             if ($selectedRequestId > 0 && !$fromRequest) { $_GET['id_request']=$selectedRequestId; }
@@ -199,6 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             $formData['OTDEL'] = (string)($of['PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
             $formData['DOLZHNOST'] = (string)($of['PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
             $formData['RUKOVODITEL'] = (string)($of['PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA_VALUE'] ?? '');
+            $formData['FIO_RUKOVODITELYA'] = (string)($of['PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
             $formData['OTVETSTVENNYY_MENEDZHER_OPIA'] = (string)($of['PROPERTY_REKRUTER_VALUE'] ?? '');
             $formData['FORMAT_RABOTY_'] = (string)($of['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? '');
             $formData['ADRES_OFISA_LST'] = (string)($of['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? '');
@@ -212,6 +250,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     }
     foreach ($fromRequest as $k => $v) {
         if (empty($formData[$k])) { $formData[$k] = $v; }
+    }
+    if ($formData['FIO_RUKOVODITELYA'] === '' && (int)$formData['RUKOVODITEL'] > 0) {
+        $formData['FIO_RUKOVODITELYA'] = getUserFullFioById((int)$formData['RUKOVODITEL']);
     }
 }
 
@@ -290,7 +331,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
 .anketa-source-select{max-width:560px;width:100%}
-.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.req{color:#d95757}
+.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -365,6 +406,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         <?php else: ?>
                             <input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
                         <?php endif; ?>
+                        <?php if ($code === 'RUKOVODITEL'): ?>
+                            <small class="anketa-hint">Выбранному руководителю будет отправлено задание на заполнение плана ввода в должность.</small>
+                        <?php elseif ($code === 'FIO_RUKOVODITELYA'): ?>
+                            <small class="anketa-hint">Поле можно редактировать. Это ФИО будет использовано для создания заявки на учетную запись.</small>
+                        <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
                     </div>
@@ -378,6 +424,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 </div>
 <script>
 BX.ready(function () {
+    function loadUserFullFio(userId, input) {
+        if (!input || userId <= 0) {
+            return;
+        }
+        BX.ajax({
+            url: window.location.pathname + '?ajax=get_user_fio&user_id=' + encodeURIComponent(userId),
+            method: 'GET',
+            dataType: 'json',
+            onsuccess: function (response) {
+                if (response && response.ok && String(BX('RUKOVODITEL').value) === String(userId)) {
+                    input.value = response.fio || '';
+                }
+            }
+        });
+    }
+
     function initUserSelector(code) {
         const hidden = BX(code);
         const container = BX(code + '_selector');
@@ -392,10 +454,15 @@ BX.ready(function () {
             }
         }
         const tagSelector = new BX.UI.EntitySelector.TagSelector({
+            multiple: false,
+            textBoxWidth: '100%',
+            placeholder: 'Выберите сотрудника',
             dialogOptions: {
                 context: code + '_context',
                 entities: [{id: 'user'}],
                 multiple: false,
+                enableSearch: true,
+                dropdownMode: true,
                 preselectedItems: preselected
             },
             events: {
@@ -409,6 +476,23 @@ BX.ready(function () {
             }
         });
         tagSelector.renderTo(container);
+        if (code === 'RUKOVODITEL') {
+            const fioInput = BX('FIO_RUKOVODITELYA');
+            const dialog = tagSelector.getDialog();
+            dialog.subscribe('Item:onSelect', function (event) {
+                const item = event.getData().item;
+                if (fioInput && item && typeof item.getTitle === 'function') {
+                    fioInput.value = String(item.getTitle() || '').trim();
+                    const userId = parseInt(String(item.getId()).replace(/\D+/g, ''), 10) || 0;
+                    loadUserFullFio(userId, fioInput);
+                }
+            });
+            dialog.subscribe('Item:onDeselect', function () {
+                if (fioInput) {
+                    fioInput.value = '';
+                }
+            });
+        }
     }
 
     initUserSelector('RUKOVODITEL');
