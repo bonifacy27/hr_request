@@ -29,6 +29,7 @@ const IBL_WORK_START = 237;
 const IBL_REQUESTS = 201;
 const IBL_OFFERS = 218;
 const IBL_CANDIDATES = 207;
+const NEWS_REQUIRED_ORGANIZATION = 'НАО "Национальная спутниковая компания"';
 
 function h($s): string
 {
@@ -94,6 +95,15 @@ function getElementById(int $iblockId, int $id, array $select): ?array
     return $row ?: null;
 }
 
+function getElementNameById(int $iblockId, int $id): string
+{
+    if ($id <= 0) {
+        return '';
+    }
+    $element = getElementById($iblockId, $id, ['ID', 'NAME']);
+    return $element ? decodeName((string)$element['NAME']) : '';
+}
+
 function splitFio(string $fio): array
 {
     $parts = preg_split('/\s+/', trim($fio));
@@ -132,6 +142,23 @@ if ((string)($_GET['ajax'] ?? '') === 'get_user_fio') {
         'ok' => ($userId > 0),
         'user_id' => $userId,
         'fio' => getUserFullFioById($userId),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+if ((string)($_GET['ajax'] ?? '') === 'get_photo_deadline') {
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    header('Content-Type: application/json; charset=UTF-8');
+    $startDate = normalizeDate((string)($_GET['date'] ?? ''));
+    $deadline = '';
+    if ($startDate !== '' && function_exists('addworkday_1c')) {
+        $deadline = (string)addworkday_1c($startDate, -1);
+    }
+    echo json_encode([
+        'ok' => $deadline !== '',
+        'deadline' => $deadline,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -350,6 +377,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $errors[] = 'Не заполнено обязательное поле: ' . $rf;
         }
     }
+    $organizationName = getElementNameById(IBL_ORGANIZATION, (int)($formData['ORGANIZATSIYA'] ?? 0));
+    if ($organizationName === NEWS_REQUIRED_ORGANIZATION && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
+        $errors[] = 'Не заполнено обязательное поле: Основные обязанности (для новости)';
+    }
 
     if (!$errors) {
         $el = new CIBlockElement();
@@ -381,6 +412,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
 .anketa-source-select{max-width:560px;width:100%}
 .anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
+.anketa-warning{padding:10px 12px;border-radius:6px;background:#fff4ce;color:#735c0f;line-height:1.4}
 </style>
 <div class="anketa-wrap">
     <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
@@ -467,6 +499,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <small class="anketa-hint">Поле можно редактировать. Это ФИО будет использовано для создания заявки на учетную запись.</small>
                         <?php elseif ($code === 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'): ?>
                             <small class="anketa-hint">Укажите, по чьей рекомендации принят этот сотрудник.</small>
+                        <?php elseif ($code === 'FOTO_SOTRUDNIKA'): ?>
+                            <div id="photo_deadline_warning" class="anketa-warning" style="display:none"></div>
                         <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
@@ -554,6 +588,65 @@ BX.ready(function () {
 
     initUserSelector('RUKOVODITEL');
     initUserSelector('OTVETSTVENNYY_MENEDZHER_OPIA');
+
+    const newsRequiredOrganization = <?= json_encode(NEWS_REQUIRED_ORGANIZATION, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+    let photoDeadlineRequest = 0;
+
+    function selectedDataName(select) {
+        if (!select || select.selectedIndex < 0) { return ''; }
+        const option = select.options[select.selectedIndex];
+        return option && option.dataset ? String(option.dataset.name || '').trim() : '';
+    }
+
+    function updateOrganizationDependentFields() {
+        const requestId = ++photoDeadlineRequest;
+        const organization = BX('ORGANIZATSIYA');
+        const duties = BX('OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI');
+        const dutiesLabel = document.querySelector('label[for="OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI"]');
+        const photo = BX('FOTO_SOTRUDNIKA');
+        const warning = BX('photo_deadline_warning');
+        const startDate = BX('DATA_PRIEMA');
+        const requiresNews = selectedDataName(organization) === newsRequiredOrganization;
+        if (duties) { duties.required = requiresNews; }
+        if (dutiesLabel) {
+            dutiesLabel.classList.toggle('organization-required', requiresNews);
+            let mark = dutiesLabel.querySelector('[data-role="organization-required"]');
+            if (requiresNews && !mark) {
+                mark = document.createElement('span');
+                mark.className = 'req';
+                mark.dataset.role = 'organization-required';
+                mark.textContent = '*';
+                dutiesLabel.appendChild(mark);
+            } else if (!requiresNews && mark) {
+                mark.remove();
+            }
+        }
+        if (!warning) { return; }
+        const hasPhoto = photo && photo.files && photo.files.length > 0;
+        if (!requiresNews || hasPhoto || !startDate || !startDate.value) {
+            warning.style.display = 'none';
+            warning.textContent = '';
+            return;
+        }
+        warning.style.display = 'none';
+        warning.textContent = '';
+        BX.ajax({
+            url: window.location.pathname + '?ajax=get_photo_deadline&date=' + encodeURIComponent(startDate.value),
+            method: 'GET',
+            dataType: 'json',
+            onsuccess: function (response) {
+                if (requestId !== photoDeadlineRequest || !response || !response.ok) { return; }
+                warning.textContent = 'Если до ' + response.deadline + ' 18:00 не загрузить фото сотрудника, поздравление на портале опубликуется без фото.';
+                warning.style.display = '';
+            }
+        });
+    }
+
+    ['ORGANIZATSIYA', 'DATA_PRIEMA', 'FOTO_SOTRUDNIKA'].forEach(function (code) {
+        const input = BX(code);
+        if (input) { input.addEventListener('change', updateOrganizationDependentFields); }
+    });
+    updateOrganizationDependentFields();
 
     function selectedOptionText(select) {
         return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text.trim() : '';
