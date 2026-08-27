@@ -1,7 +1,7 @@
 <?php
 /**
- * Форма создания анкеты нового сотрудника.
- * URL: /forms/staff_recruiting/adaptation/create_anketa.php
+ * Форма редактирования анкеты сотрудника.
+ * URL: /forms/staff_recruiting/adaptation/edit_anketa.php?id=12345
  */
 
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
@@ -10,7 +10,7 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\UI\Extension;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
-$APPLICATION->SetTitle('Создание анкеты нового сотрудника');
+$APPLICATION->SetTitle('Редактирование анкеты сотрудника');
 
 if (!Loader::includeModule('iblock')) {
     ShowError('Не удалось подключить модуль iblock.');
@@ -266,27 +266,33 @@ $sections = [
  '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
-$mode = 'manual';
-$selectedOfferId = (int)($_GET['id_offer'] ?? 0);
-$selectedRequestId = (int)($_GET['id_request'] ?? 0);
-if ($selectedOfferId > 0) { $mode = 'offer'; }
-elseif ($selectedRequestId > 0) { $mode = 'request'; }
-
-if (isset($_POST['MODE'])) {
-    $mode = in_array($_POST['MODE'], ['manual','offer','request'], true) ? $_POST['MODE'] : 'manual';
-    $selectedOfferId = (int)($_POST['SOURCE_OFFER_ID'] ?? $selectedOfferId);
-    $selectedRequestId = (int)($_POST['SOURCE_REQUEST_ID'] ?? $selectedRequestId);
-}
-
-$formData = [];
-foreach ($fields as $f) {
-    $formData[$f['code']] = '';
-}
-
+$anketaId = (int)($_GET['ID'] ?? $_GET['id'] ?? $_POST['ID'] ?? $_POST['id'] ?? 0);
 $errors = [];
 $saveMessage = null;
-$offerList = getIblockElementsById(IBL_OFFERS, ['ID' => 'DESC']);
-$requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
+
+if (!$USER->IsAuthorized()) {
+    ShowError('Требуется авторизация.');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+    return;
+}
+if ($anketaId <= 0) {
+    ShowError('Не указан ID анкеты.');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+    return;
+}
+
+$anketaRow = CIBlockElement::GetList([], [
+    'IBLOCK_ID' => IBL_ADAPTATION,
+    'ID' => $anketaId,
+    'CHECK_PERMISSIONS' => 'Y',
+    'MIN_PERMISSION' => 'R',
+], false, ['nTopCount' => 1], ['ID', 'NAME'])->GetNext();
+if (!$anketaRow) {
+    ShowError('Анкета не найдена или нет прав на просмотр.');
+    require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+    return;
+}
+
 $equipmentRows = getIblockElementsById(IBL_EQUIPMENT);
 $furnitureRows = [];
 $furnitureRs = CIBlockElement::GetList(['SORT' => 'ASC', 'NAME' => 'ASC'], ['IBLOCK_ID' => IBL_FURNITURE, 'ACTIVE' => 'Y'], false, false, ['ID', 'NAME', 'PROPERTY_MULT_SELECT']);
@@ -297,296 +303,177 @@ while ($furnitureRow = $furnitureRs->GetNext()) {
         'MULTIPLE' => (string)($furnitureRow['PROPERTY_MULT_SELECT_VALUE'] ?? '') === 'Y',
     ];
 }
+
+$propertyCodes = [];
+foreach ($fields as $field) {
+    if (empty($field['virtual'])) {
+        $propertyCodes[] = $field['code'];
+    }
+}
+$propertyCodes[] = 'ISTORIYA_ANKETY';
+$loadedProperties = [];
+CIBlockElement::GetPropertyValuesArray($loadedProperties, IBL_ADAPTATION, ['ID' => $anketaId], ['CODE' => $propertyCodes]);
+$loadedProperties = $loadedProperties[$anketaId] ?? [];
+
+$propertyValue = static function (array $properties, string $code, bool $enumId = false) {
+    $property = $properties[$code] ?? [];
+    $value = $enumId
+        ? ($property['VALUE_ENUM_ID'] ?? $property['VALUE'] ?? '')
+        : ($property['VALUE'] ?? '');
+    if (is_array($value)) {
+        $value = reset($value);
+    }
+    return $value;
+};
+$dateToInput = static function ($value): string {
+    $value = trim((string)$value);
+    if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})/', $value, $m)) {
+        return $m[3] . '-' . $m[2] . '-' . $m[1];
+    }
+    return $value;
+};
+
+$formData = [];
+$currentPhotoId = 0;
+foreach ($fields as $field) {
+    $code = $field['code'];
+    if (!empty($field['virtual'])) {
+        continue;
+    }
+    // For list properties VALUE contains the displayed enum text in this API,
+    // while the HTML select expects the enum ID stored in VALUE_ENUM_ID.
+    $value = $propertyValue($loadedProperties, $code, $field['type'] === 'L');
+    if ($field['type'] === 'FILE') {
+        $currentPhotoId = (int)$value;
+        $value = '';
+    } elseif ($field['type'] === 'DATE') {
+        $value = $dateToInput($value);
+    } elseif ($field['type'] === 'USER') {
+        $value = (string)(int)preg_replace('/\D+/', '', (string)$value);
+        if ($value === '0') { $value = ''; }
+    }
+    $formData[$code] = trim((string)$value);
+}
+$formData['EST_REKOMENDATSIYA'] = (
+    $formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] !== ''
+    && $formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] !== 'Принят без рекомендации'
+) ? 'Y' : 'N';
+$sourceSnapshot = $formData;
+$oldHistory = trim((string)$propertyValue($loadedProperties, 'ISTORIYA_ANKETY'));
+
 $furnitureSelectedIds = [];
-
-
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $fromRequest = [];
-    if ($mode === 'offer' && $selectedOfferId > 0) {
-        $of = getElementById(IBL_OFFERS, $selectedOfferId, ['ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_REKRUTER','PROPERTY_FORMAT_RABOTY_NEW','PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_1158','PROPERTY_1174','PROPERTY_1601','PROPERTY_1603','PROPERTY_2753','PROPERTY_2070','PROPERTY_3130']);
-        if ($of) {
-            $selectedRequestId = (int)($of['PROPERTY_1601_VALUE'] ?? $selectedRequestId);
-            $fio = splitFio((string)($of['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
-            $formData['FAMILIYA'] = $fio[0]; $formData['IMYA'] = $fio[1]; $formData['OTCHESTVO'] = $fio[2];
-            $formData['DIREKTSIYA'] = (string)($of['PROPERTY_DIREKTSIYA_VALUE'] ?? '');
-            $formData['OTDEL'] = (string)($of['PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
-            $formData['DOLZHNOST'] = (string)($of['PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
-            $formData['RUKOVODITEL'] = (string)($of['PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA_VALUE'] ?? '');
-            $formData['FIO_RUKOVODITELYA'] = (string)($of['PROPERTY_FIO_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? '');
-            $formData['OTVETSTVENNYY_MENEDZHER_OPIA'] = (string)($of['PROPERTY_REKRUTER_VALUE'] ?? '');
-            $formData['FORMAT_RABOTY_'] = (string)($of['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? '');
-            $formData['ADRES_OFISA_LST'] = (string)($of['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? '');
-            $formData['NACHALO_RABOCHEGO_DNYA'] = (string)($of['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? '');
-            $formData['KONTAKTNYY_NOMER_TELEFONA'] = (string)($of['PROPERTY_1158_VALUE'] ?? '');
-            $formData['ORGANIZATSIYA'] = (string)($of['PROPERTY_2753_VALUE'] ?? '');
-            $formData['OBORUDOVANIE_DLYA_RABOTY'] = (string)($of['PROPERTY_2070_VALUE'] ?? '');
-            $formData['OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA'] = (string)($of['PROPERTY_3130_VALUE'] ?? '');
-            $date = (string)($of['PROPERTY_1174_VALUE'] ?? '');
-            $formData['DATA_PRIEMA'] = $date;
-            if ($date) { $formData['DATA_OKONCHANIYA_IS'] = date('d.m.Y', strtotime($date.' +90 days')); }
-
-            $candidateId = (int)($of['PROPERTY_1603_VALUE'] ?? 0);
-            if ($candidateId > 0) {
-                $candidate = getElementById(IBL_CANDIDATES, $candidateId, ['ID', 'PROPERTY_ODOBRENIE_SB', 'PROPERTY_KOMMENTARIY_SB_PO_OGRANICHENIYAM']);
-                $approval = trim((string)($candidate['PROPERTY_ODOBRENIE_SB_VALUE'] ?? ''));
-                if ($approval === 'Согласован СБ') {
-                    $formData['EST_LI_OBYAZATELSTVO_LST'] = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Нет');
-                    $formData['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
-                } elseif ($approval === 'Согласован СБ с ограничениями') {
-                    $formData['EST_LI_OBYAZATELSTVO_LST'] = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Да');
-                    $formData['SODERZHANIE_OBYAZATELSTV'] = trim((string)($candidate['PROPERTY_KOMMENTARIY_SB_PO_OGRANICHENIYAM_VALUE'] ?? ''));
-                }
-            }
-        }
-    }
-    if ($selectedRequestId > 0) {
-        $rq = getElementById(IBL_REQUESTS, $selectedRequestId, ['ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL','PROPERTY_1035','PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA','PROPERTY_OBYAZANNOSTI','PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3125','PROPERTY_3131','PROPERTY_2624']);
-        if ($rq) {
-            $fromRequest = [
-                'DIREKTSIYA' => (string)($rq['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
-                'OTDEL' => (string)($rq['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
-                'DOLZHNOST' => (string)($rq['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
-                'RUKOVODITEL' => (string)($rq['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
-                'OTVETSTVENNYY_MENEDZHER_OPIA' => (string)($rq['PROPERTY_1035_VALUE'] ?? ''),
-                'FORMAT_RABOTY_' => (string)($rq['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
-                'ADRES_OFISA_LST' => (string)($rq['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
-                'NACHALO_RABOCHEGO_DNYA' => (string)($rq['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
-                'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' => (string)($rq['PROPERTY_OBYAZANNOSTI_VALUE'] ?? ''),
-                'ORGANIZATSIYA' => (string)($rq['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
-                'NEOBKHODIMAYA_MEBEL_TEKST' => normalizeFurnitureText((string)($rq['PROPERTY_3125_VALUE'] ?? '')),
-                'OBORUDOVANIE_DLYA_RABOTY' => findEquipmentIdByText((string)($rq['PROPERTY_3131_VALUE'] ?? ''), $equipmentRows),
-                'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($rq['PROPERTY_2624_VALUE'] ?? ''),
-            ];
-        }
-    }
-    foreach ($fromRequest as $k => $v) {
-        if (empty($formData[$k])) { $formData[$k] = $v; }
-    }
-    $prefilledFurnitureText = normalizeFurnitureText((string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']);
-    foreach ($furnitureRows as $furnitureRow) {
-        $furnitureName = normalizeFurnitureText($furnitureRow['NAME']);
-        if ($furnitureName !== '' && mb_stripos($prefilledFurnitureText, $furnitureName) !== false) {
-            $furnitureSelectedIds[] = $furnitureRow['ID'];
-        }
-    }
-    if ($formData['FIO_RUKOVODITELYA'] === '' && (int)$formData['RUKOVODITEL'] > 0) {
-        $formData['FIO_RUKOVODITELYA'] = getUserFullFioById((int)$formData['RUKOVODITEL']);
+$storedFurniture = normalizeFurnitureText((string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']);
+foreach ($furnitureRows as $furnitureRow) {
+    $furnitureName = normalizeFurnitureText($furnitureRow['NAME']);
+    if ($furnitureName !== '' && mb_stripos($storedFurniture, $furnitureName) !== false) {
+        $furnitureSelectedIds[] = $furnitureRow['ID'];
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($_POST['action'] ?? '') === 'save') {
     $propertyValues = [];
-    foreach ($fields as $f) {
-        $code = $f['code'];
+    foreach ($fields as $field) {
+        $code = $field['code'];
         $value = $_POST[$code] ?? '';
-        if ($f['type'] === 'FILE') {
+        if ($field['type'] === 'FILE') {
             $value = $_FILES[$code] ?? null;
-        } elseif ($f['type'] === 'FURNITURE') {
-            $postedFurniture = is_array($value) ? $value : [$value];
-            $postedFurniture = array_values(array_unique(array_map(static function ($id) {
-                return (string)(int)$id;
-            }, $postedFurniture)));
-            $singleFurniture = [];
-            $multiFurniture = [];
-            $furnitureNames = [];
-            foreach ($furnitureRows as $furnitureRow) {
-                if (!in_array($furnitureRow['ID'], $postedFurniture, true)) {
-                    continue;
-                }
-                if ($furnitureRow['MULTIPLE']) {
-                    $multiFurniture[] = $furnitureRow;
-                } else {
-                    $singleFurniture[] = $furnitureRow;
-                }
+        } elseif ($field['type'] === 'FURNITURE') {
+            $postedIds = is_array($value) ? array_map('intval', $value) : [(int)$value];
+            $single = [];
+            $multiple = [];
+            foreach ($furnitureRows as $row) {
+                if (!in_array((int)$row['ID'], $postedIds, true)) { continue; }
+                if ($row['MULTIPLE']) { $multiple[] = $row; } else { $single[] = $row; }
             }
-            $validFurniture = $multiFurniture ?: array_slice($singleFurniture, 0, 1);
-            $furnitureSelectedIds = [];
-            foreach ($validFurniture as $furnitureRow) {
-                $furnitureSelectedIds[] = $furnitureRow['ID'];
-                $furnitureNames[] = $furnitureRow['NAME'];
-            }
-            $value = implode(', ', $furnitureNames);
+            $selected = $multiple ?: array_slice($single, 0, 1);
+            $furnitureSelectedIds = array_column($selected, 'ID');
+            $value = implode(', ', array_column($selected, 'NAME'));
         }
 
-        if ($f['type'] === 'YESNO') {
+        if ($field['type'] === 'YESNO') {
             $value = in_array((string)$value, ['Y', 'N'], true) ? (string)$value : '';
-        } elseif ($f['type'] === 'DATE') {
+        } elseif ($field['type'] === 'DATE') {
             $value = normalizeDate((string)$value);
-        } elseif ($f['type'] === 'USER') {
-            $value = trim((string)$value);
-            $value = (string)(int)preg_replace('/\D+/', '', $value);
-            if ($value === '0') {
-                $value = '';
-            }
-        } elseif ($f['type'] !== 'FURNITURE') {
+        } elseif ($field['type'] === 'USER') {
+            $value = (string)(int)preg_replace('/\D+/', '', (string)$value);
+            if ($value === '0') { $value = ''; }
+        } elseif ($field['type'] !== 'FILE' && $field['type'] !== 'FURNITURE') {
             $value = trim((string)$value);
         }
 
-        $formData[$code] = $value;
-        if ($f['type'] === 'FILE') {
-            if (is_array($value) && !empty($value['name'])) {
-                $propertyValues[$code] = $value;
-            }
-        } elseif (empty($f['virtual']) && $value !== '') {
+        $formData[$code] = $field['type'] === 'DATE' ? $dateToInput($value) : ($field['type'] === 'FILE' ? '' : $value);
+        if ($field['type'] === 'FILE') {
+            if (is_array($value) && !empty($value['name'])) { $propertyValues[$code] = $value; }
+        } elseif (empty($field['virtual'])) {
             $propertyValues[$code] = $value;
         }
     }
 
     $yesObligationId = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Да');
-    $noObligationId = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Нет');
-    if (!in_array($formData['EST_LI_OBYAZATELSTVO_LST'], [$yesObligationId, $noObligationId], true)) {
-        $formData['EST_LI_OBYAZATELSTVO_LST'] = '';
-        unset($propertyValues['EST_LI_OBYAZATELSTVO_LST']);
-    }
     if ($formData['EST_LI_OBYAZATELSTVO_LST'] === $yesObligationId) {
-        if ($formData['SODERZHANIE_OBYAZATELSTV'] === '') {
-            $errors[] = 'Заполните обязательное поле: Содержимое обязательств';
-        }
+        if (trim((string)$formData['SODERZHANIE_OBYAZATELSTV']) === '') { $errors[] = 'Заполните обязательное поле: Содержимое обязательств'; }
     } else {
         $formData['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
         $propertyValues['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
     }
     if ($formData['EST_REKOMENDATSIYA'] === 'Y') {
-        if ($formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] === '') {
-            $errors[] = 'Укажите, по чьей рекомендации принят сотрудник.';
-        }
+        if (trim((string)$formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET']) === '') { $errors[] = 'Укажите, по чьей рекомендации принят сотрудник.'; }
     } else {
         $formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
         $propertyValues['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
     }
 
-    $lastName = trim((string)($formData['FAMILIYA'] ?? ''));
-    $firstName = trim((string)($formData['IMYA'] ?? ''));
-    $middleName = trim((string)($formData['OTCHESTVO'] ?? ''));
-    $name = trim($lastName . ' ' . $firstName . ' ' . $middleName);
-
-    if ($name === '') {
-        $errors[] = 'Заполните минимум Фамилию и Имя.';
+    foreach ($requiredFields as $requiredCode) {
+        if (trim((string)($formData[$requiredCode] ?? '')) === '') { $errors[] = 'Не заполнено обязательное поле: ' . $requiredCode; }
     }
-    foreach ($requiredFields as $rf) {
-        if (trim((string)($formData[$rf] ?? '')) === '') {
-            $errors[] = 'Не заполнено обязательное поле: ' . $rf;
-        }
-    }
-    $isNewsRequiredOrganization = (int)($formData['ORGANIZATSIYA'] ?? 0) === NEWS_REQUIRED_ORGANIZATION_ID;
-    if ($isNewsRequiredOrganization && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
+    if ((int)$formData['ORGANIZATSIYA'] === NEWS_REQUIRED_ORGANIZATION_ID && trim((string)$formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI']) === '') {
         $errors[] = 'Не заполнено обязательное поле: Основные обязанности (для новости)';
     }
 
     if (!$errors) {
-        $comparisonLabels = [
-            'FAMILIYA' => 'Фамилия', 'IMYA' => 'Имя', 'OTCHESTVO' => 'Отчество',
-            'ORGANIZATSIYA' => 'Организация', 'DOLZHNOST' => 'Должность', 'OTDEL' => 'Отдел',
-            'DIREKTSIYA' => 'Дирекция', 'RUKOVODITEL' => 'Руководитель', 'FORMAT_RABOTY_' => 'Формат работы',
-            'ADRES_OFISA_LST' => 'Офис', 'NACHALO_RABOCHEGO_DNYA' => 'Начало рабочего дня',
-            'OBORUDOVANIE_DLYA_RABOTY' => 'Оборудование для работы',
-            'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => 'Комментарии к заявке на создание АРМ сотрудника',
-            'NEOBKHODIMAYA_MEBEL_TEKST' => 'Необходима ли мебель?',
-        ];
+        $labels = [];
         $displayNames = [];
-        foreach ([
-            'ORGANIZATSIYA' => IBL_ORGANIZATION, 'FORMAT_RABOTY_' => IBL_WORK_FORMAT,
-            'ADRES_OFISA_LST' => IBL_OFFICE, 'NACHALO_RABOCHEGO_DNYA' => IBL_WORK_START,
-            'OBORUDOVANIE_DLYA_RABOTY' => IBL_EQUIPMENT,
-        ] as $code => $iblockId) {
-            foreach (getIblockElementsById($iblockId) as $row) {
-                $displayNames[$code][(string)$row['ID']] = decodeName((string)$row['NAME']);
+        foreach ($fields as $field) { $labels[$field['code']] = $field['label']; }
+        foreach (['ORGANIZATSIYA' => IBL_ORGANIZATION, 'FORMAT_RABOTY_' => IBL_WORK_FORMAT, 'ADRES_OFISA_LST' => IBL_OFFICE, 'KABINET_SPISOK' => IBL_LOCATION, 'NACHALO_RABOCHEGO_DNYA' => IBL_WORK_START, 'OBORUDOVANIE_DLYA_RABOTY' => IBL_EQUIPMENT] as $code => $iblockId) {
+            foreach (getIblockElementsById($iblockId) as $row) { $displayNames[$code][$row['ID']] = decodeName($row['NAME']); }
+        }
+        foreach ($fields as $field) {
+            if ($field['type'] === 'L') {
+                foreach (getPropertyEnums(IBL_ADAPTATION, $field['code']) as $option) { $displayNames[$field['code']][$option['ID']] = $option['VALUE']; }
             }
         }
-        $sourceChangeGroups = [];
-        if ($mode === 'offer' && $selectedOfferId > 0) {
-            $offer = getElementById(IBL_OFFERS, $selectedOfferId, [
-                'ID','PROPERTY_POLNOE_FIO_KANDIDATA','PROPERTY_DIREKTSIYA','PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE',
-                'PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE','PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA','PROPERTY_FORMAT_RABOTY_NEW',
-                'PROPERTY_ADRES_OFISA_LST','PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW','PROPERTY_2753','PROPERTY_3130'
-            ]);
-            if ($offer) {
-                $fio = splitFio((string)($offer['PROPERTY_POLNOE_FIO_KANDIDATA_VALUE'] ?? ''));
-                $offerSource = [
-                    'FAMILIYA' => $fio[0], 'IMYA' => $fio[1], 'OTCHESTVO' => $fio[2],
-                    'ORGANIZATSIYA' => (string)($offer['PROPERTY_2753_VALUE'] ?? ''),
-                    'DOLZHNOST' => (string)($offer['PROPERTY_DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? ''),
-                    'OTDEL' => (string)($offer['PROPERTY_POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE_VALUE'] ?? ''),
-                    'DIREKTSIYA' => (string)($offer['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
-                    'RUKOVODITEL' => (string)($offer['PROPERTY_FIO_RUKOVODITELYA_IZ_SPISKA_VALUE'] ?? ''),
-                    'FORMAT_RABOTY_' => (string)($offer['PROPERTY_FORMAT_RABOTY_NEW_VALUE'] ?? ''),
-                    'ADRES_OFISA_LST' => (string)($offer['PROPERTY_ADRES_OFISA_LST_VALUE'] ?? ''),
-                    'NACHALO_RABOCHEGO_DNYA' => (string)($offer['PROPERTY_NACHALO_RABOCHEGO_DNYA_NEW_VALUE'] ?? ''),
-                    'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($offer['PROPERTY_3130_VALUE'] ?? ''),
-                ];
-                $offerChanges = buildSourceChanges($formData, $offerSource, $comparisonLabels, $displayNames);
-                if ($offerChanges) { $sourceChangeGroups['оффер'] = $offerChanges; }
-            }
-        }
-        if (in_array($mode, ['offer', 'request'], true) && $selectedRequestId > 0) {
-            $request = getElementById(IBL_REQUESTS, $selectedRequestId, [
-                'ID','PROPERTY_DIREKTSIYA','PROPERTY_PODRAZDELENIE','PROPERTY_DOLZHNOST','PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL',
-                'PROPERTY_FORMAT_RABOTY_PRIVYAZKA','PROPERTY_OFIS_PRIVYAZKA','PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA',
-                'PROPERTY_YURIDICHESKOE_LITSO','PROPERTY_3131','PROPERTY_2624','PROPERTY_3125'
-            ]);
-            if ($request) {
-                $requestSource = [
-                    'ORGANIZATSIYA' => (string)($request['PROPERTY_YURIDICHESKOE_LITSO_VALUE'] ?? ''),
-                    'DOLZHNOST' => (string)($request['PROPERTY_DOLZHNOST_VALUE'] ?? ''),
-                    'OTDEL' => (string)($request['PROPERTY_PODRAZDELENIE_VALUE'] ?? ''),
-                    'DIREKTSIYA' => (string)($request['PROPERTY_DIREKTSIYA_VALUE'] ?? ''),
-                    'RUKOVODITEL' => (string)($request['PROPERTY_NEPOSREDSTVENNYY_RUKOVODITEL_VALUE'] ?? ''),
-                    'FORMAT_RABOTY_' => (string)($request['PROPERTY_FORMAT_RABOTY_PRIVYAZKA_VALUE'] ?? ''),
-                    'ADRES_OFISA_LST' => (string)($request['PROPERTY_OFIS_PRIVYAZKA_VALUE'] ?? ''),
-                    'NACHALO_RABOCHEGO_DNYA' => (string)($request['PROPERTY_NACHALO_RABOCHEGO_DNYA_PRIVYAZKA_VALUE'] ?? ''),
-                    'OBORUDOVANIE_DLYA_RABOTY' => findEquipmentIdByText((string)($request['PROPERTY_3131_VALUE'] ?? ''), $equipmentRows),
-                    'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA' => (string)($request['PROPERTY_2624_VALUE'] ?? ''),
-                    'NEOBKHODIMAYA_MEBEL_TEKST' => normalizeFurnitureText((string)($request['PROPERTY_3125_VALUE'] ?? '')),
-                ];
-                $requestChanges = buildSourceChanges($formData, $requestSource, $comparisonLabels, $displayNames);
-                if ($requestChanges) { $sourceChangeGroups['заявка на подбор'] = $requestChanges; }
-            }
-        }
-        $historyBlock = '';
-        if ($sourceChangeGroups) {
-            $historyLines = [];
-            foreach ($sourceChangeGroups as $sourceName => $sourceChanges) {
-                $historyLines[] = 'По сравнению с источником «' . $sourceName . '»:';
-                foreach ($sourceChanges as $change) { $historyLines[] = '- ' . $change; }
-            }
-            $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании анкеты:\n" . implode("\n", $historyLines);
-            $propertyValues['ISTORIYA_ANKETY'] = $historyBlock;
-        }
-
-        $el = new CIBlockElement();
-        $newId = $el->Add([
-            'IBLOCK_ID' => IBL_ADAPTATION,
-            'ACTIVE' => 'Y',
-            'NAME' => $name,
-            'PROPERTY_VALUES' => $propertyValues,
-        ]);
-
-        if (!$newId) {
-            $errors[] = (string)$el->LAST_ERROR;
+        $displayNames['EST_REKOMENDATSIYA'] = ['Y' => 'Да', 'N' => 'Нет'];
+        $displayNames['PROPUSK_NUZHEN'] = ['Y' => 'Да', 'N' => 'Нет'];
+        $changes = buildSourceChanges($formData, $sourceSnapshot, $labels, $displayNames);
+        if (!$changes && empty($propertyValues['FOTO_SOTRUDNIKA'])) {
+            $saveMessage = 'Изменений не обнаружено.';
         } else {
-            $saveMessage = 'Анкета успешно создана. ID: ' . (int)$newId;
-            if ($historyBlock !== '') {
-                if (Loader::includeModule('bizproc')) {
-                    $bpErrors = [];
-                    $changeType = implode(', ', array_keys($sourceChangeGroups));
-                    $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', (int)$newId], [
-                        'par_Changes_type' => $changeType,
-                        'par_Changes' => $historyBlock,
-                    ], $bpErrors);
-                    if (!$workflowId || $bpErrors) {
-                        $saveMessage .= ' История записана, но процесс уведомления об изменениях не запущен.';
-                    }
+            if (!empty($propertyValues['FOTO_SOTRUDNIKA'])) {
+                $changes[] = 'Фото сотрудника: загружен новый файл';
+            }
+            $who = trim((string)$USER->GetFullName()) ?: ('ID ' . (int)$USER->GetID());
+            $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при редактировании анкеты ({$who}):\n- " . implode("\n- ", $changes);
+            $propertyValues['ISTORIYA_ANKETY'] = $oldHistory === '' ? $historyBlock : $oldHistory . "\n\n" . $historyBlock;
+            CIBlockElement::SetPropertyValuesEx($anketaId, IBL_ADAPTATION, $propertyValues);
+            $element = new CIBlockElement();
+            $name = trim($formData['FAMILIYA'] . ' ' . $formData['IMYA'] . ' ' . $formData['OTCHESTVO']);
+            if (!$element->Update($anketaId, ['NAME' => $name])) {
+                $errors[] = 'Не удалось обновить анкету: ' . ($element->LAST_ERROR ?: 'неизвестная ошибка');
+            } elseif (!Loader::includeModule('bizproc')) {
+                $errors[] = 'Анкета обновлена, но модуль бизнес-процессов недоступен.';
+            } else {
+                $bpErrors = [];
+                $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', $anketaId], [
+                    'par_Changes_type' => 'анкета сотрудника',
+                    'par_Changes' => $historyBlock,
+                ], $bpErrors);
+                if (!$workflowId || $bpErrors) {
+                    $errors[] = 'Анкета и история обновлены, но процесс уведомления об изменениях не запущен.';
                 } else {
-                    $saveMessage .= ' История записана, но модуль бизнес-процессов недоступен.';
+                    LocalRedirect(ADAPTATION_LIST_URL);
+                    return;
                 }
             }
-            foreach ($fields as $f) {
-                $formData[$f['code']] = '';
-            }
-            $furnitureSelectedIds = [];
-            LocalRedirect(ADAPTATION_LIST_URL);
-            return;
         }
     }
 }
@@ -598,14 +485,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 .anketa-field textarea{min-height:110px;padding:10px;border:1px solid #c6cdd3;border-radius:6px;resize:vertical}
 .anketa-full{grid-column:1/-1}.anketa-actions{margin-top:18px}.anketa-msg{padding:10px 12px;border-radius:6px;margin-bottom:14px}
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
-.anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
-.anketa-source-select{max-width:560px;width:100%}
-.anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
+.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
 .anketa-warning{padding:10px 12px;border-radius:6px;background:#fff4ce;color:#735c0f;line-height:1.4}
 .anketa-choice-box{padding:10px 12px;border:1px solid #c6cdd3;border-radius:6px}.anketa-choice{display:flex;align-items:center;gap:8px;margin-top:7px}.anketa-choice input{height:auto}
 </style>
 <div class="anketa-wrap">
-    <h1 class="anketa-title">Создание анкеты нового сотрудника</h1>
+    <h1 class="anketa-title">Редактирование анкеты сотрудника</h1>
 
     <?php if ($saveMessage): ?>
         <div class="anketa-msg anketa-msg-ok"><?= h($saveMessage) ?></div>
@@ -617,30 +502,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
 
     <form method="post" enctype="multipart/form-data">
         <?= bitrix_sessid_post() ?>
-        <div class="anketa-field anketa-full anketa-mode-box">
-            <label>Режим создания</label>
-            <div>
-                <label><input type="radio" name="MODE" value="manual" <?= $mode === 'manual' ? 'checked' : '' ?>> Создать без заявок</label>
-                <label style="margin-left:12px"><input type="radio" name="MODE" value="offer" <?= $mode === 'offer' ? 'checked' : '' ?>> Создать из оффера</label>
-                <label style="margin-left:12px"><input type="radio" name="MODE" value="request" <?= $mode === 'request' ? 'checked' : '' ?>> Создать из заявки на подбор</label>
-            </div>
-            <div class="anketa-mode-row">
-                <div id="offer_block" style="display:<?= $mode === 'offer' ? 'block':'none' ?>">
-                    <label for="SOURCE_OFFER_ID">Оффер</label>
-                    <select class="anketa-source-select" name="SOURCE_OFFER_ID" id="SOURCE_OFFER_ID">
-                        <option value="">— выбрать оффер —</option>
-                        <?php foreach ($offerList as $it): ?><option value="<?= h($it['ID']) ?>" <?= ((string)$selectedOfferId === (string)$it['ID'])?'selected':'' ?>><?= h($it['ID'].' — '.decodeName($it['NAME'])) ?></option><?php endforeach; ?>
-                    </select>
-                </div>
-                <div id="request_block" style="display:<?= $mode === 'request' ? 'block':'none' ?>">
-                    <label for="SOURCE_REQUEST_ID">Заявка на подбор</label>
-                    <select class="anketa-source-select" name="SOURCE_REQUEST_ID" id="SOURCE_REQUEST_ID">
-                        <option value="">— выбрать заявку —</option>
-                        <?php foreach ($requestList as $it): ?><option value="<?= h($it['ID']) ?>" <?= ((string)$selectedRequestId === (string)$it['ID'])?'selected':'' ?>><?= h($it['ID'].' — '.decodeName($it['NAME'])) ?></option><?php endforeach; ?>
-                    </select>
-                </div>
-            </div>
-        </div>
         <div class="anketa-grid">
             <?php $fieldMap = []; foreach ($fields as $ff) { $fieldMap[$ff['code']] = $ff; } ?>
             <?php foreach ($sections as $sec): ?>
@@ -697,6 +558,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <input type="checkbox" name="<?= h($code) ?>" id="<?= h($code) ?>" value="Y" <?= ($formData[$code] === 'Y') ? 'checked' : '' ?>>
                         <?php elseif ($f['type'] === 'FILE'): ?>
                             <input type="file" name="<?= h($code) ?>" id="<?= h($code) ?>" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                            <?php if ($code === 'FOTO_SOTRUDNIKA' && $currentPhotoId > 0): ?><small class="anketa-hint">Текущее фото сохранится, если не выбирать новый файл.</small><?php endif; ?>
                         <?php elseif (in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'OPISANIE_K_ZAYAVKE_NA_PROPUSK'], true)): ?>
                             <textarea name="<?= h($code) ?>" id="<?= h($code) ?>"><?= h($formData[$code]) ?></textarea>
                         <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
@@ -720,7 +582,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             <?php endforeach; ?>
         </div></div>
         <div class="anketa-actions">
-            <button class="ui-btn ui-btn-success" type="submit">Сохранить</button>
+            <input type="hidden" name="ID" value="<?= (int)$anketaId ?>">
+            <input type="hidden" name="action" value="save">
+            <button class="ui-btn ui-btn-success" type="submit">Сохранить изменения</button>
             <a class="ui-btn ui-btn-light-border" href="<?= h(ADAPTATION_LIST_URL) ?>">Вернуться в список</a>
         </div>
     </form>
@@ -925,46 +789,6 @@ BX.ready(function () {
         if (input) { input.addEventListener('change', toggleConditionalFields); }
     });
     toggleConditionalFields();
-
-    document.querySelectorAll('input[name="MODE"]').forEach(function (el) {
-        el.addEventListener('change', function () {
-            BX('offer_block').style.display = (this.value === 'offer') ? 'block' : 'none';
-            BX('request_block').style.display = (this.value === 'request') ? 'block' : 'none';
-        });
-    });
-
-    function redirectWithSource(mode, id) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('id_offer');
-        url.searchParams.delete('id_request');
-        if (mode === 'offer' && id > 0) {
-            url.searchParams.set('id_offer', String(id));
-        }
-        if (mode === 'request' && id > 0) {
-            url.searchParams.set('id_request', String(id));
-        }
-        window.location.href = url.toString();
-    }
-
-    const offerInput = BX('SOURCE_OFFER_ID');
-    if (offerInput) {
-        offerInput.addEventListener('change', function () {
-            const id = parseInt(this.value, 10) || 0;
-            if (id > 0) {
-                redirectWithSource('offer', id);
-            }
-        });
-    }
-
-    const requestInput = BX('SOURCE_REQUEST_ID');
-    if (requestInput) {
-        requestInput.addEventListener('change', function () {
-            const id = parseInt(this.value, 10) || 0;
-            if (id > 0) {
-                redirectWithSource('request', id);
-            }
-        });
-    }
 
     function addThreeMonths() {
         const start = BX('DATA_PRIEMA');

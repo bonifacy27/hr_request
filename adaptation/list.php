@@ -20,6 +20,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 const ANKETA_IBLOCK_ID = 196;
 const STATUS_IBLOCK_ID = 374;
 const VIEW_URL = 'view.php?id=';
+const EDIT_URL = 'edit_anketa.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const PER_PAGE = 20;
 
@@ -34,6 +35,12 @@ const PROP_RECRUITER = 961;
 const PROP_RUKOVODITEL = 959;
 const PROP_STATUS = 2930;
 const PROP_HISTORY = 2861;
+const PROP_EMPLOYEE_STATUS = 954;
+const PROP_ADAPTATION_STATUS = 2930;
+const REQUIRED_ORGANIZATION_ID = 3197820;
+const CANCEL_ADAPTATION_STATUS_ID = 3563837;
+const START_ADAPTATION_WORKFLOW_ID = 299;
+const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
 const STATUS_COLOR_PROP_ID = 3138;
 
@@ -77,6 +84,72 @@ function getPropertyValue(array $properties, $propertyId, $valueKey = 'VALUE')
     }
 
     return '';
+}
+
+
+function getElementPropertyValue($elementId, array $filter, $valueKey = 'VALUE')
+{
+    $property = CIBlockElement::GetProperty(
+        ANKETA_IBLOCK_ID,
+        (int)$elementId,
+        ['SORT' => 'ASC'],
+        $filter
+    )->Fetch();
+    return $property ? ($property[$valueKey] ?? '') : '';
+}
+
+function getPropertyValueByCode(array $properties, $propertyCode, $valueKey = 'VALUE')
+{
+    foreach ($properties as $property) {
+        if (is_array($property) && (string)($property['CODE'] ?? '') === (string)$propertyCode) {
+            return $property[$valueKey] ?? '';
+        }
+    }
+    return '';
+}
+
+function getGlobalVarUserList($varId)
+{
+    try {
+        $connection = \Bitrix\Main\Application::getConnection();
+        $sqlVarId = $connection->getSqlHelper()->forSql((string)$varId);
+        $row = $connection->query("SELECT PROPERTY_VALUE FROM b_bp_global_var WHERE ID = '{$sqlVarId}' LIMIT 1")->fetch();
+        $values = $row && !empty($row['PROPERTY_VALUE'])
+            ? @unserialize($row['PROPERTY_VALUE'], ['allowed_classes' => false])
+            : [];
+        if (!is_array($values)) {
+            return [];
+        }
+        return array_values(array_unique(array_filter(array_map(static function ($value) {
+            return mb_strtolower(trim((string)$value));
+        }, $values))));
+    } catch (\Throwable $e) {
+        return [];
+    }
+}
+
+function getEnumIdByValue($iblockId, $propertyId, $enumValue)
+{
+    $row = CIBlockPropertyEnum::GetList([], [
+        'IBLOCK_ID' => (int)$iblockId,
+        'PROPERTY_ID' => (int)$propertyId,
+        'VALUE' => (string)$enumValue,
+    ])->Fetch();
+    return $row ? (int)$row['ID'] : 0;
+}
+
+function appendHistoryLine($history, $line)
+{
+    $history = trim((string)$history);
+    return $history === '' ? (string)$line : $history . "\n\n" . $line;
+}
+
+function redirectWithMessage($type, $message)
+{
+    LocalRedirect(buildQueryUrl([
+        'action_result' => (string)$type,
+        'action_message' => (string)$message,
+    ]));
 }
 
 function getPropertyValues(array $properties, $propertyId, $valueKey = 'VALUE')
@@ -312,6 +385,85 @@ function buildQueryUrl(array $override = [])
     return 'list.php' . ($params ? ('?' . http_build_query($params)) : '');
 }
 
+$currentUserId = (int)$USER->GetID();
+$currentUserTag = mb_strtolower('user_' . $currentUserId);
+$isAdministrator = $USER->IsAdmin() || in_array(1, array_map('intval', CUser::GetUserGroup($currentUserId)), true);
+$isRecruitHead = in_array($currentUserTag, getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID), true);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!check_bitrix_sessid()) {
+        redirectWithMessage('danger', 'Сессия истекла. Обновите страницу и повторите действие.');
+    }
+
+    $action = (string)($_POST['action'] ?? '');
+    $elementId = (int)($_POST['element_id'] ?? 0);
+    $element = CIBlockElement::GetList([], [
+        'IBLOCK_ID' => ANKETA_IBLOCK_ID,
+        'ID' => $elementId,
+        'ACTIVE' => 'Y',
+        'CHECK_PERMISSIONS' => 'Y',
+        'MIN_PERMISSION' => 'R',
+    ], false, ['nTopCount' => 1], ['ID', 'IBLOCK_ID'])->GetNext();
+    if (!$element) {
+        redirectWithMessage('danger', 'Анкета не найдена или недоступна.');
+    }
+
+    // Read action-critical properties directly: GetProperties() depends on the
+    // element query containing enough iblock metadata and could return an empty set.
+    $recruiterId = (int)getElementPropertyValue($elementId, ['ID' => PROP_RECRUITER]);
+    if (!$isAdministrator && !$isRecruitHead && $recruiterId !== $currentUserId) {
+        redirectWithMessage('danger', 'Недостаточно прав для выполнения действия.');
+    }
+
+    if ($action === 'start_adaptation') {
+        $questionnaireStatus = trim((string)getElementPropertyValue($elementId, ['CODE' => 'STATUS_ANKETY']));
+        if ($questionnaireStatus !== '') {
+            redirectWithMessage('danger', 'Процесс можно запустить только для анкеты без назначенного статуса.');
+        }
+        $bpErrors = [];
+        $workflowId = CBPDocument::StartWorkflow(
+            START_ADAPTATION_WORKFLOW_ID,
+            ['lists', 'BizprocDocument', $elementId],
+            [],
+            $bpErrors
+        );
+        if (!$workflowId || $bpErrors) {
+            redirectWithMessage('danger', 'Не удалось запустить процесс создания заявок Jira.');
+        }
+        redirectWithMessage('success', 'Процесс создания заявок Jira успешно запущен.');
+    }
+
+    if ($action === 'stop_adaptation') {
+        $organizationId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ORGANIZATSIYA]);
+        $reason = trim((string)($_POST['cancel_reason'] ?? ''));
+        if ($organizationId !== REQUIRED_ORGANIZATION_ID) {
+            redirectWithMessage('danger', 'Остановка адаптации недоступна для организации анкеты.');
+        }
+        if ($reason === '') {
+            redirectWithMessage('danger', 'Укажите причину отмены адаптации.');
+        }
+        $cancelEmployeeStatusId = getEnumIdByValue(ANKETA_IBLOCK_ID, PROP_EMPLOYEE_STATUS, 'Отмена');
+        if ($cancelEmployeeStatusId <= 0) {
+            redirectWithMessage('danger', 'Не найдено значение «Отмена» для статуса сотрудника.');
+        }
+        $user = CUser::GetByID($currentUserId)->Fetch();
+        $author = $user ? shortUserName($user) : ('ID ' . $currentUserId);
+        $history = (string)getElementPropertyValue($elementId, ['ID' => PROP_HISTORY]);
+        $historyLine = '[' . date('d.m.Y H:i') . '] ' . $author . ' остановил адаптацию. Причина: ' . $reason;
+        CIBlockElement::SetPropertyValuesEx($elementId, ANKETA_IBLOCK_ID, [
+            PROP_EMPLOYEE_STATUS => $cancelEmployeeStatusId,
+            PROP_HISTORY => appendHistoryLine($history, $historyLine),
+            PROP_ADAPTATION_STATUS => CANCEL_ADAPTATION_STATUS_ID,
+        ]);
+        redirectWithMessage('success', 'Адаптация остановлена, причина записана в историю анкеты.');
+    }
+}
+
+$actionMessage = trim((string)($_GET['action_message'] ?? ''));
+$actionResult = in_array((string)($_GET['action_result'] ?? ''), ['success', 'danger'], true)
+    ? (string)$_GET['action_result']
+    : 'success';
+
 $search = trim((string)($_GET['q'] ?? ''));
 $statusFilter = (int)($_GET['status'] ?? 0);
 $orgFilter = (int)($_GET['org'] ?? 0);
@@ -397,6 +549,7 @@ while ($ob = $rs->GetNextElement()) {
         'RECRUITER_ID' => $recruiterId,
         'MANAGER_ID' => $managerId,
         'STATUS_ID' => $statusId,
+        'QUESTIONNAIRE_STATUS' => trim((string)getPropertyValueByCode($properties, 'STATUS_ANKETY', 'VALUE')),
         'HISTORY' => (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE'),
     ];
 }
@@ -629,6 +782,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 <div class="container-fluid page-wrap">
     <h2 class="mb-3">Анкеты новых сотрудников</h2>
 
+    <?php if ($actionMessage !== ''): ?>
+        <div class="alert alert-<?=h($actionResult)?>"><?=h($actionMessage)?></div>
+    <?php endif; ?>
+
     <div class="d-flex flex-wrap align-items-center mb-3">
         <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
     </div>
@@ -721,12 +878,29 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                         <button type="button" class="history-btn js-history-btn" data-history="<?=h($historyHtml)?>" data-id="<?=$id?>" title="Показать историю">i</button>
                     </td>
                     <td class="nowrap">
-                        <div class="actions-cell">
-                            <a href="<?=h(VIEW_URL . $id)?>" target="_blank">Открыть</a>
-                            <?php if ($taskId > 0): ?>
-                                <a class="btn btn-outline-primary btn-sm" href="<?=h($taskUrl)?>" target="_blank">Задание БП</a>
-                            <?php endif; ?>
-                        </div>
+                        <?php
+                        $canManage = $isAdministrator || $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
+                        $canStart = $canManage && $row['QUESTIONNAIRE_STATUS'] === '';
+                        $isRequiredOrganization = (int)$row['ORGANIZATION_ID'] === REQUIRED_ORGANIZATION_ID;
+                        ?>
+                        <?php if ($canManage): ?>
+                            <select class="form-control form-control-sm js-action-select"
+                                    data-element-id="<?=$id?>"
+                                    data-view-url="<?=h(VIEW_URL . $id)?>"
+                                    data-edit-url="<?=h(EDIT_URL . $id)?>">
+                                <option value="">Действия…</option>
+                                <option value="view">Просмотр</option>
+                                <option value="edit">Редактирование</option>
+                                <?php if ($canStart): ?>
+                                    <option value="start"><?=$isRequiredOrganization ? 'Создать заявки Jira и запустить адаптацию' : 'Создать заявки Jira'?></option>
+                                <?php endif; ?>
+                                <?php if ($isRequiredOrganization): ?>
+                                    <option value="stop">Остановить адаптацию</option>
+                                <?php endif; ?>
+                            </select>
+                        <?php else: ?>
+                            <span class="text-muted">—</span>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; ?>
@@ -746,6 +920,34 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         </nav>
     <?php endif; ?>
 </div>
+
+<div id="stop-modal-backdrop" class="history-modal-backdrop">
+    <div class="history-modal" style="max-width:560px;">
+        <form method="post" id="stop-adaptation-form">
+            <?=bitrix_sessid_post()?>
+            <input type="hidden" name="action" value="stop_adaptation">
+            <input type="hidden" name="element_id" id="stop-element-id" value="">
+            <div class="history-modal-header">
+                <div class="history-modal-title">Остановить адаптацию</div>
+                <button type="button" class="history-modal-close js-stop-close">&times;</button>
+            </div>
+            <div class="history-modal-body">
+                <label for="cancel-reason"><strong>Причина отмены адаптации</strong></label>
+                <textarea class="form-control" id="cancel-reason" name="cancel_reason" rows="5" required></textarea>
+                <div class="mt-3 text-right">
+                    <button type="button" class="btn btn-secondary js-stop-close">Отмена</button>
+                    <button type="submit" class="btn btn-danger">Остановить адаптацию</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<form method="post" id="start-adaptation-form" style="display:none;">
+    <?=bitrix_sessid_post()?>
+    <input type="hidden" name="action" value="start_adaptation">
+    <input type="hidden" name="element_id" id="start-element-id" value="">
+</form>
 
 <div id="history-modal-backdrop" class="history-modal-backdrop">
     <div class="history-modal">
@@ -778,6 +980,47 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         backdrop.style.display = 'none';
         bodyEl.innerHTML = '';
         document.body.style.overflow = '';
+    }
+
+
+    var stopBackdrop = document.getElementById('stop-modal-backdrop');
+    var stopElementId = document.getElementById('stop-element-id');
+    var cancelReason = document.getElementById('cancel-reason');
+
+    function closeStopModal() {
+        if (stopBackdrop) { stopBackdrop.style.display = 'none'; }
+        if (cancelReason) { cancelReason.value = ''; }
+        document.body.style.overflow = '';
+    }
+
+    document.querySelectorAll('.js-action-select').forEach(function(select) {
+        select.addEventListener('change', function() {
+            var action = select.value || '';
+            var elementId = parseInt(select.getAttribute('data-element-id') || '0', 10);
+            if (action === 'view') {
+                window.open(select.getAttribute('data-view-url') || '', '_blank', 'noopener');
+            } else if (action === 'edit') {
+                window.location.href = select.getAttribute('data-edit-url') || '';
+            } else if (action === 'start' && elementId > 0) {
+                document.getElementById('start-element-id').value = String(elementId);
+                document.getElementById('start-adaptation-form').submit();
+            } else if (action === 'stop' && elementId > 0 && stopBackdrop && stopElementId) {
+                stopElementId.value = String(elementId);
+                stopBackdrop.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+                if (cancelReason) { cancelReason.focus(); }
+            }
+            select.value = '';
+        });
+    });
+
+    document.querySelectorAll('.js-stop-close').forEach(function(button) {
+        button.addEventListener('click', closeStopModal);
+    });
+    if (stopBackdrop) {
+        stopBackdrop.addEventListener('click', function(event) {
+            if (event.target === stopBackdrop) { closeStopModal(); }
+        });
     }
 
     document.addEventListener('click', function(e) {
