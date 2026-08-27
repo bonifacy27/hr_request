@@ -37,7 +37,8 @@ const PROP_STATUS = 2930;
 const PROP_HISTORY = 2861;
 const PROP_EMPLOYEE_STATUS = 954;
 const PROP_ADAPTATION_STATUS = 2930;
-const PROP_ONBOARDING_PLAN = 2818;
+// Number property on the employee form containing the element ID from list 359.
+const PROP_ONBOARDING_PLAN_ID = 3164;
 const REQUIRED_ORGANIZATION_ID = 3197820;
 const CANCEL_ADAPTATION_STATUS_ID = 3563837;
 const INTERRUPTED_TASK_STATUS_ID = 3648698;
@@ -587,8 +588,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Interrupt manager assignments on the employee card, then all plan,
         // onboarding-task and KPI-task workflows and mark linked tasks interrupted.
         $workflowErrors = terminateElementWorkflows(ANKETA_IBLOCK_ID, $elementId);
-        $planIds = getLinkedElementIds(ANKETA_IBLOCK_ID, $elementId, PROP_ONBOARDING_PLAN);
-        foreach ($planIds as $planId) {
+        $planId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ONBOARDING_PLAN_ID]);
+        if ($planId > 0) {
             $workflowErrors = array_merge($workflowErrors, interruptOnboardingPlan($planId));
         }
         if ($workflowErrors) {
