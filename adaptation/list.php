@@ -37,10 +37,21 @@ const PROP_STATUS = 2930;
 const PROP_HISTORY = 2861;
 const PROP_EMPLOYEE_STATUS = 954;
 const PROP_ADAPTATION_STATUS = 2930;
+const PROP_ONBOARDING_PLAN = 2818;
 const REQUIRED_ORGANIZATION_ID = 3197820;
 const CANCEL_ADAPTATION_STATUS_ID = 3563837;
+const INTERRUPTED_TASK_STATUS_ID = 3648698;
+const ONBOARDING_PLAN_IBLOCK_ID = 359;
+const ONBOARDING_TASK_IBLOCK_ID = 360;
+const KPI_TASK_IBLOCK_ID = 363;
+const PROP_PLAN_TASKS = 2761;
+const PROP_PLAN_KPI_TASKS = 2769;
+const PROP_ONBOARDING_TASK_STATUS = 2767;
+const PROP_KPI_TASK_STATUS = 2805;
 const START_ADAPTATION_WORKFLOW_ID = 299;
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
+
+const STOPPABLE_ADAPTATION_STATUS_IDS = [3417324, 3417325, 3417326, 3417329, 3417331];
 
 const STATUS_COLOR_PROP_ID = 3138;
 
@@ -96,6 +107,123 @@ function getElementPropertyValue($elementId, array $filter, $valueKey = 'VALUE')
         $filter
     )->Fetch();
     return $property ? ($property[$valueKey] ?? '') : '';
+}
+
+function getLinkedElementIds($iblockId, $elementId, $propertyId)
+{
+    $ids = [];
+    $rs = CIBlockElement::GetProperty(
+        (int)$iblockId,
+        (int)$elementId,
+        ['SORT' => 'ASC'],
+        ['ID' => (int)$propertyId]
+    );
+    while ($property = $rs->Fetch()) {
+        $linkedId = (int)($property['VALUE'] ?? 0);
+        if ($linkedId > 0) {
+            $ids[$linkedId] = $linkedId;
+        }
+    }
+    return array_values($ids);
+}
+
+function documentIdCandidates($iblockId, $elementId)
+{
+    $iblockId = (int)$iblockId;
+    $elementId = (int)$elementId;
+    return [
+        ['lists', 'BizprocDocument', 'lists_' . $iblockId . '_' . $elementId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . $iblockId . '_' . $elementId],
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
+    ];
+}
+
+function terminateElementWorkflows($iblockId, $elementId)
+{
+    $workflows = [];
+    $errors = [];
+
+    foreach (documentIdCandidates($iblockId, $elementId) as $documentId) {
+        try {
+            $rsStates = CBPStateService::GetList(
+                ['ID' => 'ASC'],
+                ['DOCUMENT_ID' => $documentId],
+                false,
+                false,
+                ['ID', 'DOCUMENT_ID']
+            );
+            while ($state = $rsStates->Fetch()) {
+                if (!empty($state['ID'])) {
+                    $workflows[(string)$state['ID']] = $state['DOCUMENT_ID'] ?? $documentId;
+                }
+            }
+        } catch (\Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
+
+        // Some Bitrix versions do not return list workflows through the state
+        // filter, so also collect workflow IDs from their active assignments.
+        if (class_exists('CBPTaskService')) {
+            try {
+                $rsTasks = CBPTaskService::GetList(
+                    ['ID' => 'ASC'],
+                    ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
+                    false,
+                    false,
+                    ['WORKFLOW_ID', 'DOCUMENT_ID']
+                );
+                while ($task = $rsTasks->Fetch()) {
+                    if (!empty($task['WORKFLOW_ID'])) {
+                        $workflows[(string)$task['WORKFLOW_ID']] = $task['DOCUMENT_ID'] ?? $documentId;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $errors[] = $e->getMessage();
+            }
+        }
+    }
+
+    foreach ($workflows as $workflowId => $documentId) {
+        try {
+            $workflowErrors = [];
+            CBPDocument::TerminateWorkflow($workflowId, $documentId, $workflowErrors);
+            foreach ((array)$workflowErrors as $workflowError) {
+                $errors[] = is_array($workflowError)
+                    ? (string)($workflowError['message'] ?? 'Не удалось прервать бизнес-процесс.')
+                    : (string)$workflowError;
+            }
+        } catch (\Throwable $e) {
+            $errors[] = $e->getMessage();
+        }
+    }
+
+    return array_values(array_filter(array_unique($errors)));
+}
+
+function interruptOnboardingPlan($planId)
+{
+    $errors = [];
+    $linkedTasks = [
+        ONBOARDING_TASK_IBLOCK_ID => [
+            'IDS' => getLinkedElementIds(ONBOARDING_PLAN_IBLOCK_ID, $planId, PROP_PLAN_TASKS),
+            'STATUS_PROPERTY' => PROP_ONBOARDING_TASK_STATUS,
+        ],
+        KPI_TASK_IBLOCK_ID => [
+            'IDS' => getLinkedElementIds(ONBOARDING_PLAN_IBLOCK_ID, $planId, PROP_PLAN_KPI_TASKS),
+            'STATUS_PROPERTY' => PROP_KPI_TASK_STATUS,
+        ],
+    ];
+
+    foreach ($linkedTasks as $iblockId => $taskData) {
+        foreach ($taskData['IDS'] as $taskId) {
+            CIBlockElement::SetPropertyValuesEx($taskId, $iblockId, [
+                $taskData['STATUS_PROPERTY'] => INTERRUPTED_TASK_STATUS_ID,
+            ]);
+            $errors = array_merge($errors, terminateElementWorkflows($iblockId, $taskId));
+        }
+    }
+
+    return array_merge($errors, terminateElementWorkflows(ONBOARDING_PLAN_IBLOCK_ID, $planId));
 }
 
 function getPropertyValueByCode(array $properties, $propertyCode, $valueKey = 'VALUE')
@@ -416,9 +544,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'start_adaptation') {
-        $questionnaireStatus = trim((string)getElementPropertyValue($elementId, ['CODE' => 'STATUS_ANKETY']));
-        if ($questionnaireStatus !== '') {
-            redirectWithMessage('danger', 'Процесс можно запустить только для анкеты без назначенного статуса.');
+        $adaptationStatusId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ADAPTATION_STATUS]);
+        if ($adaptationStatusId > 0) {
+            redirectWithMessage('danger', 'Создание заявок доступно только для анкеты без статуса адаптации.');
         }
         $bpErrors = [];
         $workflowId = CBPDocument::StartWorkflow(
@@ -434,10 +562,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'stop_adaptation') {
-        $organizationId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ORGANIZATSIYA]);
+        $adaptationStatusId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ADAPTATION_STATUS]);
         $reason = trim((string)($_POST['cancel_reason'] ?? ''));
-        if ($organizationId !== REQUIRED_ORGANIZATION_ID) {
-            redirectWithMessage('danger', 'Остановка адаптации недоступна для организации анкеты.');
+        if (!in_array($adaptationStatusId, STOPPABLE_ADAPTATION_STATUS_IDS, true)) {
+            redirectWithMessage('danger', 'Остановка недоступна для текущего статуса адаптации.');
         }
         if ($reason === '') {
             redirectWithMessage('danger', 'Укажите причину отмены адаптации.');
@@ -455,7 +583,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             PROP_HISTORY => appendHistoryLine($history, $historyLine),
             PROP_ADAPTATION_STATUS => CANCEL_ADAPTATION_STATUS_ID,
         ]);
-        redirectWithMessage('success', 'Адаптация остановлена, причина записана в историю анкеты.');
+
+        // Interrupt manager assignments on the employee card, then all plan,
+        // onboarding-task and KPI-task workflows and mark linked tasks interrupted.
+        $workflowErrors = terminateElementWorkflows(ANKETA_IBLOCK_ID, $elementId);
+        $planIds = getLinkedElementIds(ANKETA_IBLOCK_ID, $elementId, PROP_ONBOARDING_PLAN);
+        foreach ($planIds as $planId) {
+            $workflowErrors = array_merge($workflowErrors, interruptOnboardingPlan($planId));
+        }
+        if ($workflowErrors) {
+            redirectWithMessage('danger', 'Адаптация остановлена, но некоторые бизнес-процессы не удалось прервать: ' . implode('; ', array_unique($workflowErrors)));
+        }
+        redirectWithMessage('success', 'Адаптация остановлена. Связанные задачи и бизнес-процессы прерваны.');
     }
 }
 
@@ -549,7 +688,6 @@ while ($ob = $rs->GetNextElement()) {
         'RECRUITER_ID' => $recruiterId,
         'MANAGER_ID' => $managerId,
         'STATUS_ID' => $statusId,
-        'QUESTIONNAIRE_STATUS' => trim((string)getPropertyValueByCode($properties, 'STATUS_ANKETY', 'VALUE')),
         'HISTORY' => (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE'),
     ];
 }
@@ -880,7 +1018,8 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                     <td class="nowrap">
                         <?php
                         $canManage = $isAdministrator || $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
-                        $canStart = $canManage && $row['QUESTIONNAIRE_STATUS'] === '';
+                        $canStart = $canManage && (int)$row['STATUS_ID'] === 0;
+                        $canStop = $canManage && in_array((int)$row['STATUS_ID'], STOPPABLE_ADAPTATION_STATUS_IDS, true);
                         $isRequiredOrganization = (int)$row['ORGANIZATION_ID'] === REQUIRED_ORGANIZATION_ID;
                         ?>
                         <?php if ($canManage): ?>
@@ -894,7 +1033,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                                 <?php if ($canStart): ?>
                                     <option value="start"><?=$isRequiredOrganization ? 'Создать заявки Jira и запустить адаптацию' : 'Создать заявки Jira'?></option>
                                 <?php endif; ?>
-                                <?php if ($isRequiredOrganization): ?>
+                                <?php if ($canStop): ?>
                                     <option value="stop">Остановить адаптацию</option>
                                 <?php endif; ?>
                             </select>
