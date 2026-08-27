@@ -199,48 +199,107 @@ if (is_array($photoValue)) {
 }
 $photoId = (int)$photoValue;
 $photoPath = $photoId > 0 ? (string)CFile::GetPath($photoId) : '';
+$employeeName = trim(implode(' ', array_filter([
+    $displayValues['FAMILIYA'] ?? '',
+    $displayValues['IMYA'] ?? '',
+    $displayValues['OTCHESTVO'] ?? '',
+])));
+if ($employeeName === '') {
+    $employeeName = trim((string)$anketa['NAME']) ?: ('Анкета #' . $anketaId);
+}
+$employeeInitials = mb_substr((string)($displayValues['IMYA'] ?? ''), 0, 1)
+    . mb_substr((string)($displayValues['FAMILIYA'] ?? ''), 0, 1);
+$employeeInitials = mb_strtoupper($employeeInitials ?: 'НС');
+$sidebarFields = [
+    'KONTAKTNYY_NOMER_TELEFONA',
+    'LICHNAYA_POCHTA_KANDIDATA',
+    'ORGANIZATSIYA',
+    'DOLZHNOST',
+    'OTDEL',
+    'DIREKTSIYA',
+    'RUKOVODITEL',
+    'OTVETSTVENNYY_MENEDZHER_OPIA',
+    'DATA_PRIEMA',
+    'DATA_OKONCHANIYA_IS',
+];
 ?>
 <style>
-.anketa-view{max-width:960px;margin:24px auto;padding:0 12px}.anketa-view-title{font-size:24px;font-weight:600;margin:0}.anketa-view-subtitle{margin:5px 0 18px;color:#7a869a}
-.anketa-view-section{margin-top:16px;padding:18px;border:1px solid #e2e8ef;border-radius:10px;background:#f7f9fb;box-shadow:0 1px 2px rgba(31,45,61,.04)}
-.anketa-view-section:nth-of-type(even){background:#f4f8fc}.anketa-view-section-title{margin:0 0 14px;font-size:17px;font-weight:600;color:#263238}
-.anketa-view-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 22px}.anketa-view-field{min-width:0;padding-bottom:10px;border-bottom:1px solid rgba(198,205,211,.55)}
-.anketa-view-label{margin-bottom:4px;color:#6b778c;font-size:12px}.anketa-view-value{color:#172b4d;font-size:15px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
-.anketa-view-empty{color:#9aa5b1}.anketa-view-full{grid-column:1/-1}.anketa-view-photo{display:block;max-width:260px;max-height:320px;border-radius:8px;border:1px solid #d8dee6;background:#fff;object-fit:contain}
-.anketa-view-actions{margin-top:20px}@media(max-width:700px){.anketa-view-grid{grid-template-columns:1fr}.anketa-view-full{grid-column:auto}}
+.dossier{--ink:#182230;--muted:#697586;--line:#e3e8ef;--accent:#315b7d;max-width:1120px;margin:26px auto;padding:0 14px;color:var(--ink)}
+.dossier-shell{overflow:hidden;border:1px solid #dde3ea;border-radius:18px;background:#fff;box-shadow:0 18px 48px rgba(30,44,59,.12)}
+.dossier-hero{min-height:164px;padding:32px 38px 30px 326px;background:linear-gradient(120deg,#17212b,#263c4d 68%,#315b7d);color:#fff;display:flex;flex-direction:column;justify-content:center}
+.dossier-kicker{margin-bottom:8px;color:#b9cbd9;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.dossier-name{margin:0;font-size:34px;font-weight:500;line-height:1.15;letter-spacing:.01em}.dossier-role{margin-top:10px;color:#d9e5ec;font-size:16px}.dossier-role span+span:before{content:'•';margin:0 9px;color:#89a6bb}
+.dossier-body{display:grid;grid-template-columns:288px minmax(0,1fr)}.dossier-sidebar{position:relative;padding:0 24px 26px;background:#f3f5f7;border-right:1px solid var(--line)}
+.dossier-photo-wrap{width:190px;height:220px;margin:-116px auto 24px;padding:6px;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(27,39,51,.2)}.dossier-photo{display:block;width:100%;height:100%;border-radius:9px;object-fit:cover;background:#e5ebf0}
+.dossier-photo-placeholder{width:100%;height:100%;border-radius:9px;background:linear-gradient(145deg,#dce5eb,#eef3f6);display:flex;align-items:center;justify-content:center;color:#49677d;font-size:54px;font-weight:300;letter-spacing:.04em}
+.dossier-side-title{margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid #ccd5dd;color:#344054;font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}.dossier-side-item{margin-bottom:14px}.dossier-side-label{margin-bottom:3px;color:#7b8794;font-size:11px;text-transform:uppercase;letter-spacing:.04em}.dossier-side-value{font-size:14px;line-height:1.4;overflow-wrap:anywhere}.dossier-side-empty{color:#9aa5b1}
+.dossier-main{padding:28px 34px 36px;min-width:0;background:#fff}.dossier-section{padding:20px 22px;margin-bottom:18px;border:1px solid var(--line);border-radius:13px;background:#f8fafc}.dossier-section:nth-child(even){background:#f5f8fb}.dossier-section-title{display:flex;align-items:center;gap:12px;margin:0 0 18px;color:#263746;font-size:16px;font-weight:700}.dossier-section-title:after{content:'';height:1px;flex:1;background:#cfd8e1}
+.dossier-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 26px}.dossier-field{min-width:0}.dossier-label{margin-bottom:5px;color:var(--muted);font-size:12px}.dossier-value{font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.dossier-empty{color:#9aa5b1}.dossier-full{grid-column:1/-1}.dossier-actions{display:flex;justify-content:flex-end;margin-top:4px}
+@media(max-width:850px){.dossier-hero{padding-left:268px}.dossier-body{grid-template-columns:230px}.dossier-photo-wrap{width:166px;height:196px}.dossier-main{padding:24px 22px}}
+@media(max-width:680px){.dossier{margin:12px auto;padding:0 8px}.dossier-hero{min-height:auto;padding:26px 22px 92px}.dossier-name{font-size:27px}.dossier-body{display:block}.dossier-sidebar{padding:0 20px 20px;border-right:0;border-bottom:1px solid var(--line)}.dossier-photo-wrap{width:150px;height:176px;margin:-70px 0 20px}.dossier-main{padding:20px 14px}.dossier-grid{grid-template-columns:1fr}.dossier-full{grid-column:auto}.dossier-section{padding:17px}}
 </style>
-<div class="anketa-view">
-    <h1 class="anketa-view-title">Просмотр анкеты сотрудника</h1>
-    <div class="anketa-view-subtitle">Анкета #<?= $anketaId ?><?= trim((string)$anketa['NAME']) !== '' ? ' — ' . viewH($anketa['NAME']) : '' ?></div>
+<div class="dossier">
+    <article class="dossier-shell">
+        <header class="dossier-hero">
+            <div class="dossier-kicker">Досье сотрудника · Анкета #<?= $anketaId ?></div>
+            <h1 class="dossier-name"><?= viewH($employeeName) ?></h1>
+            <div class="dossier-role">
+                <?php if (!empty($displayValues['DOLZHNOST'])): ?><span><?= viewH($displayValues['DOLZHNOST']) ?></span><?php endif; ?>
+                <?php if (!empty($displayValues['ORGANIZATSIYA'])): ?><span><?= viewH($displayValues['ORGANIZATSIYA']) ?></span><?php endif; ?>
+            </div>
+        </header>
 
-    <?php foreach ($sections as $section): ?>
-        <section class="anketa-view-section">
-            <h2 class="anketa-view-section-title"><?= viewH($section['title']) ?></h2>
-            <div class="anketa-view-grid">
-                <?php foreach ($section['fields'] as $code):
-                    $field = $fieldMap[$code];
-                    $isFull = in_array($field['type'], ['TEXT', 'FILE'], true);
+        <div class="dossier-body">
+            <aside class="dossier-sidebar">
+                <div class="dossier-photo-wrap">
+                    <?php if ($photoPath !== ''): ?>
+                        <a href="<?= viewH($photoPath) ?>" target="_blank" rel="noopener" title="Открыть фото">
+                            <img class="dossier-photo" src="<?= viewH($photoPath) ?>" alt="Фото <?= viewH($employeeName) ?>">
+                        </a>
+                    <?php else: ?>
+                        <div class="dossier-photo-placeholder" aria-label="Фото отсутствует"><?= viewH($employeeInitials) ?></div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="dossier-side-title">Ключевая информация</div>
+                <?php foreach ($sidebarFields as $code):
                     $value = trim((string)($displayValues[$code] ?? ''));
                     ?>
-                    <div class="anketa-view-field<?= $isFull ? ' anketa-view-full' : '' ?>">
-                        <div class="anketa-view-label"><?= viewH($field['label']) ?></div>
-                        <div class="anketa-view-value<?= $value === '' && !($code === 'FOTO_SOTRUDNIKA' && $photoPath !== '') ? ' anketa-view-empty' : '' ?>">
-                            <?php if ($code === 'FOTO_SOTRUDNIKA' && $photoPath !== ''): ?>
-                                <a href="<?= viewH($photoPath) ?>" target="_blank" rel="noopener">
-                                    <img class="anketa-view-photo" src="<?= viewH($photoPath) ?>" alt="Фото сотрудника">
-                                </a>
-                            <?php else: ?>
-                                <?= $value !== '' ? nl2br(viewH($value)) : 'Не указано' ?>
-                            <?php endif; ?>
-                        </div>
+                    <div class="dossier-side-item">
+                        <div class="dossier-side-label"><?= viewH($fieldMap[$code]['label']) ?></div>
+                        <div class="dossier-side-value<?= $value === '' ? ' dossier-side-empty' : '' ?>"><?= $value !== '' ? nl2br(viewH($value)) : 'Не указано' ?></div>
                     </div>
                 <?php endforeach; ?>
-            </div>
-        </section>
-    <?php endforeach; ?>
+            </aside>
 
-    <div class="anketa-view-actions">
-        <a class="ui-btn ui-btn-light-border" href="<?= viewH(VIEW_ADAPTATION_LIST_URL) ?>">Вернуться в список</a>
-    </div>
+            <main class="dossier-main">
+                <?php foreach ($sections as $section):
+                    $sectionFields = array_values(array_filter($section['fields'], static function ($code) use ($sidebarFields) {
+                        return $code !== 'FOTO_SOTRUDNIKA' && !in_array($code, $sidebarFields, true);
+                    }));
+                    if (!$sectionFields) { continue; }
+                    ?>
+                    <section class="dossier-section">
+                        <h2 class="dossier-section-title"><?= viewH($section['title']) ?></h2>
+                        <div class="dossier-grid">
+                            <?php foreach ($sectionFields as $code):
+                                $field = $fieldMap[$code];
+                                $isFull = $field['type'] === 'TEXT';
+                                $value = trim((string)($displayValues[$code] ?? ''));
+                                ?>
+                                <div class="dossier-field<?= $isFull ? ' dossier-full' : '' ?>">
+                                    <div class="dossier-label"><?= viewH($field['label']) ?></div>
+                                    <div class="dossier-value<?= $value === '' ? ' dossier-empty' : '' ?>"><?= $value !== '' ? nl2br(viewH($value)) : 'Не указано' ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </section>
+                <?php endforeach; ?>
+
+                <div class="dossier-actions">
+                    <a class="ui-btn ui-btn-light-border" href="<?= viewH(VIEW_ADAPTATION_LIST_URL) ?>">Вернуться в список</a>
+                </div>
+            </main>
+        </div>
+    </article>
 </div>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
