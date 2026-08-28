@@ -10,8 +10,8 @@ use Bitrix\Main\Loader;
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Просмотр анкеты сотрудника');
 
-if (!Loader::includeModule('iblock')) {
-    ShowError('Не удалось подключить модуль iblock.');
+if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
+    ShowError('Не удалось подключить модули iblock/bizproc.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
@@ -19,8 +19,10 @@ if (!Loader::includeModule('iblock')) {
 const VIEW_ADAPTATION_IBLOCK_ID = 196;
 const VIEW_ADAPTATION_LIST_URL = '/forms/staff_recruitment/adaptation/list.php';
 const VIEW_ADAPTATION_STATUS_PROPERTY_ID = 2930;
-const VIEW_ONBOARDING_PLAN_PROPERTY_ID = 2818;
-const VIEW_ONBOARDING_PLAN_REPORT_URL = '/forms/staff_recruitment/adaptation/onboarding_plan_report.php';
+const VIEW_ONBOARDING_PLAN_PROPERTY_ID = 3164;
+const VIEW_ONBOARDING_PLAN_IBLOCK_ID = 359;
+const VIEW_ONBOARDING_TASK_IBLOCK_ID = 360;
+const VIEW_KPI_TASK_IBLOCK_ID = 363;
 
 function viewH($value): string
 {
@@ -89,6 +91,64 @@ function viewPropertyValuesById(int $elementId, int $propertyId): array
     }
 
     return $values;
+}
+
+function viewCurrentExecutor(int $elementId, int $iblockId): string
+{
+    $userIds = [];
+    $documents = [
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
+        ['lists', 'BizprocDocument', 'lists_' . $iblockId . '_' . $elementId],
+        ['lists', 'lists_' . $iblockId . '_group_206', $elementId],
+        ['lists', 'lists_' . $iblockId, $elementId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . $iblockId . '_' . $elementId],
+    ];
+    foreach ($documents as $documentId) {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'DESC'],
+            ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['USER_ID']
+        );
+        while ($task = $tasks->Fetch()) {
+            $userId = (int)($task['USER_ID'] ?? 0);
+            if ($userId > 0) {
+                $userIds[$userId] = $userId;
+            }
+        }
+    }
+
+    $names = array_filter(array_map('viewUserName', array_values($userIds)));
+    return $names ? implode(', ', $names) : '—';
+}
+
+function viewPlanTaskIds(int $planId, string $propertyCode): array
+{
+    $ids = [];
+    $result = CIBlockElement::GetProperty(
+        VIEW_ONBOARDING_PLAN_IBLOCK_ID,
+        $planId,
+        ['sort' => 'asc'],
+        ['CODE' => $propertyCode]
+    );
+    while ($property = $result->Fetch()) {
+        $id = (int)($property['VALUE'] ?? 0);
+        if ($id > 0) {
+            $ids[$id] = $id;
+        }
+    }
+    return array_values($ids);
+}
+
+function viewStatusName($statusId): string
+{
+    $statusId = (int)$statusId;
+    if ($statusId <= 0) {
+        return '';
+    }
+    $status = CIBlockElement::GetByID($statusId)->Fetch();
+    return $status ? viewDecodeName($status['NAME']) : '';
 }
 
 $fields = [
@@ -227,9 +287,34 @@ if (trim((string)($displayValues['FIO_RUKOVODITELYA'] ?? '')) === '' && $manager
 $statusIds = viewPropertyValuesById($anketaId, VIEW_ADAPTATION_STATUS_PROPERTY_ID);
 $statusNames = array_filter(array_map('viewLinkedElementName', $statusIds));
 $displayValues['STATUS_ADAPTATSII'] = implode(', ', $statusNames);
-$onboardingPlanIds = array_values(array_unique(array_filter(array_map('intval',
-    viewPropertyValuesById($anketaId, VIEW_ONBOARDING_PLAN_PROPERTY_ID)
-))));
+$onboardingPlanId = (int)(viewPropertyValuesById($anketaId, VIEW_ONBOARDING_PLAN_PROPERTY_ID)[0] ?? 0);
+$onboardingPlan = null;
+$onboardingTasks = [];
+$kpiTasks = [];
+if ($onboardingPlanId > 0) {
+    $onboardingPlan = CIBlockElement::GetList([], [
+        'IBLOCK_ID' => VIEW_ONBOARDING_PLAN_IBLOCK_ID,
+        'ID' => $onboardingPlanId,
+        'CHECK_PERMISSIONS' => 'Y',
+        'MIN_PERMISSION' => 'R',
+    ], false, ['nTopCount' => 1], [
+        'ID', 'NAME', 'PROPERTY_2775', 'PROPERTY_2776', 'PROPERTY_2802',
+    ])->Fetch();
+    if ($onboardingPlan) {
+        foreach (viewPlanTaskIds($onboardingPlanId, 'ZADACHI_PO_PLANU_VVODA_V_DOLZHNOST') as $taskId) {
+            $task = CIBlockElement::GetList([], ['IBLOCK_ID' => VIEW_ONBOARDING_TASK_IBLOCK_ID, 'ID' => $taskId], false, ['nTopCount' => 1], [
+                'ID', 'NAME', 'PROPERTY_2767', 'PROPERTY_2836', 'PROPERTY_2807', 'PROPERTY_2806',
+            ])->Fetch();
+            if ($task) { $onboardingTasks[] = $task; }
+        }
+        foreach (viewPlanTaskIds($onboardingPlanId, 'ZADACHI_KPI') as $taskId) {
+            $task = CIBlockElement::GetList([], ['IBLOCK_ID' => VIEW_KPI_TASK_IBLOCK_ID, 'ID' => $taskId], false, ['nTopCount' => 1], [
+                'ID', 'NAME', 'PROPERTY_2805', 'PROPERTY_2784', 'PROPERTY_2789',
+            ])->Fetch();
+            if ($task) { $kpiTasks[] = $task; }
+        }
+    }
+}
 $photoValue = $properties['FOTO_SOTRUDNIKA']['VALUE'] ?? 0;
 if (is_array($photoValue)) {
     $photoValue = reset($photoValue);
@@ -270,7 +355,7 @@ $sidebarFields = [
 .dossier-photo-placeholder{width:100%;height:100%;border-radius:9px;background:linear-gradient(145deg,#dce5eb,#eef3f6);display:flex;align-items:center;justify-content:center;color:#49677d;font-size:54px;font-weight:300;letter-spacing:.04em}
 .dossier-side-title{margin:24px 0 12px;padding-bottom:8px;border-bottom:1px solid #ccd5dd;color:#344054;font-size:12px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}.dossier-side-item{margin-bottom:14px}.dossier-side-label{margin-bottom:3px;color:#7b8794;font-size:11px;text-transform:uppercase;letter-spacing:.04em}.dossier-side-value{font-size:14px;line-height:1.4;overflow-wrap:anywhere}.dossier-side-empty{color:#9aa5b1}
 .dossier-main{padding:28px 34px 36px;min-width:0;background:#fff}.dossier-section{padding:20px 22px;margin-bottom:18px;border:1px solid var(--line);border-radius:13px;background:#f8fafc}.dossier-section:nth-child(even){background:#f5f8fb}.dossier-section-title{display:flex;align-items:center;gap:12px;margin:0 0 18px;color:#263746;font-size:16px;font-weight:700}.dossier-section-title:after{content:'';height:1px;flex:1;background:#cfd8e1}
-.dossier-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 26px}.dossier-field{min-width:0}.dossier-label{margin-bottom:5px;color:var(--muted);font-size:12px}.dossier-value{font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.dossier-empty{color:#9aa5b1}.dossier-full{grid-column:1/-1}.dossier-details{margin-bottom:18px;border:1px solid var(--line);border-radius:13px;background:#f8fafc}.dossier-details summary{padding:17px 22px;color:#263746;font-size:16px;font-weight:700;cursor:pointer}.dossier-details-content{padding:0 22px 20px;white-space:pre-wrap;overflow-wrap:anywhere}.dossier-report{width:100%;height:720px;border:1px solid var(--line);border-radius:8px;background:#fff}.dossier-actions{display:flex;justify-content:flex-end;margin-top:4px}
+.dossier-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 26px}.dossier-field{min-width:0}.dossier-label{margin-bottom:5px;color:var(--muted);font-size:12px}.dossier-value{font-size:14px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.dossier-empty{color:#9aa5b1}.dossier-full{grid-column:1/-1}.dossier-details{margin-bottom:18px;border:1px solid var(--line);border-radius:13px;background:#f8fafc}.dossier-details summary{padding:17px 22px;color:#263746;font-size:16px;font-weight:700;cursor:pointer}.dossier-details-content{padding:0 22px 20px;overflow-wrap:anywhere}.dossier-report-table{width:100%;margin:10px 0 22px;border-collapse:collapse;font-size:13px}.dossier-report-table th,.dossier-report-table td{padding:9px;border:1px solid #d7dee6;text-align:left;vertical-align:top}.dossier-report-table th{background:#eaf0f5;white-space:nowrap}.dossier-report-table tr:nth-child(even){background:#fafbfc}.dossier-report-scroll{overflow-x:auto}.dossier-report-title{margin:18px 0 8px;font-size:15px}.dossier-report-message{padding:14px;border-radius:8px;background:#fff4ce}.dossier-actions{display:flex;justify-content:flex-end;margin-top:4px}
 @media(max-width:850px){.dossier-hero{padding-left:268px}.dossier-body{grid-template-columns:230px}.dossier-photo-wrap{width:166px;height:196px}.dossier-main{padding:24px 22px}}
 @media(max-width:680px){.dossier{margin:12px auto;padding:0 8px}.dossier-hero{min-height:auto;padding:26px 22px 92px}.dossier-name{font-size:27px}.dossier-body{display:block}.dossier-sidebar{padding:0 20px 20px;border-right:0;border-bottom:1px solid var(--line)}.dossier-photo-wrap{width:150px;height:176px;margin:-70px 0 20px}.dossier-main{padding:20px 14px}.dossier-grid{grid-template-columns:1fr}.dossier-full{grid-column:auto}.dossier-section{padding:17px}}
 </style>
@@ -337,14 +422,46 @@ $sidebarFields = [
                     <div class="dossier-details-content"><?= trim((string)($displayValues['ISTORIYA_ANKETY'] ?? '')) !== '' ? nl2br(viewH($displayValues['ISTORIYA_ANKETY'])) : '<span class="dossier-empty">История отсутствует</span>' ?></div>
                 </details>
 
-                <?php foreach ($onboardingPlanIds as $planId): ?>
+                <?php if ($onboardingPlanId > 0): ?>
                     <details class="dossier-details">
-                        <summary>Отчет по плану ввода в должность<?= count($onboardingPlanIds) > 1 ? ' #' . $planId : '' ?></summary>
+                        <summary>Отчет по плану ввода в должность</summary>
                         <div class="dossier-details-content">
-                            <iframe class="dossier-report" loading="lazy" title="Отчет по плану ввода в должность" src="<?= viewH(VIEW_ONBOARDING_PLAN_REPORT_URL . '?PLAN_ID=' . $planId) ?>"></iframe>
+                            <?php if (!$onboardingPlan): ?>
+                                <div class="dossier-report-message">План #<?= $onboardingPlanId ?> не найден или недоступен для просмотра.</div>
+                            <?php else:
+                                $planManager = viewUserName($onboardingPlan['PROPERTY_2775_VALUE'] ?? '');
+                                $pdfUrl = 'https://ourtricolortv.nsc.ru/pub/apps/plans/plan.php?id_plan=' . $onboardingPlanId;
+                                ?>
+                                <h3 class="dossier-report-title">План: <?= viewH(viewDecodeName($onboardingPlan['NAME'])) ?></h3>
+                                <div class="dossier-report-scroll"><table class="dossier-report-table">
+                                    <tr><th>ФИО сотрудника</th><td><?= viewH(viewDecodeName($onboardingPlan['NAME'])) ?></td></tr>
+                                    <tr><th>Руководитель</th><td><?= viewH($planManager ?: '—') ?></td></tr>
+                                    <tr><th>Дата трудоустройства</th><td><?= viewH($onboardingPlan['PROPERTY_2776_VALUE'] ?: '—') ?></td></tr>
+                                    <tr><th>Дата окончания ИС</th><td><?= viewH($onboardingPlan['PROPERTY_2802_VALUE'] ?: '—') ?></td></tr>
+                                    <tr><th>План ввода (PDF)</th><td><a href="<?= viewH($pdfUrl) ?>" target="_blank" rel="noopener">Сгенерировать PDF</a></td></tr>
+                                </table></div>
+
+                                <h3 class="dossier-report-title">Задачи по ПВД</h3>
+                                <?php if ($onboardingTasks): ?>
+                                    <div class="dossier-report-scroll"><table class="dossier-report-table"><thead><tr><th>ID</th><th>Название</th><th>Статус</th><th>Треб. контроль</th><th>План. срок</th><th>Факт. срок</th><th>Текущий исполнитель</th></tr></thead><tbody>
+                                    <?php foreach ($onboardingTasks as $task): ?>
+                                        <tr><td><?= (int)$task['ID'] ?></td><td><?= viewH(viewDecodeName($task['NAME'])) ?></td><td><?= viewH(viewStatusName($task['PROPERTY_2767_VALUE'])) ?></td><td><?= viewH($task['PROPERTY_2836_VALUE']) ?></td><td><?= viewH($task['PROPERTY_2807_VALUE']) ?></td><td><?= viewH($task['PROPERTY_2806_VALUE']) ?></td><td><?= viewH(viewCurrentExecutor((int)$task['ID'], VIEW_ONBOARDING_TASK_IBLOCK_ID)) ?></td></tr>
+                                    <?php endforeach; ?>
+                                    </tbody></table></div>
+                                <?php else: ?><div class="dossier-report-message">Нет задач ПВД.</div><?php endif; ?>
+
+                                <h3 class="dossier-report-title">KPI задачи</h3>
+                                <?php if ($kpiTasks): ?>
+                                    <div class="dossier-report-scroll"><table class="dossier-report-table"><thead><tr><th>ID</th><th>Название</th><th>Статус</th><th>Срок</th><th>Факт. срок</th><th>Текущий исполнитель</th></tr></thead><tbody>
+                                    <?php foreach ($kpiTasks as $task): ?>
+                                        <tr><td><?= (int)$task['ID'] ?></td><td><?= viewH(viewDecodeName($task['NAME'])) ?></td><td><?= viewH(viewStatusName($task['PROPERTY_2805_VALUE'])) ?></td><td><?= viewH($task['PROPERTY_2784_VALUE']) ?></td><td><?= viewH($task['PROPERTY_2789_VALUE']) ?></td><td><?= viewH(viewCurrentExecutor((int)$task['ID'], VIEW_KPI_TASK_IBLOCK_ID)) ?></td></tr>
+                                    <?php endforeach; ?>
+                                    </tbody></table></div>
+                                <?php else: ?><div class="dossier-report-message">Нет KPI задач.</div><?php endif; ?>
+                            <?php endif; ?>
                         </div>
                     </details>
-                <?php endforeach; ?>
+                <?php endif; ?>
 
                 <div class="dossier-actions">
                     <a class="ui-btn ui-btn-light-border" href="<?= viewH(VIEW_ADAPTATION_LIST_URL) ?>">Вернуться в список</a>
