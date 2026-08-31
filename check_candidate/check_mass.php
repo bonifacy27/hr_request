@@ -1,10 +1,16 @@
 <?php
-require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
-while (ob_get_level()) ob_end_flush();
-ini_set('output_buffering', 'off');
-ini_set('zlib.output_compression', 0);
-header('X-Accel-Buffering: no');
-flush();
+$checkMassRetryRequest = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['retry_link_element_id']);
+require $_SERVER['DOCUMENT_ROOT'] . ($checkMassRetryRequest
+    ? '/bitrix/modules/main/include/prolog_before.php'
+    : '/bitrix/header.php');
+if (!$checkMassRetryRequest) {
+    while (ob_get_level()) ob_end_flush();
+    ini_set('output_buffering', 'off');
+    ini_set('zlib.output_compression', 0);
+    header('X-Accel-Buffering: no');
+    flush();
+}
 
 use Bitrix\Main\Loader;
 if (
@@ -15,7 +21,9 @@ if (
     die("Не удалось подключить модули (iblock, lists, bizproc).");
 }
 
-echo "<div style='font-size:11px;color:#777'>check_mass.php v4.1 (Optimized pagination + Logging)</div>";
+if (!$checkMassRetryRequest) {
+    echo "<div style='font-size:11px;color:#777'>check_mass.php v4.2 (Workflow retry)</div>";
+}
 
 /* ================================================================
     CONFIG
@@ -45,6 +53,9 @@ const FW_REQUEST_TIMEOUT = 15;
 const FW_CACHE_TTL = 7200;
 
 const CHECK_MASS_LOG_NAME = 'check_mass.log';
+const CANDIDATE_IBLOCK_ID = 207;
+const CANDIDATE_WORKFLOW_TEMPLATE_ID = 466;
+const LINK_WORKFLOW_TEMPLATE_ID = 328;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
 
@@ -113,6 +124,117 @@ function checkMassShowContinuation($message, $token, $delaySeconds = 1)
     echo '<script>setTimeout(function(){ window.location.replace(' . $jsUrl . '); }, ' . $delayMs . ');</script>';
     echo '<noscript><a href="' . $htmlUrl . '">Продолжить загрузку</a></noscript>';
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
+}
+
+/**
+ * Starts a workflow for an element of a universal-list iblock.
+ *
+ * BizprocDocument is an old/incorrect provider for list elements.  With it a
+ * workflow can return an id but is not attached to the list document and does
+ * not appear in that document's workflow log.
+ */
+function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
+{
+    $errors = [];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
+    $workflowId = CBPDocument::StartWorkflow((int)$templateId, $documentId, [], $errors);
+
+    checkMassLog($workflowId === false ? 'Workflow start failed' : 'Workflow started', [
+        'template_id' => (int)$templateId,
+        'element_id' => (int)$elementId,
+        'document_id' => $documentId,
+        'workflow_id' => $workflowId,
+        'errors' => $errors,
+    ]);
+
+    return $workflowId;
+}
+
+function checkMassIsValidCandidateLink($link)
+{
+    $parts = parse_url(trim((string)$link));
+    return is_array($parts)
+        && strtolower((string)($parts['scheme'] ?? '')) === 'https'
+        && strtolower((string)($parts['host'] ?? '')) === 'trcol.ru'
+        && trim((string)($parts['path'] ?? ''), '/') !== '';
+}
+
+function checkMassWorkflowErrorsText(array $errors)
+{
+    $messages = [];
+    foreach ($errors as $error) {
+        $messages[] = is_array($error)
+            ? (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE))
+            : (string)$error;
+    }
+    return implode('; ', array_filter($messages));
+}
+
+function checkMassReadGeneratedLink($elementId)
+{
+    $result = ['link' => '', 'password' => ''];
+    $props = CIBlockElement::GetProperty(CANDIDATE_IBLOCK_ID, (int)$elementId);
+    while ($property = $props->Fetch()) {
+        if ($property['CODE'] === 'SSYLKA_NA_ANKETU') $result['link'] = (string)$property['VALUE'];
+        if ($property['CODE'] === 'PAROL_ANKETY') $result['password'] = (string)$property['VALUE'];
+    }
+    return $result;
+}
+
+if ($checkMassRetryRequest) {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+
+    global $USER;
+    $elementId = (int)$_POST['retry_link_element_id'];
+    $element = $elementId > 0
+        ? CIBlockElement::GetList([], [
+            'IBLOCK_ID' => CANDIDATE_IBLOCK_ID,
+            'ID' => $elementId,
+        ], false, ['nTopCount' => 1], ['ID'])->Fetch()
+        : false;
+
+    if (!$USER || !$USER->IsAuthorized() || !check_bitrix_sessid() || !$element) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Недостаточно прав или анкета не найдена.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $errors = [];
+    $workflowId = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+    if ($workflowId === false) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Не удалось запустить процесс ID 328: ' . checkMassWorkflowErrorsText($errors),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $generated = ['link' => '', 'password' => ''];
+    for ($attempt = 0; $attempt < 20; $attempt++) {
+        $generated = checkMassReadGeneratedLink($elementId);
+        if (checkMassIsValidCandidateLink($generated['link'])) break;
+        usleep(500000);
+    }
+    $valid = checkMassIsValidCandidateLink($generated['link']);
+    if (!$valid) {
+        checkMassLog('Candidate link retry returned invalid link', [
+            'element_id' => $elementId,
+            'workflow_id' => $workflowId,
+            'link' => $generated['link'],
+        ]);
+    }
+    echo json_encode([
+        'success' => $valid,
+        'workflow_id' => $workflowId,
+        'link' => $generated['link'],
+        'password' => $generated['password'],
+        'message' => $valid
+            ? 'Ссылка сгенерирована, список обновлён.'
+            : 'Процесс ID 328 завершился без корректной ссылки. Попробуйте запустить его ещё раз.',
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -647,13 +769,13 @@ if ($doProcess) {
             ];
 
             $errors = [];
-            $wfId1 = CBPDocument::StartWorkflow(
-                466,
-                ['lists', 'BizprocDocument', $elementId],
-                [],
-                $errors
-            );
-            echo "<span style='color:blue'>БП #1 запущен: $wfId1</span><br>";
+            $wfId1 = checkMassStartListWorkflow(CANDIDATE_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+            if ($wfId1 !== false) {
+                echo "<span style='color:blue'>БП #1 запущен: " . htmlspecialchars((string)$wfId1) . "</span><br>";
+            } else {
+                echo "<span style='color:red'>Не удалось запустить БП #1: "
+                    . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
+            }
 
             $dateNow = date("Y-m-d\TH:i:s");
             $payloadStatus = [
@@ -687,28 +809,39 @@ if ($doProcess) {
     echo "<h2>Запуск БП #2</h2>";
     foreach ($createdElements as $elementId) {
         $errors = [];
-        $wfId2 = CBPDocument::StartWorkflow(
-            328,
-            ['lists', 'BizprocDocument', $elementId],
-            [],
-            $errors
-        );
-        echo "<hr>Анкета $elementId — БП #2 запущен: $wfId2<br>";
+        $wfId2 = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+        echo "<hr>Анкета $elementId — ";
+        if ($wfId2 !== false) {
+            echo "БП #2 запущен: " . htmlspecialchars((string)$wfId2) . "<br>";
+        } else {
+            echo "<span style='color:red'>не удалось запустить БП #2: "
+                . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
+        }
         $link = '';
         $password = '';
         for ($i = 0; $i < 10; $i++) {
-            $props = CIBlockElement::GetProperty(207, $elementId);
-            while ($p = $props->Fetch()) {
-                if ($p['CODE'] == "SSYLKA_NA_ANKETU") $link = $p['VALUE'];
-                if ($p['CODE'] == "PAROL_ANKETY")    $password = $p['VALUE'];
-            }
+            $generated = checkMassReadGeneratedLink($elementId);
+            $link = $generated['link'];
+            $password = $generated['password'];
             if ($link || $password) break;
             usleep(500000);
         }
         $elementData[$elementId]['LINK'] = $link;
         $elementData[$elementId]['PASSWORD'] = $password;
-        echo "Ссылка: <b>$link</b><br>";
-        echo "Пароль: <b>$password</b><br>";
+        echo "Ссылка: <b data-link-value='" . (int)$elementId . "'>" . htmlspecialchars((string)$link) . "</b><br>";
+        if (!checkMassIsValidCandidateLink($link)) {
+            $elementData[$elementId]['LINK_INVALID'] = true;
+            echo "<div data-link-result='" . (int)$elementId . "' style='margin:6px 0;padding:8px;border:1px solid #d99;background:#fff4e5;color:#8a4b00'>"
+                . "⚠️ Создана некорректная ссылка. Нужно сгенерировать ссылку заново, запустив процесс ID 328."
+                . " <button type='button' data-link-retry='" . (int)$elementId . "' onclick='checkMassRetryLink(" . (int)$elementId . ", this)'>Запустить ID 328 и обновить список</button>"
+                . "</div>";
+            checkMassLog('Invalid candidate link generated', [
+                'element_id' => (int)$elementId,
+                'workflow_id' => $wfId2,
+                'link' => (string)$link,
+            ]);
+        }
+        echo "Пароль: <b>" . htmlspecialchars((string)$password) . "</b><br>";
     }
 
     $json = htmlspecialchars(json_encode($elementData), ENT_QUOTES);
@@ -720,6 +853,43 @@ if ($doProcess) {
             <input type='hidden' name='results' value='$json'>
             <button type='submit' style='font-size:14px'>📄 Экспорт в Excel</button>
           </form>";
+
+    echo "<script>
+    function checkMassRetryLink(elementId, button) {
+        const buttons = document.querySelectorAll('[data-link-retry=\"' + elementId + '\"]');
+        buttons.forEach(function(item) { item.disabled = true; });
+        button.textContent = 'Запускаем процесс…';
+        const data = new FormData();
+        data.append('retry_link_element_id', elementId);
+        data.append('sessid', " . json_encode(bitrix_sessid()) . ");
+        fetch(window.location.pathname, {method: 'POST', body: data, credentials: 'same-origin'})
+            .then(function(response) { return response.json(); })
+            .then(function(result) {
+                if (!result.success) throw new Error(result.message || 'Не удалось получить корректную ссылку.');
+                const safeLink = document.createElement('a');
+                safeLink.href = result.link;
+                safeLink.target = '_blank';
+                safeLink.rel = 'noopener noreferrer';
+                safeLink.textContent = result.link;
+                document.querySelectorAll('[data-link-cell=\"' + elementId + '\"]').forEach(function(cell) {
+                    cell.replaceChildren(safeLink.cloneNode(true));
+                });
+                document.querySelectorAll('[data-link-value=\"' + elementId + '\"]').forEach(function(value) {
+                    value.textContent = result.link;
+                });
+                document.querySelectorAll('[data-link-result=\"' + elementId + '\"]').forEach(function(block) {
+                    block.textContent = result.message;
+                    block.style.color = 'green';
+                    block.style.background = '#efffed';
+                });
+            })
+            .catch(function(error) {
+                alert(error.message);
+                buttons.forEach(function(item) { item.disabled = false; });
+                button.textContent = 'Запустить ID 328 и обновить список';
+            });
+    }
+    </script>";
 
     echo "<h2>Итоговые анкеты</h2>";
     echo "<table border='1' cellpadding='4' cellspacing='0'>
@@ -741,9 +911,13 @@ if ($doProcess) {
                 <td>{$d['EMAIL']}</td>
                 <td>{$d['PHONE']}</td>
                 <td>{$rn}</td>
-                <td>";
-        if ($d['LINK']) {
-            echo "<a href='{$d['LINK']}' target='_blank'>{$d['LINK']}</a>";
+                <td data-link-cell='" . (int)$eid . "'>";
+        if (!empty($d['LINK']) && empty($d['LINK_INVALID'])) {
+            $safeLink = htmlspecialchars((string)$d['LINK'], ENT_QUOTES);
+            echo "<a href='{$safeLink}' target='_blank' rel='noopener noreferrer'>{$safeLink}</a>";
+        } elseif (!empty($d['LINK_INVALID'])) {
+            echo "<span style='color:#b35c00;font-weight:bold'>⚠️ Некорректная ссылка.</span> "
+                . "<button type='button' data-link-retry='" . (int)$eid . "' onclick='checkMassRetryLink(" . (int)$eid . ", this)'>Запустить ID 328 и обновить список</button>";
         } else {
             echo "-";
         }
