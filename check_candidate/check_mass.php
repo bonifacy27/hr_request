@@ -54,6 +54,8 @@ const FW_CACHE_TTL = 7200;
 
 const CHECK_MASS_LOG_NAME = 'check_mass.log';
 const CANDIDATE_IBLOCK_ID = 207;
+const CANDIDATE_FW_ID_PROPERTY_ID = 1594;
+const VACANCY_FW_ID_PROPERTY_ID = 1595;
 const CANDIDATE_WORKFLOW_TEMPLATE_ID = 466;
 const LINK_WORKFLOW_TEMPLATE_ID = 328;
 const LINK_WORKFLOW_START_INTERVAL_SECONDS = 2;
@@ -224,6 +226,45 @@ function checkMassReadGeneratedLink($elementId)
         if ($property['CODE'] === 'PAROL_ANKETY') $result['password'] = (string)$property['VALUE'];
     }
     return $result;
+}
+
+function checkMassFindCandidateByFriendWorkId($candidateId)
+{
+    $candidateId = trim((string)$candidateId);
+    if ($candidateId === '') return null;
+
+    $element = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        [
+            'IBLOCK_ID' => CANDIDATE_IBLOCK_ID,
+            '=PROPERTY_' . CANDIDATE_FW_ID_PROPERTY_ID => $candidateId,
+        ],
+        false,
+        ['nTopCount' => 1],
+        ['ID']
+    )->Fetch();
+
+    return $element ? (int)$element['ID'] : null;
+}
+
+function checkMassAcquireCandidateCreationLock()
+{
+    $lockDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/check_mass_locks';
+    if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) return null;
+
+    $handle = @fopen($lockDir . '/candidate_creation.lock', 'c');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if ($handle) fclose($handle);
+        return null;
+    }
+    return $handle;
+}
+
+function checkMassReleaseCandidateCreationLock($handle)
+{
+    if (!is_resource($handle)) return;
+    flock($handle, LOCK_UN);
+    fclose($handle);
 }
 
 if ($checkMassRetryRequest) {
@@ -663,6 +704,7 @@ if ($doProcess) {
     $currentUserId = (int)$USER->GetID();
     $diagnostic = [];
     $createdElements = [];
+    $skippedDuplicates = [];
     $elementData = [];
 
     $processStartedAt = microtime(true);
@@ -682,6 +724,21 @@ if ($doProcess) {
         $fio = trim("$ln $fn $mn");
         $email = $c['communicationChannels']['email'][0] ?? '';
         $phone = $c['communicationChannels']['phone'][0] ?? '';
+
+        $existingElementId = checkMassFindCandidateByFriendWorkId($candidateId);
+        if ($existingElementId) {
+            $skippedDuplicates[$candidateId] = $existingElementId;
+            checkMassLog('Duplicate candidate skipped', [
+                'job_id' => $jobId,
+                'candidate_id' => $candidateId,
+                'existing_element_id' => $existingElementId,
+            ]);
+            echo "<hr><b>" . htmlspecialchars($fio) . "</b><br>";
+            echo "<span style='color:#b35c00'>Анкета не создана: CandidateID "
+                . htmlspecialchars((string)$candidateId)
+                . " уже указан в анкете ID " . (int)$existingElementId . ".</span><br>";
+            continue;
+        }
 
         $fwRespId = 0;
         $statusDate = '-';
@@ -786,17 +843,39 @@ if ($doProcess) {
             1088 => $phone,
             1089 => $email,
             1093 => 813,
-            1323 => $assignedRecruiter
+            1323 => $assignedRecruiter,
+            CANDIDATE_FW_ID_PROPERTY_ID => (string)$candidateId,
+            VACANCY_FW_ID_PROPERTY_ID => (string)$jobId,
         ];
+
+        // Serialize the final duplicate check and insert. This also protects
+        // against two users submitting the same FriendWork candidate at once.
+        $creationLock = checkMassAcquireCandidateCreationLock();
+        $existingElementId = checkMassFindCandidateByFriendWorkId($candidateId);
+        if ($existingElementId) {
+            checkMassReleaseCandidateCreationLock($creationLock);
+            $skippedDuplicates[$candidateId] = $existingElementId;
+            checkMassLog('Duplicate candidate skipped before insert', [
+                'job_id' => $jobId,
+                'candidate_id' => $candidateId,
+                'existing_element_id' => $existingElementId,
+            ]);
+            echo "<hr><b>" . htmlspecialchars($fio) . "</b><br>";
+            echo "<span style='color:#b35c00'>Анкета не создана: CandidateID "
+                . htmlspecialchars((string)$candidateId)
+                . " уже указан в анкете ID " . (int)$existingElementId . ".</span><br>";
+            continue;
+        }
 
         $el = new CIBlockElement;
         $arElement = [
-            "IBLOCK_ID"       => 207,
+            "IBLOCK_ID"       => CANDIDATE_IBLOCK_ID,
             "NAME"            => $fio,
             "ACTIVE"          => "Y",
             "PROPERTY_VALUES" => $properties
         ];
         $elementId = $el->Add($arElement);
+        checkMassReleaseCandidateCreationLock($creationLock);
 
         echo "<hr><b>$fio</b><br>";
         if ($elementId) {
@@ -991,6 +1070,7 @@ if ($doProcess) {
         'job_id' => $jobId,
         'selected' => count($selectedLookup),
         'created' => count($createdElements),
+        'duplicates_skipped' => count($skippedDuplicates),
         'duration_seconds' => round(microtime(true) - $processStartedAt, 3),
         'peak_memory_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
     ]);
