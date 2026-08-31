@@ -56,6 +56,7 @@ const CHECK_MASS_LOG_NAME = 'check_mass.log';
 const CANDIDATE_IBLOCK_ID = 207;
 const CANDIDATE_WORKFLOW_TEMPLATE_ID = 466;
 const LINK_WORKFLOW_TEMPLATE_ID = 328;
+const LINK_WORKFLOW_START_INTERVAL_SECONDS = 2;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
 
@@ -137,6 +138,9 @@ function checkMassShowContinuation($message, $token, $delaySeconds = 1)
 function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
 {
     $errors = [];
+    if ((int)$templateId === LINK_WORKFLOW_TEMPLATE_ID) {
+        checkMassWaitForLinkWorkflowSlot();
+    }
     $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
     $workflowId = CBPDocument::StartWorkflow((int)$templateId, $documentId, [], $errors);
 
@@ -149,6 +153,46 @@ function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
     ]);
 
     return $workflowId;
+}
+
+/**
+ * Reserves a start slot for workflow 328 across concurrent web requests.
+ * The workflow calls an external API which cannot handle a burst of requests.
+ */
+function checkMassWaitForLinkWorkflowSlot()
+{
+    static $lastStartInRequest = 0.0;
+
+    $lockDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/check_mass_locks';
+    if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) {
+        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
+        if ($wait > 0) usleep((int)ceil($wait * 1000000));
+        $lastStartInRequest = microtime(true);
+        return;
+    }
+
+    $handle = @fopen($lockDir . '/workflow_328.lock', 'c+');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if ($handle) fclose($handle);
+        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
+        if ($wait > 0) usleep((int)ceil($wait * 1000000));
+        $lastStartInRequest = microtime(true);
+        return;
+    }
+
+    rewind($handle);
+    $lastStart = (float)trim((string)stream_get_contents($handle));
+    $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStart);
+    if ($wait > 0) usleep((int)ceil($wait * 1000000));
+
+    $reservedAt = microtime(true);
+    ftruncate($handle, 0);
+    rewind($handle);
+    fwrite($handle, sprintf('%.6F', $reservedAt));
+    fflush($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+    $lastStartInRequest = $reservedAt;
 }
 
 function checkMassIsValidCandidateLink($link)
