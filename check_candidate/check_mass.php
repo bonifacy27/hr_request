@@ -1093,7 +1093,7 @@ function buildSortUrl($field, $currentSortBy, $currentOrder) {
    ===================================================================== */
 echo "<h2>Выбор кандидатов</h2>";
 ?>
-<form method="post">
+<form method="post" id="candidate-processing-form">
     <input type="hidden" name="job_id" value="<?=htmlspecialchars($jobId)?>">
     <input type="hidden" name="load_token" value="<?=htmlspecialchars($loadToken)?>">
     <input type="hidden" name="process" value="Y">
@@ -1193,10 +1193,43 @@ echo "<h2>Выбор кандидатов</h2>";
         </tbody>
     </table>
     <br>
-    <input type="submit" value="Создать анкеты и запустить БП" style="font-size:16px; padding:8px 16px;">
+    <input type="submit" id="candidate-processing-submit" value="Создать анкеты и запустить БП" style="font-size:16px; padding:8px 16px;">
+    <span id="candidate-processing-status" style="display:none; margin-left:10px; color:#555;">
+        ⏳ Анкеты создаются, бизнес-процессы запускаются. Не нажимайте кнопку повторно.
+    </span>
 </form>
 
 <script>
+const candidateProcessingForm = document.getElementById('candidate-processing-form');
+const candidateProcessingSubmit = document.getElementById('candidate-processing-submit');
+const candidateProcessingStatus = document.getElementById('candidate-processing-status');
+
+candidateProcessingForm.addEventListener('submit', function(event) {
+    if (candidateProcessingForm.dataset.submitting === 'Y') {
+        event.preventDefault();
+        return;
+    }
+
+    candidateProcessingForm.dataset.submitting = 'Y';
+    candidateProcessingSubmit.disabled = true;
+    candidateProcessingSubmit.style.opacity = '0.5';
+    candidateProcessingSubmit.style.cursor = 'not-allowed';
+    candidateProcessingSubmit.value = 'Создание анкет…';
+    candidateProcessingStatus.style.display = 'inline';
+});
+
+// Browsers can restore a page from the back/forward cache with the disabled
+// state preserved. Re-enable the form because no request is running then.
+window.addEventListener('pageshow', function(event) {
+    if (!event.persisted) return;
+    delete candidateProcessingForm.dataset.submitting;
+    candidateProcessingSubmit.disabled = false;
+    candidateProcessingSubmit.style.opacity = '';
+    candidateProcessingSubmit.style.cursor = '';
+    candidateProcessingSubmit.value = 'Создать анкеты и запустить БП';
+    candidateProcessingStatus.style.display = 'none';
+});
+
 document.querySelectorAll('input[name="assign_mode"]').forEach(function(r){
     r.addEventListener('change', function(){
         document.getElementById('manual-block').style.display =
