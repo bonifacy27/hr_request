@@ -232,7 +232,7 @@ $fields = [
     ['id' => 1076, 'code' => 'SODERZHANIE_OBYAZATELSTV', 'label' => 'Содержимое обязательств', 'type' => 'S'],
     ['id' => 969, 'code' => 'FOTO_SOTRUDNIKA', 'label' => 'Фото сотрудника (jpg, png)', 'type' => 'FILE'],
     ['id' => null, 'code' => 'EST_REKOMENDATSIYA', 'label' => 'Принят по рекомендации?', 'type' => 'YESNO', 'virtual' => true],
-    ['id' => 3108, 'code' => 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET', 'label' => 'По чьей рекомендации принят сотрудник?', 'type' => 'S'],
+    ['id' => 3108, 'code' => 'PRINYAT_PO_REKOMENDATSII', 'label' => 'По чьей рекомендации принят сотрудник?', 'type' => 'S'],
     ['id' => 970, 'code' => 'FIO_V_DATELNOM_PADEZHE', 'label' => 'ФИО в дательном падеже', 'type' => 'S'],
     ['id' => 971, 'code' => 'FIO_V_RODITELNOM_PADEZHE', 'label' => 'ФИО в винительном падеже', 'type' => 'S'],
     ['id' => 2864, 'code' => 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'label' => 'Основные обязанности (для новости)', 'type' => 'S'],
@@ -254,7 +254,7 @@ $fields = [
 $requiredFields = [
     'FAMILIYA','IMYA','OTCHESTVO','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
-    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','EST_REKOMENDATSIYA','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
+    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
 ];
 
 $sections = [
@@ -262,7 +262,7 @@ $sections = [
  '2'=>['title'=>'2. Условия выхода','fields'=>['DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA']],
  '3'=>['title'=>'3. Обязательства','fields'=>['EST_LI_OBYAZATELSTVO_LST','SODERZHANIE_OBYAZATELSTV']],
  '4'=>['title'=>'4. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
- '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
+ '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','PRINYAT_PO_REKOMENDATSII','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
  '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
@@ -448,12 +448,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $propertyValues['SODERZHANIE_OBYAZATELSTV'] = 'Нет обязательств';
     }
     if ($formData['EST_REKOMENDATSIYA'] === 'Y') {
-        if ($formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] === '') {
+        if ($formData['PRINYAT_PO_REKOMENDATSII'] === '') {
             $errors[] = 'Укажите, по чьей рекомендации принят сотрудник.';
         }
     } else {
-        $formData['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
-        $propertyValues['REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'] = 'Принят без рекомендации';
+        $formData['PRINYAT_PO_REKOMENDATSII'] = 'Принят без рекомендации';
+        $propertyValues['PRINYAT_PO_REKOMENDATSII'] = 'Принят без рекомендации';
     }
 
     $lastName = trim((string)($formData['FAMILIYA'] ?? ''));
@@ -648,8 +648,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                     <h3 class="anketa-section-title"><?= h($sec['title']) ?></h3>
                     <div class="anketa-grid">
                     <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
-                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
-                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'], true)) ? '<span class="req">*</span>' : '' ?></label>
+                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','PRINYAT_PO_REKOMENDATSII','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
+                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'PRINYAT_PO_REKOMENDATSII'], true)) ? '<span class="req">*</span>' : '' ?></label>
                         <?php if ($f['type'] === 'L'): ?>
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>">
@@ -708,7 +708,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <small class="anketa-hint">Выбранному руководителю будет отправлено задание на заполнение плана ввода в должность.</small>
                         <?php elseif ($code === 'FIO_RUKOVODITELYA'): ?>
                             <small class="anketa-hint">Поле можно редактировать. Это ФИО будет использовано для создания заявки на учетную запись.</small>
-                        <?php elseif ($code === 'REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET'): ?>
+                        <?php elseif ($code === 'PRINYAT_PO_REKOMENDATSII'): ?>
                             <small class="anketa-hint">Укажите, по чьей рекомендации принят этот сотрудник.</small>
                         <?php elseif ($code === 'FOTO_SOTRUDNIKA'): ?>
                             <div id="photo_deadline_warning" class="anketa-warning" style="display:none"></div>
@@ -904,8 +904,8 @@ BX.ready(function () {
         }
 
         const recommendation = BX('EST_REKOMENDATSIYA');
-        const recommendationRow = BX('field_REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET');
-        const recommendationText = BX('REKOMENDATSIYA_NAPISHITE_NET_ESLI_EE_NET');
+        const recommendationRow = BX('field_PRINYAT_PO_REKOMENDATSII');
+        const recommendationText = BX('PRINYAT_PO_REKOMENDATSII');
         const hasRecommendation = recommendation && recommendation.value === 'Y';
         if (recommendationRow) {
             recommendationRow.style.display = hasRecommendation ? '' : 'none';
