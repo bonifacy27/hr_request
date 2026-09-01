@@ -1,10 +1,16 @@
 <?php
-require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
-while (ob_get_level()) ob_end_flush();
-ini_set('output_buffering', 'off');
-ini_set('zlib.output_compression', 0);
-header('X-Accel-Buffering: no');
-flush();
+$checkMassRetryRequest = $_SERVER['REQUEST_METHOD'] === 'POST'
+    && isset($_POST['retry_link_element_id']);
+require $_SERVER['DOCUMENT_ROOT'] . ($checkMassRetryRequest
+    ? '/bitrix/modules/main/include/prolog_before.php'
+    : '/bitrix/header.php');
+if (!$checkMassRetryRequest) {
+    while (ob_get_level()) ob_end_flush();
+    ini_set('output_buffering', 'off');
+    ini_set('zlib.output_compression', 0);
+    header('X-Accel-Buffering: no');
+    flush();
+}
 
 use Bitrix\Main\Loader;
 if (
@@ -15,7 +21,9 @@ if (
     die("Не удалось подключить модули (iblock, lists, bizproc).");
 }
 
-echo "<div style='font-size:11px;color:#777'>check_mass.php v4.1 (Optimized pagination + Logging)</div>";
+if (!$checkMassRetryRequest) {
+    echo "<div style='font-size:11px;color:#777'>check_mass.php v4.2 (Workflow retry)</div>";
+}
 
 /* ================================================================
     CONFIG
@@ -45,6 +53,12 @@ const FW_REQUEST_TIMEOUT = 15;
 const FW_CACHE_TTL = 7200;
 
 const CHECK_MASS_LOG_NAME = 'check_mass.log';
+const CANDIDATE_IBLOCK_ID = 207;
+const CANDIDATE_FW_ID_PROPERTY_ID = 1594;
+const VACANCY_FW_ID_PROPERTY_ID = 1595;
+const CANDIDATE_WORKFLOW_TEMPLATE_ID = 466;
+const LINK_WORKFLOW_TEMPLATE_ID = 328;
+const LINK_WORKFLOW_START_INTERVAL_SECONDS = 2;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
 
@@ -113,6 +127,199 @@ function checkMassShowContinuation($message, $token, $delaySeconds = 1)
     echo '<script>setTimeout(function(){ window.location.replace(' . $jsUrl . '); }, ' . $delayMs . ');</script>';
     echo '<noscript><a href="' . $htmlUrl . '">Продолжить загрузку</a></noscript>';
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
+}
+
+/**
+ * Starts a workflow for an element of a universal-list iblock.
+ *
+ * BizprocDocument is an old/incorrect provider for list elements.  With it a
+ * workflow can return an id but is not attached to the list document and does
+ * not appear in that document's workflow log.
+ */
+function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
+{
+    $errors = [];
+    if ((int)$templateId === LINK_WORKFLOW_TEMPLATE_ID) {
+        checkMassWaitForLinkWorkflowSlot();
+    }
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
+    $workflowId = CBPDocument::StartWorkflow((int)$templateId, $documentId, [], $errors);
+
+    checkMassLog($workflowId === false ? 'Workflow start failed' : 'Workflow started', [
+        'template_id' => (int)$templateId,
+        'element_id' => (int)$elementId,
+        'document_id' => $documentId,
+        'workflow_id' => $workflowId,
+        'errors' => $errors,
+    ]);
+
+    return $workflowId;
+}
+
+/**
+ * Reserves a start slot for workflow 328 across concurrent web requests.
+ * The workflow calls an external API which cannot handle a burst of requests.
+ */
+function checkMassWaitForLinkWorkflowSlot()
+{
+    static $lastStartInRequest = 0.0;
+
+    $lockDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/check_mass_locks';
+    if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) {
+        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
+        if ($wait > 0) usleep((int)ceil($wait * 1000000));
+        $lastStartInRequest = microtime(true);
+        return;
+    }
+
+    $handle = @fopen($lockDir . '/workflow_328.lock', 'c+');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if ($handle) fclose($handle);
+        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
+        if ($wait > 0) usleep((int)ceil($wait * 1000000));
+        $lastStartInRequest = microtime(true);
+        return;
+    }
+
+    rewind($handle);
+    $lastStart = (float)trim((string)stream_get_contents($handle));
+    $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStart);
+    if ($wait > 0) usleep((int)ceil($wait * 1000000));
+
+    $reservedAt = microtime(true);
+    ftruncate($handle, 0);
+    rewind($handle);
+    fwrite($handle, sprintf('%.6F', $reservedAt));
+    fflush($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+    $lastStartInRequest = $reservedAt;
+}
+
+function checkMassIsValidCandidateLink($link)
+{
+    $parts = parse_url(trim((string)$link));
+    return is_array($parts)
+        && strtolower((string)($parts['scheme'] ?? '')) === 'https'
+        && strtolower((string)($parts['host'] ?? '')) === 'trcol.ru'
+        && trim((string)($parts['path'] ?? ''), '/') !== '';
+}
+
+function checkMassWorkflowErrorsText(array $errors)
+{
+    $messages = [];
+    foreach ($errors as $error) {
+        $messages[] = is_array($error)
+            ? (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE))
+            : (string)$error;
+    }
+    return implode('; ', array_filter($messages));
+}
+
+function checkMassReadGeneratedLink($elementId)
+{
+    $result = ['link' => '', 'password' => ''];
+    $props = CIBlockElement::GetProperty(CANDIDATE_IBLOCK_ID, (int)$elementId);
+    while ($property = $props->Fetch()) {
+        if ($property['CODE'] === 'SSYLKA_NA_ANKETU') $result['link'] = (string)$property['VALUE'];
+        if ($property['CODE'] === 'PAROL_ANKETY') $result['password'] = (string)$property['VALUE'];
+    }
+    return $result;
+}
+
+function checkMassFindCandidateByFriendWorkId($candidateId)
+{
+    $candidateId = trim((string)$candidateId);
+    if ($candidateId === '') return null;
+
+    $element = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        [
+            'IBLOCK_ID' => CANDIDATE_IBLOCK_ID,
+            '=PROPERTY_' . CANDIDATE_FW_ID_PROPERTY_ID => $candidateId,
+        ],
+        false,
+        ['nTopCount' => 1],
+        ['ID']
+    )->Fetch();
+
+    return $element ? (int)$element['ID'] : null;
+}
+
+function checkMassAcquireCandidateCreationLock()
+{
+    $lockDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/check_mass_locks';
+    if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) return null;
+
+    $handle = @fopen($lockDir . '/candidate_creation.lock', 'c');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if ($handle) fclose($handle);
+        return null;
+    }
+    return $handle;
+}
+
+function checkMassReleaseCandidateCreationLock($handle)
+{
+    if (!is_resource($handle)) return;
+    flock($handle, LOCK_UN);
+    fclose($handle);
+}
+
+if ($checkMassRetryRequest) {
+    while (ob_get_level()) ob_end_clean();
+    header('Content-Type: application/json; charset=utf-8');
+
+    global $USER;
+    $elementId = (int)$_POST['retry_link_element_id'];
+    $element = $elementId > 0
+        ? CIBlockElement::GetList([], [
+            'IBLOCK_ID' => CANDIDATE_IBLOCK_ID,
+            'ID' => $elementId,
+        ], false, ['nTopCount' => 1], ['ID'])->Fetch()
+        : false;
+
+    if (!$USER || !$USER->IsAuthorized() || !check_bitrix_sessid() || !$element) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'Недостаточно прав или анкета не найдена.'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $errors = [];
+    $workflowId = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+    if ($workflowId === false) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Не удалось запустить процесс ID 328: ' . checkMassWorkflowErrorsText($errors),
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $generated = ['link' => '', 'password' => ''];
+    for ($attempt = 0; $attempt < 20; $attempt++) {
+        $generated = checkMassReadGeneratedLink($elementId);
+        if (checkMassIsValidCandidateLink($generated['link'])) break;
+        usleep(500000);
+    }
+    $valid = checkMassIsValidCandidateLink($generated['link']);
+    if (!$valid) {
+        checkMassLog('Candidate link retry returned invalid link', [
+            'element_id' => $elementId,
+            'workflow_id' => $workflowId,
+            'link' => $generated['link'],
+        ]);
+    }
+    echo json_encode([
+        'success' => $valid,
+        'workflow_id' => $workflowId,
+        'link' => $generated['link'],
+        'password' => $generated['password'],
+        'message' => $valid
+            ? 'Ссылка сгенерирована, список обновлён.'
+            : 'Процесс ID 328 завершился без корректной ссылки. Попробуйте запустить его ещё раз.',
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -497,6 +704,7 @@ if ($doProcess) {
     $currentUserId = (int)$USER->GetID();
     $diagnostic = [];
     $createdElements = [];
+    $skippedDuplicates = [];
     $elementData = [];
 
     $processStartedAt = microtime(true);
@@ -516,6 +724,21 @@ if ($doProcess) {
         $fio = trim("$ln $fn $mn");
         $email = $c['communicationChannels']['email'][0] ?? '';
         $phone = $c['communicationChannels']['phone'][0] ?? '';
+
+        $existingElementId = checkMassFindCandidateByFriendWorkId($candidateId);
+        if ($existingElementId) {
+            $skippedDuplicates[$candidateId] = $existingElementId;
+            checkMassLog('Duplicate candidate skipped', [
+                'job_id' => $jobId,
+                'candidate_id' => $candidateId,
+                'existing_element_id' => $existingElementId,
+            ]);
+            echo "<hr><b>" . htmlspecialchars($fio) . "</b><br>";
+            echo "<span style='color:#b35c00'>Анкета не создана: CandidateID "
+                . htmlspecialchars((string)$candidateId)
+                . " уже указан в анкете ID " . (int)$existingElementId . ".</span><br>";
+            continue;
+        }
 
         $fwRespId = 0;
         $statusDate = '-';
@@ -620,17 +843,39 @@ if ($doProcess) {
             1088 => $phone,
             1089 => $email,
             1093 => 813,
-            1323 => $assignedRecruiter
+            1323 => $assignedRecruiter,
+            CANDIDATE_FW_ID_PROPERTY_ID => (string)$candidateId,
+            VACANCY_FW_ID_PROPERTY_ID => (string)$jobId,
         ];
+
+        // Serialize the final duplicate check and insert. This also protects
+        // against two users submitting the same FriendWork candidate at once.
+        $creationLock = checkMassAcquireCandidateCreationLock();
+        $existingElementId = checkMassFindCandidateByFriendWorkId($candidateId);
+        if ($existingElementId) {
+            checkMassReleaseCandidateCreationLock($creationLock);
+            $skippedDuplicates[$candidateId] = $existingElementId;
+            checkMassLog('Duplicate candidate skipped before insert', [
+                'job_id' => $jobId,
+                'candidate_id' => $candidateId,
+                'existing_element_id' => $existingElementId,
+            ]);
+            echo "<hr><b>" . htmlspecialchars($fio) . "</b><br>";
+            echo "<span style='color:#b35c00'>Анкета не создана: CandidateID "
+                . htmlspecialchars((string)$candidateId)
+                . " уже указан в анкете ID " . (int)$existingElementId . ".</span><br>";
+            continue;
+        }
 
         $el = new CIBlockElement;
         $arElement = [
-            "IBLOCK_ID"       => 207,
+            "IBLOCK_ID"       => CANDIDATE_IBLOCK_ID,
             "NAME"            => $fio,
             "ACTIVE"          => "Y",
             "PROPERTY_VALUES" => $properties
         ];
         $elementId = $el->Add($arElement);
+        checkMassReleaseCandidateCreationLock($creationLock);
 
         echo "<hr><b>$fio</b><br>";
         if ($elementId) {
@@ -647,13 +892,13 @@ if ($doProcess) {
             ];
 
             $errors = [];
-            $wfId1 = CBPDocument::StartWorkflow(
-                466,
-                ['lists', 'BizprocDocument', $elementId],
-                [],
-                $errors
-            );
-            echo "<span style='color:blue'>БП #1 запущен: $wfId1</span><br>";
+            $wfId1 = checkMassStartListWorkflow(CANDIDATE_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+            if ($wfId1 !== false) {
+                echo "<span style='color:blue'>БП #1 запущен: " . htmlspecialchars((string)$wfId1) . "</span><br>";
+            } else {
+                echo "<span style='color:red'>Не удалось запустить БП #1: "
+                    . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
+            }
 
             $dateNow = date("Y-m-d\TH:i:s");
             $payloadStatus = [
@@ -687,28 +932,39 @@ if ($doProcess) {
     echo "<h2>Запуск БП #2</h2>";
     foreach ($createdElements as $elementId) {
         $errors = [];
-        $wfId2 = CBPDocument::StartWorkflow(
-            328,
-            ['lists', 'BizprocDocument', $elementId],
-            [],
-            $errors
-        );
-        echo "<hr>Анкета $elementId — БП #2 запущен: $wfId2<br>";
+        $wfId2 = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+        echo "<hr>Анкета $elementId — ";
+        if ($wfId2 !== false) {
+            echo "БП #2 запущен: " . htmlspecialchars((string)$wfId2) . "<br>";
+        } else {
+            echo "<span style='color:red'>не удалось запустить БП #2: "
+                . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
+        }
         $link = '';
         $password = '';
         for ($i = 0; $i < 10; $i++) {
-            $props = CIBlockElement::GetProperty(207, $elementId);
-            while ($p = $props->Fetch()) {
-                if ($p['CODE'] == "SSYLKA_NA_ANKETU") $link = $p['VALUE'];
-                if ($p['CODE'] == "PAROL_ANKETY")    $password = $p['VALUE'];
-            }
+            $generated = checkMassReadGeneratedLink($elementId);
+            $link = $generated['link'];
+            $password = $generated['password'];
             if ($link || $password) break;
             usleep(500000);
         }
         $elementData[$elementId]['LINK'] = $link;
         $elementData[$elementId]['PASSWORD'] = $password;
-        echo "Ссылка: <b>$link</b><br>";
-        echo "Пароль: <b>$password</b><br>";
+        echo "Ссылка: <b data-link-value='" . (int)$elementId . "'>" . htmlspecialchars((string)$link) . "</b><br>";
+        if (!checkMassIsValidCandidateLink($link)) {
+            $elementData[$elementId]['LINK_INVALID'] = true;
+            echo "<div data-link-result='" . (int)$elementId . "' style='margin:6px 0;padding:8px;border:1px solid #d99;background:#fff4e5;color:#8a4b00'>"
+                . "⚠️ Создана некорректная ссылка. Нужно сгенерировать ссылку заново, запустив процесс ID 328."
+                . " <button type='button' data-link-retry='" . (int)$elementId . "' onclick='checkMassRetryLink(" . (int)$elementId . ", this)'>Запустить ID 328 и обновить список</button>"
+                . "</div>";
+            checkMassLog('Invalid candidate link generated', [
+                'element_id' => (int)$elementId,
+                'workflow_id' => $wfId2,
+                'link' => (string)$link,
+            ]);
+        }
+        echo "Пароль: <b>" . htmlspecialchars((string)$password) . "</b><br>";
     }
 
     $json = htmlspecialchars(json_encode($elementData), ENT_QUOTES);
@@ -720,6 +976,43 @@ if ($doProcess) {
             <input type='hidden' name='results' value='$json'>
             <button type='submit' style='font-size:14px'>📄 Экспорт в Excel</button>
           </form>";
+
+    echo "<script>
+    function checkMassRetryLink(elementId, button) {
+        const buttons = document.querySelectorAll('[data-link-retry=\"' + elementId + '\"]');
+        buttons.forEach(function(item) { item.disabled = true; });
+        button.textContent = 'Запускаем процесс…';
+        const data = new FormData();
+        data.append('retry_link_element_id', elementId);
+        data.append('sessid', " . json_encode(bitrix_sessid()) . ");
+        fetch(window.location.pathname, {method: 'POST', body: data, credentials: 'same-origin'})
+            .then(function(response) { return response.json(); })
+            .then(function(result) {
+                if (!result.success) throw new Error(result.message || 'Не удалось получить корректную ссылку.');
+                const safeLink = document.createElement('a');
+                safeLink.href = result.link;
+                safeLink.target = '_blank';
+                safeLink.rel = 'noopener noreferrer';
+                safeLink.textContent = result.link;
+                document.querySelectorAll('[data-link-cell=\"' + elementId + '\"]').forEach(function(cell) {
+                    cell.replaceChildren(safeLink.cloneNode(true));
+                });
+                document.querySelectorAll('[data-link-value=\"' + elementId + '\"]').forEach(function(value) {
+                    value.textContent = result.link;
+                });
+                document.querySelectorAll('[data-link-result=\"' + elementId + '\"]').forEach(function(block) {
+                    block.textContent = result.message;
+                    block.style.color = 'green';
+                    block.style.background = '#efffed';
+                });
+            })
+            .catch(function(error) {
+                alert(error.message);
+                buttons.forEach(function(item) { item.disabled = false; });
+                button.textContent = 'Запустить ID 328 и обновить список';
+            });
+    }
+    </script>";
 
     echo "<h2>Итоговые анкеты</h2>";
     echo "<table border='1' cellpadding='4' cellspacing='0'>
@@ -741,9 +1034,13 @@ if ($doProcess) {
                 <td>{$d['EMAIL']}</td>
                 <td>{$d['PHONE']}</td>
                 <td>{$rn}</td>
-                <td>";
-        if ($d['LINK']) {
-            echo "<a href='{$d['LINK']}' target='_blank'>{$d['LINK']}</a>";
+                <td data-link-cell='" . (int)$eid . "'>";
+        if (!empty($d['LINK']) && empty($d['LINK_INVALID'])) {
+            $safeLink = htmlspecialchars((string)$d['LINK'], ENT_QUOTES);
+            echo "<a href='{$safeLink}' target='_blank' rel='noopener noreferrer'>{$safeLink}</a>";
+        } elseif (!empty($d['LINK_INVALID'])) {
+            echo "<span style='color:#b35c00;font-weight:bold'>⚠️ Некорректная ссылка.</span> "
+                . "<button type='button' data-link-retry='" . (int)$eid . "' onclick='checkMassRetryLink(" . (int)$eid . ", this)'>Запустить ID 328 и обновить список</button>";
         } else {
             echo "-";
         }
@@ -773,6 +1070,7 @@ if ($doProcess) {
         'job_id' => $jobId,
         'selected' => count($selectedLookup),
         'created' => count($createdElements),
+        'duplicates_skipped' => count($skippedDuplicates),
         'duration_seconds' => round(microtime(true) - $processStartedAt, 3),
         'peak_memory_mb' => round(memory_get_peak_usage(true) / 1048576, 2),
     ]);
@@ -875,7 +1173,7 @@ function buildSortUrl($field, $currentSortBy, $currentOrder) {
    ===================================================================== */
 echo "<h2>Выбор кандидатов</h2>";
 ?>
-<form method="post">
+<form method="post" id="candidate-processing-form">
     <input type="hidden" name="job_id" value="<?=htmlspecialchars($jobId)?>">
     <input type="hidden" name="load_token" value="<?=htmlspecialchars($loadToken)?>">
     <input type="hidden" name="process" value="Y">
@@ -975,10 +1273,43 @@ echo "<h2>Выбор кандидатов</h2>";
         </tbody>
     </table>
     <br>
-    <input type="submit" value="Создать анкеты и запустить БП" style="font-size:16px; padding:8px 16px;">
+    <input type="submit" id="candidate-processing-submit" value="Создать анкеты и запустить БП" style="font-size:16px; padding:8px 16px;">
+    <span id="candidate-processing-status" style="display:none; margin-left:10px; color:#555;">
+        ⏳ Анкеты создаются, бизнес-процессы запускаются. Не нажимайте кнопку повторно.
+    </span>
 </form>
 
 <script>
+const candidateProcessingForm = document.getElementById('candidate-processing-form');
+const candidateProcessingSubmit = document.getElementById('candidate-processing-submit');
+const candidateProcessingStatus = document.getElementById('candidate-processing-status');
+
+candidateProcessingForm.addEventListener('submit', function(event) {
+    if (candidateProcessingForm.dataset.submitting === 'Y') {
+        event.preventDefault();
+        return;
+    }
+
+    candidateProcessingForm.dataset.submitting = 'Y';
+    candidateProcessingSubmit.disabled = true;
+    candidateProcessingSubmit.style.opacity = '0.5';
+    candidateProcessingSubmit.style.cursor = 'not-allowed';
+    candidateProcessingSubmit.value = 'Создание анкет…';
+    candidateProcessingStatus.style.display = 'inline';
+});
+
+// Browsers can restore a page from the back/forward cache with the disabled
+// state preserved. Re-enable the form because no request is running then.
+window.addEventListener('pageshow', function(event) {
+    if (!event.persisted) return;
+    delete candidateProcessingForm.dataset.submitting;
+    candidateProcessingSubmit.disabled = false;
+    candidateProcessingSubmit.style.opacity = '';
+    candidateProcessingSubmit.style.cursor = '';
+    candidateProcessingSubmit.value = 'Создать анкеты и запустить БП';
+    candidateProcessingStatus.style.display = 'none';
+});
+
 document.querySelectorAll('input[name="assign_mode"]').forEach(function(r){
     r.addEventListener('change', function(){
         document.getElementById('manual-block').style.display =
