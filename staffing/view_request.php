@@ -899,9 +899,43 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
     max-height:70vh;
     overflow:auto;
   }
+  .req-comments{
+    position:relative;
+    margin-top:28px;
+    padding:0 18px 10px;
+    overflow:hidden;
+    border:2px solid #8eabd2;
+    border-radius:16px;
+    background:linear-gradient(135deg, #edf5ff 0%, #f7faff 55%, #eef3fb 100%);
+    box-shadow:0 8px 24px rgba(46, 91, 145, .16);
+  }
+  .req-comments__head{
+    margin:0 -18px 16px;
+    padding:14px 18px;
+    color:#fff;
+    background:linear-gradient(90deg, #315f9b 0%, #4c7fbd 100%);
+  }
+  .req-comments__title{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    font-size:18px;
+    font-weight:700;
+  }
+  .req-comments__title::before{
+    content:'💬';
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:30px;
+    height:30px;
+    border-radius:50%;
+    background:rgba(255,255,255,.18);
+    font-size:16px;
+  }
   .req-comments__item{ margin:12px 0 18px; }
-  .req-comments__label{ margin-bottom:7px; font-weight:600; }
-  .req-comments__history{ padding:12px 14px; border:1px solid #dfe3e8; border-radius:8px; background:#fff; line-height:1.55; white-space:normal; }
+  .req-comments__label{ margin-bottom:7px; color:#244a78; font-weight:700; }
+  .req-comments__history{ padding:12px 14px; border:1px solid #cbd9eb; border-radius:9px; background:rgba(255,255,255,.9); line-height:1.55; white-space:normal; box-shadow:0 1px 3px rgba(46, 91, 145, .06); }
   .req-comments__empty{ color:#828b95; font-style:italic; }
   .req-comments__form{ margin-top:10px; padding-top:12px; border-top:1px solid #e5e9ed; }
 </style>
@@ -951,8 +985,8 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
   }
   ?>
 
-  <div class="req-group" style="background:#f8fafc; border:1px solid #e6eef7;">
-    <div class="req-group__head"><div class="req-group__title">Комментарии</div></div>
+  <div class="req-comments">
+    <div class="req-comments__head"><div class="req-comments__title">Комментарии</div></div>
     <div class="req-group__body">
       <?= renderCommentHistory('Комментарии руководителя', $curProps['KOMMENTARII_K_ZAYAVKE'] ?? '') ?>
       <?php if ($canViewPrivateComments): ?>
