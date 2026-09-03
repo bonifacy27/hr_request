@@ -582,7 +582,42 @@ function renderSectionEnd() {
 
 function renderCommentHistory($label, $value) {
     $value = trim((string)normPropValue($value));
-    $content = $value === '' ? '<span class="req-comments__empty">Комментариев пока нет</span>' : nl2br(htmlspecialcharsbx($value));
+    if ($value === '') {
+        $content = '<span class="req-comments__empty">Комментариев пока нет</span>';
+    } else {
+        $comments = [];
+        foreach (preg_split('/\R/u', $value) ?: [] as $line) {
+            if (preg_match('/^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+(.+?):\s*(.*)$/u', trim((string)$line), $matches)) {
+                $comments[] = [
+                    'date' => $matches[1],
+                    'time' => $matches[2],
+                    'author' => trim($matches[3]),
+                    'text' => $matches[4],
+                ];
+            } elseif (!empty($comments)) {
+                $lastIndex = count($comments) - 1;
+                $comments[$lastIndex]['text'] .= "\n" . $line;
+            } elseif (trim((string)$line) !== '') {
+                $comments[] = ['date' => '', 'time' => '', 'author' => 'Комментарий', 'text' => $line];
+            }
+        }
+
+        $cards = [];
+        foreach ($comments as $comment) {
+            $authorParts = preg_split('/\s+/u', trim($comment['author'])) ?: [];
+            $initials = '';
+            foreach (array_slice($authorParts, 0, 2) as $part) $initials .= mb_strtoupper(mb_substr($part, 0, 1));
+            $dateTime = trim($comment['date'] . ' ' . $comment['time']);
+            $cards[] = '<article class="req-comment">'
+                .'<div class="req-comment__avatar">'.htmlspecialcharsbx($initials ?: '•').'</div>'
+                .'<div class="req-comment__content"><div class="req-comment__meta">'
+                .'<span class="req-comment__author">'.htmlspecialcharsbx($comment['author']).'</span>'
+                .($dateTime !== '' ? '<span class="req-comment__datetime">'.htmlspecialcharsbx($dateTime).'</span>' : '')
+                .'</div><div class="req-comment__text">'.nl2br(htmlspecialcharsbx(trim($comment['text']))).'</div></div>'
+                .'</article>';
+        }
+        $content = $cards ? implode('', $cards) : '<span class="req-comments__empty">Комментариев пока нет</span>';
+    }
     return '<div class="req-comments__item"><div class="req-comments__label">'.htmlspecialcharsbx($label).'</div><div class="req-comments__history">'.$content.'</div></div>';
 }
 
@@ -935,9 +970,17 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
   }
   .req-comments__item{ margin:12px 0 18px; }
   .req-comments__label{ margin-bottom:7px; color:#244a78; font-weight:700; }
-  .req-comments__history{ padding:12px 14px; border:1px solid #cbd9eb; border-radius:9px; background:rgba(255,255,255,.9); line-height:1.55; white-space:normal; box-shadow:0 1px 3px rgba(46, 91, 145, .06); }
+  .req-comments__history{ padding:6px 14px; border:1px solid #cbd9eb; border-radius:9px; background:rgba(255,255,255,.9); line-height:1.55; box-shadow:0 1px 3px rgba(46, 91, 145, .06); }
   .req-comments__empty{ color:#828b95; font-style:italic; }
   .req-comments__form{ margin-top:10px; padding-top:12px; border-top:1px solid #e5e9ed; }
+  .req-comment{ display:flex; gap:11px; padding:13px 0; }
+  .req-comment + .req-comment{ border-top:1px solid #e2e9f2; }
+  .req-comment__avatar{ display:flex; flex:0 0 38px; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; color:#fff; background:linear-gradient(135deg, #4c7fbd, #315f9b); font-size:13px; font-weight:700; letter-spacing:.3px; }
+  .req-comment__content{ min-width:0; flex:1; }
+  .req-comment__meta{ display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 10px; margin-bottom:3px; }
+  .req-comment__author{ color:#1f3f67; font-weight:700; }
+  .req-comment__datetime{ color:#7a8797; font-size:12px; white-space:nowrap; }
+  .req-comment__text{ color:#252b32; overflow-wrap:anywhere; white-space:normal; }
 </style>
 
 <div class="ui-alert ui-alert-primary">
