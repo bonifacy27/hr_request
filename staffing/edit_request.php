@@ -27,6 +27,7 @@ const IBLOCK_RECRUIT = 201;
 const BP_TEMPLATE_ID_EDIT_NOTIFY = 1294;
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
+const ADMINISTRATOR_USER_ID = 3532;
 const ROLE_LABEL_CB = 'Менеджер C&B';
 const ROLE_LABEL_RECRUITER = 'Рекрутер/руководитель отдела подбора';
 
@@ -216,6 +217,7 @@ $FIELDS = [
     ["CODE" => "RUKOVODYASHCHAYA_DOLZHNOST", "NAME" => "Руководящая должность", "EDITABLE" => true],
     ["CODE" => "STAVKA", "NAME" => "Ставка", "EDITABLE" => true],
     ["CODE" => "KOMMENTARII_C_B", "NAME" => "Комментарии C&B", "EDITABLE" => true],
+    ["CODE" => "KOMMENTARII_HR", "NAME" => "Комментарии HR", "EDITABLE" => false],
     ["CODE" => "KONFIDENTSIALNYY_POISK", "NAME" => "Конфиденциальный поиск", "EDITABLE" => false],
     ["CODE" => "REKRUTER", "NAME" => "Рекрутер", "EDITABLE" => false],
     ["CODE" => "STATUS_ZAYAVKI", "NAME" => "Статус заявки", "EDITABLE" => false],
@@ -330,6 +332,18 @@ function getGlobalVarUserList($varId) {
         return [];
     }
     return array_values(array_unique($users));
+}
+function getCurrentUserFullName($userId) {
+    $rsUser = CUser::GetByID((int)$userId);
+    $user = $rsUser ? $rsUser->Fetch() : false;
+    if (!$user) return (string)$userId;
+    $name = trim((string)CUser::FormatName('#LAST_NAME# #NAME# #SECOND_NAME#', $user, false, false));
+    return $name !== '' ? $name : (string)($user['LOGIN'] ?? $userId);
+}
+function appendComment($oldValue, $comment, $userName) {
+    $line = date('d.m.Y H:i') . ' ' . trim((string)$userName) . ': ' . trim((string)$comment);
+    $oldValue = rtrim((string)$oldValue);
+    return $oldValue === '' ? $line : $oldValue . "\n" . $line;
 }
 function getDocumentIdCandidates(int $iblockId, int $elementId): array
 {
@@ -585,10 +599,13 @@ if ($recruiterRaw !== '') {
     ];
     $isRecruiter = in_array($currentUserTagLower, $recruiterVariants, true) || ((int)$recruiterRaw > 0 && (int)$recruiterRaw === $currentUserId);
 }
+$isHrRole = $isRecruiter || $isRecruitHead;
+$isCommentsAdministrator = $currentUserId === ADMINISTRATOR_USER_ID;
+$canViewPrivateComments = $isCbManager || $isHrRole || $isCommentsAdministrator;
 
 $actorType = null;
 $roleLabel = '';
-if ($isAdmin || $isCbManager) {
+if ($isAdmin || $isCommentsAdministrator || $isCbManager) {
     $actorType = 'cb';
     $roleLabel = ROLE_LABEL_CB;
 } elseif ($isRecruiter || $isRecruitHead) {
@@ -603,6 +620,10 @@ if ($actorType === null) {
 }
 
 foreach ($FIELDS as &$fieldItem) {
+    if (in_array((string)$fieldItem['CODE'], ['KOMMENTARII_K_ZAYAVKE', 'KOMMENTARII_C_B', 'KOMMENTARII_HR'], true)) {
+        $fieldItem['EDITABLE'] = false;
+        continue;
+    }
     if ($actorType === 'cb') {
         continue;
     }
@@ -616,7 +637,34 @@ unset($fieldItem);
 $errors = [];
 $success = false;
 
-if ($request->isPost() && check_bitrix_sessid()) {
+$isCommentPost = $request->isPost() && (string)$request->getPost('comment_action') === 'add';
+if ($isCommentPost) {
+    if (!check_bitrix_sessid()) {
+        $errors[] = 'Сессия истекла. Обновите страницу и повторите попытку.';
+    } else {
+        $commentType = (string)$request->getPost('comment_type');
+        $commentText = trim((string)$request->getPost('comment_text'));
+        $commentCode = '';
+        if ($commentType === 'cb' && $isCbManager) $commentCode = 'KOMMENTARII_C_B';
+        if ($commentType === 'hr' && $isHrRole) $commentCode = 'KOMMENTARII_HR';
+
+        if ($commentCode === '') {
+            $errors[] = 'У вас нет прав на добавление этого комментария.';
+        } elseif ($commentText === '') {
+            $errors[] = 'Введите текст комментария.';
+        } else {
+            $newValue = appendComment(
+                normPropValue($curProps[$commentCode] ?? ''),
+                $commentText,
+                getCurrentUserFullName($currentUserId)
+            );
+            CIBlockElement::SetPropertyValuesEx($elementId, IBLOCK_RECRUIT, [$commentCode => $newValue]);
+            LocalRedirect($APPLICATION->GetCurPageParam('comment_added=Y', ['comment_added', 'sessid']));
+        }
+    }
+}
+
+if ($request->isPost() && !$isCommentPost && check_bitrix_sessid()) {
     $post = $request->getPostList()->toArray();
     $returnUrl = getReturnUrlAfterEdit($elementId, (int)$USER->GetID());
     $isConfirmedSave = (isset($post['confirm_save']) && (string)$post['confirm_save'] === 'Y');
@@ -928,6 +976,38 @@ function renderSectionStart($title, $bg, $border) {
 }
 function renderSectionEnd() {
     return '</div></div>';
+}
+
+function renderCommentHistory($label, $value) {
+    $value = trim((string)normPropValue($value));
+    if ($value === '') {
+        $content = '<span class="req-comments__empty">Комментариев пока нет</span>';
+    } else {
+        $comments = [];
+        foreach (preg_split('/\R/u', $value) ?: [] as $line) {
+            if (preg_match('/^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})\s+(.+?):\s*(.*)$/u', trim((string)$line), $matches)) {
+                $comments[] = ['date' => $matches[1], 'time' => $matches[2], 'author' => trim($matches[3]), 'text' => $matches[4]];
+            } elseif (!empty($comments)) {
+                $comments[count($comments) - 1]['text'] .= "\n" . $line;
+            } elseif (trim((string)$line) !== '') {
+                $comments[] = ['date' => '', 'time' => '', 'author' => 'Комментарий', 'text' => $line];
+            }
+        }
+
+        $cards = [];
+        foreach ($comments as $comment) {
+            $authorParts = preg_split('/\s+/u', trim($comment['author'])) ?: [];
+            $initials = '';
+            foreach (array_slice($authorParts, 0, 2) as $part) $initials .= mb_strtoupper(mb_substr($part, 0, 1));
+            $dateTime = trim($comment['date'] . ' ' . $comment['time']);
+            $cards[] = '<article class="req-comment"><div class="req-comment__avatar">'.htmlspecialcharsbx($initials ?: '•').'</div>'
+                .'<div class="req-comment__content"><div class="req-comment__meta"><span class="req-comment__author">'.htmlspecialcharsbx($comment['author']).'</span>'
+                .($dateTime !== '' ? '<span class="req-comment__datetime">'.htmlspecialcharsbx($dateTime).'</span>' : '')
+                .'</div><div class="req-comment__text">'.nl2br(htmlspecialcharsbx(trim($comment['text']))).'</div></div></article>';
+        }
+        $content = $cards ? implode('', $cards) : '<span class="req-comments__empty">Комментариев пока нет</span>';
+    }
+    return '<div class="req-comments__item"><div class="req-comments__label">'.htmlspecialcharsbx($label).'</div><div class="req-comments__history">'.$content.'</div></div>';
 }
 
 function renderSelectByIblock($code, $label, $selectedId, $iblockId, $editable) {
@@ -1262,6 +1342,23 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     max-height:70vh;
     overflow:auto;
   }
+  .req-comments{ max-width:1060px; margin:28px 0 0; padding:0 18px 10px; overflow:hidden; border:2px solid #8eabd2; border-radius:16px; background:linear-gradient(135deg, #edf5ff 0%, #f7faff 55%, #eef3fb 100%); box-shadow:0 8px 24px rgba(46,91,145,.16); }
+  .req-comments__head{ margin:0 -18px 16px; padding:14px 18px; color:#fff; background:linear-gradient(90deg,#315f9b 0%,#4c7fbd 100%); }
+  .req-comments__title{ display:flex; align-items:center; gap:9px; font-size:18px; font-weight:700; }
+  .req-comments__title::before{ content:'💬'; display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,.18); font-size:16px; }
+  .req-comments__item{ margin:12px 0 18px; }
+  .req-comments__label{ margin-bottom:7px; color:#244a78; font-weight:700; }
+  .req-comments__history{ padding:6px 14px; border:1px solid #cbd9eb; border-radius:9px; background:rgba(255,255,255,.9); line-height:1.55; box-shadow:0 1px 3px rgba(46,91,145,.06); }
+  .req-comments__empty{ display:block; padding:10px 0; color:#828b95; font-style:italic; }
+  .req-comments__form{ margin:10px 0 20px; padding-top:12px; border-top:1px solid #d3deeb; }
+  .req-comment{ display:flex; gap:11px; padding:13px 0; }
+  .req-comment + .req-comment{ border-top:1px solid #e2e9f2; }
+  .req-comment__avatar{ display:flex; flex:0 0 38px; align-items:center; justify-content:center; width:38px; height:38px; border-radius:50%; color:#fff; background:linear-gradient(135deg,#4c7fbd,#315f9b); font-size:13px; font-weight:700; }
+  .req-comment__content{ min-width:0; flex:1; }
+  .req-comment__meta{ display:flex; flex-wrap:wrap; align-items:baseline; gap:5px 10px; margin-bottom:3px; }
+  .req-comment__author{ color:#1f3f67; font-weight:700; }
+  .req-comment__datetime{ color:#7a8797; font-size:12px; white-space:nowrap; }
+  .req-comment__text{ color:#252b32; overflow-wrap:anywhere; }
 </style>
 
 <div class="ui-alert ui-alert-primary">
@@ -1272,6 +1369,10 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
 <?php if ($success): ?>
   <div class="ui-alert ui-alert-success"><span class="ui-alert-message">Изменения сохранены.</span></div>
+<?php endif; ?>
+
+<?php if ((string)$request->getQuery('comment_added') === 'Y'): ?>
+  <div class="ui-alert ui-alert-success"><span class="ui-alert-message">Комментарий добавлен.</span></div>
 <?php endif; ?>
 
 <?php if (!empty($errors)): ?>
@@ -1303,6 +1404,9 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
 
       foreach ($byGroup[$groupTitle] as $f) {
           $code = (string)$f['CODE'];
+          if (in_array($code, ['KOMMENTARII_K_ZAYAVKE', 'KOMMENTARII_C_B', 'KOMMENTARII_HR'], true)) {
+              continue;
+          }
           $meta = $metaMap[$code] ?? null;
           $val  = $curProps[$code] ?? '';
           echo renderInput($code, (string)$f['NAME'], (bool)$f['EDITABLE'], $meta, $val, $REFERENCE_IBLOCK_BY_CODE);
@@ -1320,6 +1424,29 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     </div>
   </div>
 </form>
+
+<div class="req-comments">
+  <div class="req-comments__head"><div class="req-comments__title">Комментарии</div></div>
+  <?= renderCommentHistory('Комментарии руководителя', $curProps['KOMMENTARII_K_ZAYAVKE'] ?? '') ?>
+  <?php if ($canViewPrivateComments): ?>
+    <?= renderCommentHistory('Комментарии C&B', $curProps['KOMMENTARII_C_B'] ?? '') ?>
+    <?php if ($isCbManager): ?>
+      <form method="post" class="req-comments__form">
+        <?= bitrix_sessid_post() ?><input type="hidden" name="comment_action" value="add"><input type="hidden" name="comment_type" value="cb">
+        <div class="ui-ctl ui-ctl-textarea ui-ctl-w100"><textarea class="ui-ctl-element" name="comment_text" rows="3" required placeholder="Добавить комментарий C&B"></textarea></div>
+        <button type="submit" class="ui-btn ui-btn-primary" style="margin-top:8px;">Добавить комментарий C&B</button>
+      </form>
+    <?php endif; ?>
+    <?= renderCommentHistory('Комментарии HR', $curProps['KOMMENTARII_HR'] ?? '') ?>
+    <?php if ($isHrRole): ?>
+      <form method="post" class="req-comments__form">
+        <?= bitrix_sessid_post() ?><input type="hidden" name="comment_action" value="add"><input type="hidden" name="comment_type" value="hr">
+        <div class="ui-ctl ui-ctl-textarea ui-ctl-w100"><textarea class="ui-ctl-element" name="comment_text" rows="3" required placeholder="Добавить комментарий HR"></textarea></div>
+        <button type="submit" class="ui-btn ui-btn-primary" style="margin-top:8px;">Добавить комментарий HR</button>
+      </form>
+    <?php endif; ?>
+  <?php endif; ?>
+</div>
 
 <div class="req-modal" id="save_confirm_modal" aria-hidden="true">
   <div class="req-modal__backdrop" id="save_confirm_backdrop"></div>
