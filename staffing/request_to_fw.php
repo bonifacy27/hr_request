@@ -27,10 +27,8 @@ const FW_STATUS_DRAFT = 5;
 const FW_POSITION_COUNT = 1;
 const FW_LOGIN_ENDPOINT = 'https://app.friend.work/api/Accounts/LogIn';
 const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
-const FW_JOBS_ENDPOINT_ALT = 'https://api.friend.work/jobs';
 const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
-const FW_INTEGRATION_ACCOUNT_ID = 34234;
 const FW_TOKEN_CONST_ID = 'Constant1775635795058';
 
 /**
@@ -344,201 +342,6 @@ function fwCreateJob($payload, $cookieFile)
     }
 
     return [true, '', $response, $httpCode, $responseRaw];
-}
-
-function fwPatchJob($jobId, array $operations, $cookieFile, $jwtToken = '')
-{
-    $jobId = (int)$jobId;
-    if ($jobId <= 0) {
-        return [false, 'Некорректный jobId для PATCH вакансии.', [], 0, ''];
-    }
-
-    $requestBody = json_encode($operations, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $attempts = [
-        ['method' => 'PATCH', 'url' => FW_JOBS_ENDPOINT . '/' . $jobId, 'contentType' => 'application/json'],
-        ['method' => 'PUT', 'url' => FW_JOBS_ENDPOINT . '/' . $jobId, 'contentType' => 'application/json'],
-        ['method' => 'PATCH', 'url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId, 'contentType' => 'application/json-patch+json'],
-        ['method' => 'PUT', 'url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId, 'contentType' => 'application/json-patch+json'],
-    ];
-
-    $doRequest = static function (array $attempt) use ($cookieFile, $requestBody, $jwtToken) {
-        $headers = [
-            'Content-Type: ' . $attempt['contentType'],
-            'Accept: application/json',
-        ];
-        if (trim((string)$jwtToken) !== '') {
-            $headers[] = 'Authorization: Bearer ' . trim((string)$jwtToken);
-        }
-
-        $ch = curl_init($attempt['url']);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $attempt['method']);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-        $responseRaw = curl_exec($ch);
-        $curlErr = curl_error($ch);
-        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        return [$responseRaw, $curlErr, $httpCode];
-    };
-
-    $responseRaw = '';
-    $curlErr = '';
-    $httpCode = 0;
-    $usedMethod = '';
-    $usedUrl = '';
-    $attemptResults = [];
-
-    foreach ($attempts as $attempt) {
-        list($responseRaw, $curlErr, $httpCode) = $doRequest($attempt);
-        $usedMethod = (string)$attempt['method'];
-        $usedUrl = (string)$attempt['url'];
-        $attemptResults[] = $usedMethod . ' ' . $usedUrl . ' => HTTP ' . $httpCode . ($curlErr !== '' ? ('; CURL ' . $curlErr) : '');
-
-        if ($responseRaw === false) {
-            continue;
-        }
-        if ($httpCode >= 200 && $httpCode < 300) {
-            break;
-        }
-    }
-
-    if ($responseRaw === false) {
-        fwLog('Ошибка CURL при обновлении вакансии FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'jobId' => $jobId, 'attempts' => $attemptResults]);
-        return [false, 'Ошибка CURL при обновлении вакансии FriendWork: ' . $curlErr . '. Попытки: ' . implode(' | ', $attemptResults), [], $httpCode, ''];
-    }
-
-    $response = json_decode($responseRaw, true);
-    if (!is_array($response)) {
-        $response = [];
-    }
-
-    if ($httpCode >= 400) {
-        fwLog('FriendWork Jobs update HTTP error', ['httpCode' => $httpCode, 'jobId' => $jobId, 'response' => $responseRaw, 'operations' => $operations, 'method' => $usedMethod, 'url' => $usedUrl, 'attempts' => $attemptResults]);
-        return [false, 'FriendWork ' . $usedMethod . ' ' . $usedUrl . ' вернул HTTP ' . $httpCode . ': ' . $responseRaw . '. Попытки: ' . implode(' | ', $attemptResults), $response, $httpCode, $responseRaw];
-    }
-
-    return [true, '', $response, $httpCode, $responseRaw];
-}
-
-function fwGetJobById($jobId, $cookieFile, $jwtToken = '')
-{
-    $jobId = (int)$jobId;
-    if ($jobId <= 0) {
-        return [false, 'Некорректный jobId для GET вакансии.', [], 0, '', []];
-    }
-
-    $attempts = [
-        ['url' => FW_JOBS_ENDPOINT . '/' . $jobId],
-        ['url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId],
-    ];
-
-    $responseRaw = '';
-    $curlErr = '';
-    $httpCode = 0;
-    $attemptResults = [];
-
-    foreach ($attempts as $attempt) {
-        $headers = ['Accept: application/json'];
-        if (trim((string)$jwtToken) !== '') {
-            $headers[] = 'Authorization: Bearer ' . trim((string)$jwtToken);
-        }
-
-        $ch = curl_init($attempt['url']);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-        $responseRaw = curl_exec($ch);
-        $curlErr = curl_error($ch);
-        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        $attemptResults[] = 'GET ' . $attempt['url'] . ' => HTTP ' . $httpCode . ($curlErr !== '' ? ('; CURL ' . $curlErr) : '');
-
-        if ($responseRaw !== false && $httpCode >= 200 && $httpCode < 300) {
-            break;
-        }
-    }
-
-    if ($responseRaw === false) {
-        return [false, 'Ошибка CURL при GET вакансии FriendWork: ' . $curlErr, [], $httpCode, '', $attemptResults];
-    }
-
-    $response = json_decode($responseRaw, true);
-    if (!is_array($response)) {
-        $response = [];
-    }
-
-    if ($httpCode >= 400) {
-        return [false, 'FriendWork GET вакансии вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw, $attemptResults];
-    }
-
-    return [true, '', $response, $httpCode, $responseRaw, $attemptResults];
-}
-
-function fwUpdateJobFull($jobId, array $jobBody, $cookieFile, $jwtToken = '')
-{
-    $jobId = (int)$jobId;
-    if ($jobId <= 0) {
-        return [false, 'Некорректный jobId для PUT вакансии.', [], 0, '', []];
-    }
-
-    $attempts = [
-        ['url' => FW_JOBS_ENDPOINT . '/' . $jobId],
-        ['url' => FW_JOBS_ENDPOINT_ALT . '/' . $jobId],
-    ];
-
-    $requestBody = json_encode($jobBody, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    $responseRaw = '';
-    $curlErr = '';
-    $httpCode = 0;
-    $attemptResults = [];
-
-    foreach ($attempts as $attempt) {
-        $headers = ['Accept: application/json', 'Content-Type: application/json'];
-        if (trim((string)$jwtToken) !== '') {
-            $headers[] = 'Authorization: Bearer ' . trim((string)$jwtToken);
-        }
-
-        $ch = curl_init($attempt['url']);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $requestBody);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-        $responseRaw = curl_exec($ch);
-        $curlErr = curl_error($ch);
-        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
-
-        $attemptResults[] = 'PUT ' . $attempt['url'] . ' => HTTP ' . $httpCode . ($curlErr !== '' ? ('; CURL ' . $curlErr) : '');
-        if ($responseRaw !== false && $httpCode >= 200 && $httpCode < 300) {
-            break;
-        }
-    }
-
-    if ($responseRaw === false) {
-        return [false, 'Ошибка CURL при PUT вакансии FriendWork: ' . $curlErr, [], $httpCode, '', $attemptResults];
-    }
-
-    $response = json_decode($responseRaw, true);
-    if (!is_array($response)) {
-        $response = [];
-    }
-
-    if ($httpCode >= 400) {
-        return [false, 'FriendWork PUT вакансии вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw, $attemptResults];
-    }
-
-    return [true, '', $response, $httpCode, $responseRaw, $attemptResults];
 }
 
 function fwGetAccounts($cookieFile)
@@ -1072,214 +875,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                         @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
                     } else {
-                        $payload['ResponsibleId'] = 0;
+                        // FriendWork принимает ответственного при создании вакансии. Передаём его
+                        // сразу, чтобы не выполнять отдельный PATCH/PUT к устаревшему api.friend.work.
+                        $payload['ResponsibleId'] = $resolvedResponsibleId;
 
                         list($createOk, $createError, $fwResponse, $createHttpCode, $createRaw) = fwCreateJob($payload, $cookieFile);
+                        @unlink($cookieFile);
                         $debugInfo['create'] = [
                             'httpCode' => $createHttpCode,
                             'rawResponse' => $createRaw,
                             'parsedResponse' => $fwResponse,
+                            'responsibleId' => $resolvedResponsibleId,
                         ];
 
                         if (!$createOk) {
-                            @unlink($cookieFile);
                             $errors[] = $createError;
                         } else {
                             $jobId = (int)$fwResponse['jobId'];
                             $jobUrl = FW_JOB_EDIT_URL . $jobId;
-                            $integrationAccountSource = 'response.responsibleAccount.id';
-                            $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'responsibleAccount', []));
-                            if ($integrationAccountId <= 0) {
-                                $integrationAccountSource = 'response.creatorAccount.id';
-                                $integrationAccountId = fwExtractAccountId((array)valueOr($fwResponse, 'creatorAccount', []));
-                            }
-                            if ($integrationAccountId <= 0) {
-                                $integrationAccountSource = 'FW_INTEGRATION_ACCOUNT_ID';
-                                $integrationAccountId = FW_INTEGRATION_ACCOUNT_ID;
-                            }
 
-                            if ($integrationAccountId <= 0) {
-                                @unlink($cookieFile);
-                                $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но не удалось определить ID интеграционного аккаунта из ответа FriendWork.';
+                            CIBlockElement::SetPropertyValuesEx(
+                                $requestId,
+                                IBLOCK_RECRUITMENT,
+                                [
+                                    'ID_FW_VAKANSII' => $jobId,
+                                    'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
+                                ]
+                            );
+
+                            $existingFwId = (string)$jobId;
+                            $existingFwUrl = $jobUrl;
+                            $alreadyCreated = true;
+                            $success = 'Вакансия успешно создана в FriendWork. ID: ' . h($jobId) . '.';
+
+                            $taskId = (int)($task['ID'] ?? 0);
+                            if ($taskId <= 0) {
+                                $warnings[] = 'Вакансия создана, но не удалось определить текущее задание БП для автозавершения.';
                             } else {
-                                $teamMembers = [
-                                    [
-                                        'id' => $resolvedResponsibleId,
-                                        'functionTypeName' => 'Сотрудник',
-                                    ]
-                                ];
-                                if ($integrationAccountId !== $resolvedResponsibleId) {
-                                    $teamMembers[] = [
-                                        'id' => $integrationAccountId,
-                                        'functionTypeName' => 'Сотрудник',
-                                    ];
-                                }
-
-                                $patchOperations = [
-                                    [
-                                        'op' => 'replace',
-                                        'path' => '/responsibleAccount',
-                                        'value' => ['id' => $resolvedResponsibleId],
-                                    ],
-                                    [
-                                        'op' => 'replace',
-                                        'path' => '/teamMembers',
-                                        'value' => $teamMembers,
-                                    ],
-                                ];
-                                $patchOperationsAlt = [
-                                    [
-                                        'op' => 'replace',
-                                        'path' => '/responsibleId',
-                                        'value' => $resolvedResponsibleId,
-                                    ],
-                                    [
-                                        'op' => 'replace',
-                                        'path' => '/employeeIds',
-                                        'value' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
-                                    ],
-                                ];
-
-                                list($patchOk, $patchError, $patchResponse, $patchHttpCode, $patchRaw) = fwPatchJob($jobId, $patchOperations, $cookieFile, $accessToken);
-                                $patchUsed = 'primary';
-                                if (!$patchOk) {
-                                    list($patchOkAlt, $patchErrorAlt, $patchResponseAlt, $patchHttpCodeAlt, $patchRawAlt) = fwPatchJob($jobId, $patchOperationsAlt, $cookieFile, $accessToken);
-                                    if ($patchOkAlt) {
-                                        $patchOk = true;
-                                        $patchError = '';
-                                        $patchResponse = $patchResponseAlt;
-                                        $patchHttpCode = $patchHttpCodeAlt;
-                                        $patchRaw = $patchRawAlt;
-                                        $patchUsed = 'alt';
-                                    } else {
-                                        $patchError .= ' | ALT failed: ' . $patchErrorAlt;
-                                    }
-                                }
-                                list($jobGetOk, $jobGetError, $jobGetResponse, $jobGetHttpCode, $jobGetRaw, $jobGetAttempts) = fwGetJobById($jobId, $cookieFile, $accessToken);
-                                $fullUpdateOk = false;
-                                $fullUpdateInfo = null;
-                                if (!$patchOk && $jobGetOk) {
-                                    $fullUpdateBody = [
-                                        'status' => valueOr($jobGetResponse, 'status', 'Draft'),
-                                        'jobType' => valueOr($jobGetResponse, 'jobType', null),
-                                        'name' => valueOr($jobGetResponse, 'name', ''),
-                                        'description' => valueOr($jobGetResponse, 'description', ''),
-                                        'comment' => valueOr($jobGetResponse, 'comment', ''),
-                                        'fromDate' => valueOr($jobGetResponse, 'fromDate', null),
-                                        'toDate' => valueOr($jobGetResponse, 'toDate', null),
-                                        'plannedToDate' => valueOr($jobGetResponse, 'plannedToDate', null),
-                                        'responsibleAccount' => ['id' => $resolvedResponsibleId],
-                                        'teamMembers' => $teamMembers,
-                                        'suspensePeriods' => valueOr($jobGetResponse, 'suspensePeriods', []),
-                                        'positionCount' => (int)valueOr($jobGetResponse, 'positionCount', FW_POSITION_COUNT),
-                                        'organizationUnit' => valueOr($jobGetResponse, 'organizationUnit', null),
-                                        'staffPositions' => valueOr($jobGetResponse, 'staffPositions', []),
-                                    ];
-
-                                    list($fullUpdateOk, $fullUpdateError, $fullUpdateResponse, $fullUpdateHttpCode, $fullUpdateRaw, $fullUpdateAttempts) = fwUpdateJobFull(
-                                        $jobId,
-                                        $fullUpdateBody,
-                                        $cookieFile,
-                                        $accessToken
-                                    );
-
-                                    $fullUpdateInfo = [
-                                        'ok' => $fullUpdateOk,
-                                        'error' => $fullUpdateError,
-                                        'httpCode' => $fullUpdateHttpCode,
-                                        'attempts' => $fullUpdateAttempts,
-                                        'rawResponse' => $fullUpdateRaw,
-                                        'parsedResponse' => $fullUpdateResponse,
-                                        'requestBody' => $fullUpdateBody,
-                                    ];
-
-                                    if ($fullUpdateOk) {
-                                        $patchOk = true;
-                                        $patchUsed = 'full_put';
-                                        $patchHttpCode = $fullUpdateHttpCode;
-                                        $patchRaw = $fullUpdateRaw;
-                                        $patchResponse = $fullUpdateResponse;
-                                        $patchError = '';
-                                    } else {
-                                        $patchError .= ' | FULL PUT failed: ' . $fullUpdateError;
-                                    }
-                                }
-                                @unlink($cookieFile);
-                                $debugInfo['patch'] = [
-                                    'operations' => $patchOperations,
-                                    'operationsAlt' => $patchOperationsAlt,
-                                    'patchUsed' => $patchUsed,
-                                    'integrationAccountId' => $integrationAccountId,
-                                    'integrationAccountSource' => $integrationAccountSource,
-                                    'httpCode' => $patchHttpCode,
-                                    'rawResponse' => $patchRaw,
-                                    'parsedResponse' => $patchResponse,
-                                ];
-                                $debugInfo['fullUpdate'] = $fullUpdateInfo;
-                                $debugInfo['jobGet'] = [
-                                    'ok' => $jobGetOk,
-                                    'error' => $jobGetError,
-                                    'httpCode' => $jobGetHttpCode,
-                                    'attempts' => $jobGetAttempts,
-                                    'rawResponse' => $jobGetRaw,
-                                    'parsedResponse' => $jobGetResponse,
-                                ];
-                                $debugInfo['jobUpdatePreview'] = [
-                                    'currentResponsibleId' => (int)valueOr(
-                                        $jobGetResponse,
-                                        'responsibleId',
-                                        (int)valueOr((array)valueOr($jobGetResponse, 'responsibleAccount', []), 'id', 0)
-                                    ),
-                                    'targetResponsibleId' => $resolvedResponsibleId,
-                                    'currentTeamMembers' => valueOr($jobGetResponse, 'teamMembers', []),
-                                    'targetTeamMembers' => $teamMembers,
-                                    'targetEmployeeIds' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
-                                    'suggestedJsonPatch' => $patchOperations,
-                                    'suggestedUpdateBody' => [
-                                        'jobId' => $jobId,
-                                        'responsibleId' => $resolvedResponsibleId,
-                                        'employeeIds' => array_values(array_unique(array_map('intval', [$resolvedResponsibleId, $integrationAccountId]))),
-                                        'teamMembers' => $teamMembers,
-                                    ],
-                                ];
-
-                                if (!$patchOk) {
-                                    $errors[] = 'Вакансия создана (ID: ' . $jobId . '), но изменить ответственного/команду не удалось: ' . $patchError;
+                                $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
+                                if (!$actualTask) {
+                                    $warnings[] = 'Вакансия создана, но текущее задание БП не найдено среди активных задач пользователя.';
                                 } else {
-                                    CIBlockElement::SetPropertyValuesEx(
-                                        $requestId,
-                                        IBLOCK_RECRUITMENT,
-                                        [
-                                            'ID_FW_VAKANSII' => $jobId,
-                                            'SSYLKA_NA_VAKANSIYU_FW' => $jobUrl,
-                                        ]
+                                    $bizprocCompletion = completeBizprocTask(
+                                        $actualTask,
+                                        $currentUserId,
+                                        'approve',
+                                        'Заявка успешно отправлена в FriendWork. Вакансия #' . $jobId . '. Ответственный назначен при создании.'
                                     );
-
-                                    $existingFwId = (string)$jobId;
-                                    $existingFwUrl = $jobUrl;
-                                    $alreadyCreated = true;
-                                    $success = 'Вакансия успешно создана и обновлена в FriendWork. ID: ' . h($jobId) . '.';
-
-                                    $taskId = (int)($task['ID'] ?? 0);
-                                    if ($taskId <= 0) {
-                                        $warnings[] = 'Вакансия создана, но не удалось определить текущее задание БП для автозавершения.';
+                                    if (!empty($bizprocCompletion['OK'])) {
+                                        $success = 'Вакансия успешно создана в FriendWork (ID: ' . h($jobId) . '), задание БП успешно завершено.';
                                     } else {
-                                        $actualTask = getRunningTaskByIdForUser($taskId, $currentUserId);
-                                        if (!$actualTask) {
-                                            $warnings[] = 'Вакансия создана, но текущее задание БП не найдено среди активных задач пользователя.';
-                                        } else {
-                                            $bizprocCompletion = completeBizprocTask(
-                                                $actualTask,
-                                                $currentUserId,
-                                                'approve',
-                                                'Заявка успешно отправлена в FriendWork. Вакансия #' . $jobId . '. Ответственный и команда обновлены.'
-                                            );
-                                            if (!empty($bizprocCompletion['OK'])) {
-                                                $success = 'Вакансия успешно создана и обновлена в FriendWork (ID: ' . h($jobId) . '), задание БП успешно завершено.';
-                                            } else {
-                                                $warnings[] = 'Вакансия создана (ID: ' . h($jobId) . '), но завершить задание БП не удалось: ' . (string)($bizprocCompletion['ERROR'] ?? 'неизвестная ошибка');
-                                            }
-                                        }
+                                        $warnings[] = 'Вакансия создана (ID: ' . h($jobId) . '), но завершить задание БП не удалось: ' . (string)($bizprocCompletion['ERROR'] ?? 'неизвестная ошибка');
                                     }
                                 }
                             }
