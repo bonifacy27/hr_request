@@ -26,6 +26,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 
 const PLAN_IBLOCK_ID = 359;
 const PVD_TASK_IBLOCK_ID = 360;
+const TASK_STATUS_IBLOCK_ID = 361;
 const KPI_TASK_IBLOCK_ID = 363;
 const PROP_MANAGER = 2775;
 const PROP_EMPLOYMENT_DATE = 2776;
@@ -35,6 +36,7 @@ const PROP_PVD_TASKS = 2761;
 const PROP_KPI_TASKS = 2769;
 const PROP_PVD_STATUS = 2767;
 const PROP_KPI_STATUS = 2805;
+const PROP_STATUS_COLOR = 3168;
 const PAGE_SIZE = 20;
 
 function h($value)
@@ -96,31 +98,60 @@ function loadLinkedIds($planId, $propertyId)
     return array_values($ids);
 }
 
-function loadTasks(array $ids, $iblockId, $statusPropertyId)
+function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields)
 {
     $result = [];
     if (!$ids) {
         return $result;
+    }
+
+    $select = ['ID', 'NAME', 'PROPERTY_' . (int)$statusPropertyId];
+    foreach ($detailFields as $propertyId => $label) {
+        $select[] = 'PROPERTY_' . (int)$propertyId;
     }
     $tasks = CIBlockElement::GetList(
         ['ID' => 'ASC'],
         ['IBLOCK_ID' => (int)$iblockId, 'ID' => $ids, 'ACTIVE' => 'Y'],
         false,
         false,
-        ['ID', 'NAME', 'PROPERTY_' . (int)$statusPropertyId]
+        $select
     );
     while ($task = $tasks->Fetch()) {
         $statusId = (int)($task['PROPERTY_' . (int)$statusPropertyId . '_VALUE'] ?? 0);
         $status = '';
+        $statusColor = '#FFFFFF';
         if ($statusId > 0) {
-            $statusElement = CIBlockElement::GetByID($statusId)->Fetch();
-            $status = $statusElement ? (string)$statusElement['NAME'] : '';
+            $statusElement = CIBlockElement::GetList(
+                [],
+                ['IBLOCK_ID' => TASK_STATUS_IBLOCK_ID, 'ID' => $statusId],
+                false,
+                ['nTopCount' => 1],
+                ['ID', 'NAME', 'PROPERTY_' . PROP_STATUS_COLOR]
+            )->Fetch();
+            if ($statusElement) {
+                $status = (string)$statusElement['NAME'];
+                $candidateColor = trim((string)($statusElement['PROPERTY_' . PROP_STATUS_COLOR . '_VALUE'] ?? ''));
+                if (preg_match('/^#[0-9a-f]{6}$/i', $candidateColor)) {
+                    $statusColor = $candidateColor;
+                }
+            }
         }
-        $result[] = ['ID' => (int)$task['ID'], 'NAME' => (string)$task['NAME'], 'STATUS' => $status];
+
+        $details = ['Название' => (string)$task['NAME']];
+        foreach ($detailFields as $propertyId => $label) {
+            $details[$label] = (string)($task['PROPERTY_' . (int)$propertyId . '_VALUE'] ?? '');
+        }
+        $details['Статус задачи'] = $status;
+        $result[] = [
+            'ID' => (int)$task['ID'],
+            'NAME' => (string)$task['NAME'],
+            'STATUS' => $status,
+            'STATUS_COLOR' => $statusColor,
+            'DETAILS' => $details,
+        ];
     }
     return $result;
 }
-
 function currentPlanTaskId($planId, $userId)
 {
     $documents = [
@@ -168,20 +199,26 @@ function buildUrl(array $set = [], array $remove = [])
     return strtok($_SERVER['REQUEST_URI'], '?') . ($query ? '?' . http_build_query($query) : '');
 }
 
-function renderTaskTable(array $tasks, $iblockId)
+function renderTaskTable(array $tasks, $type, $title)
 {
+    $html = '<section class="task-section"><h4>' . h($title) . '</h4>';
     if (!$tasks) {
-        return '<span class="text-muted">Нет задач</span>';
+        return $html . '<span class="text-muted">Нет задач</span></section>';
     }
-    $html = '<table class="plan-task-table"><tbody>';
-    foreach ($tasks as $task) {
-        $url = '/workgroups/group/206/lists/' . (int)$iblockId . '/element/0/' . (int)$task['ID'] . '/';
-        $html .= '<tr><td><a href="' . h($url) . '" target="_blank" rel="noopener">' . h($task['NAME']) . '</a></td>';
-        $html .= '<td>' . h($task['STATUS'] !== '' ? $task['STATUS'] : '—') . '</td></tr>';
-    }
-    return $html . '</tbody></table>';
-}
 
+    $html .= '<table class="plan-task-table"><tbody>';
+    foreach ($tasks as $task) {
+        $templateId = 'task-details-' . preg_replace('/[^a-z0-9_-]/i', '', (string)$type) . '-' . (int)$task['ID'];
+        $html .= '<tr><td><button type="button" class="task-name js-task-details" data-template="' . h($templateId) . '">' . h($task['NAME']) . '</button></td>';
+        $html .= '<td><span class="task-status" style="background-color:' . h($task['STATUS_COLOR']) . '">' . h($task['STATUS'] !== '' ? $task['STATUS'] : '—') . '</span></td></tr>';
+        $html .= '<tr class="task-details-template"><td colspan="2"><div id="' . h($templateId) . '"><dl class="task-details-list">';
+        foreach ($task['DETAILS'] as $label => $value) {
+            $html .= '<dt>' . h($label) . '</dt><dd>' . h(trim((string)$value) !== '' ? $value : '—') . '</dd>';
+        }
+        $html .= '</dl></div></td></tr>';
+    }
+    return $html . '</tbody></table></section>';
+}
 $request = Context::getCurrent()->getRequest();
 $search = trim((string)$request->get('q'));
 $filter = ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'];
@@ -210,8 +247,21 @@ while ($plan = $plansResult->Fetch()) {
     $kpiIds = loadLinkedIds((int)$plan['ID'], PROP_KPI_TASKS);
     $plan['MANAGER_ID'] = $managerId;
     $plan['RECRUITER_ID'] = $recruiterId;
-    $plan['PVD_TASKS'] = loadTasks($pvdIds, PVD_TASK_IBLOCK_ID, PROP_PVD_STATUS);
-    $plan['KPI_TASKS'] = loadTasks($kpiIds, KPI_TASK_IBLOCK_ID, PROP_KPI_STATUS);
+    $plan['PVD_TASKS'] = loadTasks($pvdIds, PVD_TASK_IBLOCK_ID, PROP_PVD_STATUS, [
+        2837 => 'Дата постановки задачи',
+        2760 => 'Планируемый результат',
+        2762 => 'Фактический результат',
+        2807 => 'Планируемый срок исполнения',
+        2806 => 'Фактический срок исполнения',
+    ]);
+    $plan['KPI_TASKS'] = loadTasks($kpiIds, KPI_TASK_IBLOCK_ID, PROP_KPI_STATUS, [
+        2785 => 'Планируемый результат',
+        2791 => 'Фактический результат',
+        2784 => 'Планируемый срок',
+        2789 => 'Фактический срок',
+        2803 => 'Вес (%)',
+        2804 => 'Процент выполнения (%)',
+    ]);
     $plan['BP_TASK_ID'] = currentPlanTaskId((int)$plan['ID'], $currentUserId);
     $plans[] = $plan;
 }
@@ -226,6 +276,19 @@ $userNames = loadUserNames($userIds);
 .plans-list-page .plan-task-table { width:100%; min-width:260px; border-collapse:collapse; font-size:12px; }
 .plans-list-page .plan-task-table td { padding:4px 6px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .plan-task-table td:last-child { width:35%; white-space:nowrap; }
+.plans-list-page .task-section + .task-section { margin-top:14px; }
+.plans-list-page .task-section h4 { margin:0 0 6px; font-size:13px; font-weight:700; }
+.plans-list-page .task-name { padding:0; border:0; background:none; color:#007bff; text-align:left; cursor:pointer; }
+.plans-list-page .task-name:hover { text-decoration:underline; }
+.plans-list-page .task-status { display:inline-block; padding:3px 7px; border:1px solid rgba(0,0,0,.12); border-radius:10px; color:#111; }
+.plans-list-page .task-details-template { display:none; }
+.plans-list-page .task-modal-backdrop { position:fixed; inset:0; z-index:9998; display:none; background:rgba(0,0,0,.45); }
+.plans-list-page .task-modal { position:fixed; top:50%; left:50%; z-index:9999; display:none; width:min(700px,92vw); max-height:85vh; transform:translate(-50%,-50%); overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
+.plans-list-page .task-modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #dee2e6; }
+.plans-list-page .task-modal-body { max-height:calc(85vh - 58px); padding:16px; overflow:auto; }
+.plans-list-page .task-modal-close { border:0; background:none; font-size:26px; line-height:1; cursor:pointer; }
+.plans-list-page .task-details-list { display:grid; grid-template-columns:minmax(190px,35%) 1fr; gap:8px 14px; margin:0; }
+.plans-list-page .task-details-list dt, .plans-list-page .task-details-list dd { margin:0; white-space:pre-wrap; }
 .plans-list-page .actions { min-width:190px; }
 .plans-list-page .actions .btn { display:block; width:100%; margin-bottom:7px; }
 .plans-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
@@ -251,24 +314,26 @@ $userNames = loadUserNames($userIds);
         <table class="table table-sm table-bordered table-hover">
             <thead class="thead-dark"><tr>
                 <th>ФИО</th><th>Руководитель</th><th>ИС</th><th>Рекрутер</th>
-                <th>Задачи ПВД</th><th>Задачи KPI</th><th>Действия</th>
+                <th>Задачи</th><th>Действия</th>
             </tr></thead>
             <tbody>
             <?php if (!$plans): ?>
-                <tr><td colspan="7" class="text-muted">Планы не найдены.</td></tr>
+                <tr><td colspan="6" class="text-muted">Планы не найдены.</td></tr>
             <?php else: foreach ($plans as $plan): ?>
                 <?php
                 $planId = (int)$plan['ID'];
                 $taskId = (int)$plan['BP_TASK_ID'];
-                $reportUrl = '/adaptation/onboarding_plan_report.php?PLAN_ID=' . $planId;
+                $reportUrl = '/forms/staff_recruitment/onboarding_plan_report.php?PLAN_ID=' . $planId;
                 ?>
                 <tr>
                     <td><?= h($plan['NAME']) ?></td>
                     <td><?= h($userNames[(int)$plan['MANAGER_ID']] ?? '—') ?></td>
                     <td><?= h(($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?: '—') . '–' . ($plan['PROPERTY_' . PROP_TRIAL_END_DATE . '_VALUE'] ?: '—')) ?></td>
                     <td><?= h($userNames[(int)$plan['RECRUITER_ID']] ?? '—') ?></td>
-                    <td><?= renderTaskTable($plan['PVD_TASKS'], PVD_TASK_IBLOCK_ID) ?></td>
-                    <td><?= renderTaskTable($plan['KPI_TASKS'], KPI_TASK_IBLOCK_ID) ?></td>
+                    <td>
+                        <?= renderTaskTable($plan['PVD_TASKS'], 'pvd', 'Задачи ПВД') ?>
+                        <?= renderTaskTable($plan['KPI_TASKS'], 'kpi', 'Задачи KPI') ?>
+                    </td>
                     <td class="actions">
                         <?php if ($taskId > 0): ?>
                             <a class="btn btn-info btn-sm" href="<?= h(bizprocTaskUrl($taskId, $currentUserId)) ?>" target="_blank" rel="noopener">Перейти в задание</a>
@@ -292,6 +357,14 @@ $userNames = loadUserNames($userIds);
             <?php endfor; ?>
         </nav>
     <?php endif; ?>
+    <div class="task-modal-backdrop js-task-modal-close"></div>
+    <div class="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+        <div class="task-modal-head">
+            <strong id="task-modal-title">Описание задачи</strong>
+            <button type="button" class="task-modal-close js-task-modal-close" aria-label="Закрыть">&times;</button>
+        </div>
+        <div class="task-modal-body"></div>
+    </div>
 </div>
 <script>
 document.addEventListener('change', function (event) {
@@ -299,5 +372,36 @@ document.addEventListener('change', function (event) {
         window.location.href = event.target.value;
     }
 });
+(function () {
+    var modal = document.querySelector('.task-modal');
+    var backdrop = document.querySelector('.task-modal-backdrop');
+    var body = modal.querySelector('.task-modal-body');
+
+    function closeModal() {
+        modal.style.display = 'none';
+        backdrop.style.display = 'none';
+        body.innerHTML = '';
+    }
+
+    document.addEventListener('click', function (event) {
+        var trigger = event.target.closest('.js-task-details');
+        if (trigger) {
+            var template = document.getElementById(trigger.getAttribute('data-template'));
+            if (template) {
+                body.innerHTML = template.innerHTML;
+                backdrop.style.display = 'block';
+                modal.style.display = 'block';
+            }
+        }
+        if (event.target.closest('.js-task-modal-close')) {
+            closeModal();
+        }
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+            closeModal();
+        }
+    });
+}());
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php'); ?>
