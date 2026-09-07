@@ -98,6 +98,43 @@ function loadLinkedIds($planId, $propertyId)
     return array_values($ids);
 }
 
+function currentTaskExecutors($elementId, $iblockId)
+{
+    $userIds = [];
+    $documents = [
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
+        ['lists', 'BizprocDocument', 'lists_' . (int)$iblockId . '_' . (int)$elementId],
+        ['lists', 'lists_' . (int)$iblockId . '_group_206', (int)$elementId],
+        ['lists', 'lists_' . (int)$iblockId, (int)$elementId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . (int)$iblockId . '_' . (int)$elementId],
+    ];
+
+    foreach ($documents as $documentId) {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'DESC'],
+            ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['USER_ID']
+        );
+        while ($task = $tasks->Fetch()) {
+            $userId = (int)($task['USER_ID'] ?? 0);
+            if ($userId > 0) {
+                $userIds[$userId] = $userId;
+            }
+        }
+    }
+
+    $names = [];
+    foreach ($userIds as $userId) {
+        $user = CUser::GetByID($userId)->Fetch();
+        if ($user) {
+            $names[] = formatUserName($user);
+        }
+    }
+    return array_values(array_filter(array_unique($names)));
+}
+
 function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields)
 {
     $result = [];
@@ -147,6 +184,7 @@ function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields
             'NAME' => (string)$task['NAME'],
             'STATUS' => $status,
             'STATUS_COLOR' => $statusColor,
+            'EXECUTORS' => currentTaskExecutors((int)$task['ID'], (int)$iblockId),
             'DETAILS' => $details,
         ];
     }
@@ -201,23 +239,38 @@ function buildUrl(array $set = [], array $remove = [])
 
 function renderTaskTable(array $tasks, $type, $title)
 {
-    $html = '<section class="task-section"><h4>' . h($title) . '</h4>';
+    static $sectionSequence = 0;
+    $sectionSequence++;
+    $safeType = preg_replace('/[^a-z0-9_-]/i', '', (string)$type);
+    $sectionId = 'task-section-' . $safeType . '-' . $sectionSequence;
+    $html = '<section class="task-section">';
+    $html .= '<button type="button" class="task-section-toggle js-task-section-toggle" aria-expanded="false" aria-controls="' . h($sectionId) . '">';
+    $html .= '<span>' . h($title) . ' <span class="task-count">(' . count($tasks) . ')</span></span><span class="task-chevron" aria-hidden="true">&#9660;</span></button>';
+    $html .= '<div id="' . h($sectionId) . '" class="task-section-body">';
     if (!$tasks) {
-        return $html . '<span class="text-muted">Нет задач</span></section>';
+        return $html . '<span class="text-muted">Нет задач</span></div></section>';
     }
 
     $html .= '<table class="plan-task-table"><tbody>';
     foreach ($tasks as $task) {
-        $templateId = 'task-details-' . preg_replace('/[^a-z0-9_-]/i', '', (string)$type) . '-' . (int)$task['ID'];
+        $templateId = 'task-details-' . $safeType . '-' . $sectionSequence . '-' . (int)$task['ID'];
         $html .= '<tr><td><button type="button" class="task-name js-task-details" data-template="' . h($templateId) . '">' . h($task['NAME']) . '</button></td>';
         $html .= '<td><span class="task-status" style="background-color:' . h($task['STATUS_COLOR']) . '">' . h($task['STATUS'] !== '' ? $task['STATUS'] : '—') . '</span></td></tr>';
-        $html .= '<tr class="task-details-template"><td colspan="2"><div id="' . h($templateId) . '"><dl class="task-details-list">';
+        $html .= '<tr class="task-details-template"><td colspan="2"><div id="' . h($templateId) . '">';
+        $html .= '<div class="task-card-head"><strong>' . h($task['NAME']) . '</strong>';
+        $html .= '<span class="task-status" style="background-color:' . h($task['STATUS_COLOR']) . '">' . h($task['STATUS'] !== '' ? $task['STATUS'] : '—') . '</span></div>';
+        $html .= '<div class="task-card-section"><h5>Сведения о задаче</h5><dl class="task-details-list">';
         foreach ($task['DETAILS'] as $label => $value) {
+            if ($label === 'Название' || $label === 'Статус задачи') {
+                continue;
+            }
             $html .= '<dt>' . h($label) . '</dt><dd>' . h(trim((string)$value) !== '' ? $value : '—') . '</dd>';
         }
-        $html .= '</dl></div></td></tr>';
+        $html .= '</dl></div><div class="task-card-section"><h5>Бизнес-процесс</h5><dl class="task-details-list">';
+        $html .= '<dt>Текущий исполнитель</dt><dd>' . h($task['EXECUTORS'] ? implode(', ', $task['EXECUTORS']) : '—') . '</dd>';
+        $html .= '</dl></div></div></td></tr>';
     }
-    return $html . '</tbody></table></section>';
+    return $html . '</tbody></table></div></section>';
 }
 $request = Context::getCurrent()->getRequest();
 $search = trim((string)$request->get('q'));
@@ -276,8 +329,14 @@ $userNames = loadUserNames($userIds);
 .plans-list-page .plan-task-table { width:100%; min-width:260px; border-collapse:collapse; font-size:12px; }
 .plans-list-page .plan-task-table td { padding:4px 6px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .plan-task-table td:last-child { width:35%; white-space:nowrap; }
-.plans-list-page .task-section + .task-section { margin-top:14px; }
-.plans-list-page .task-section h4 { margin:0 0 6px; font-size:13px; font-weight:700; }
+.plans-list-page .task-section + .task-section { margin-top:8px; }
+.plans-list-page .task-section-toggle { display:flex; align-items:center; justify-content:space-between; width:100%; padding:7px 9px; border:1px solid #d7dce1; border-radius:5px; background:#f5f7f9; font-size:13px; font-weight:700; text-align:left; cursor:pointer; }
+.plans-list-page .task-section-toggle:hover { background:#e9ecef; }
+.plans-list-page .task-count { color:#6c757d; font-weight:400; }
+.plans-list-page .task-chevron { margin-left:12px; transition:transform .2s ease; }
+.plans-list-page .task-section-toggle[aria-expanded="true"] .task-chevron { transform:rotate(180deg); }
+.plans-list-page .task-section-body { display:none; padding-top:6px; }
+.plans-list-page .task-section-body.is-open { display:block; }
 .plans-list-page .task-name { padding:0; border:0; background:none; color:#007bff; text-align:left; cursor:pointer; }
 .plans-list-page .task-name:hover { text-decoration:underline; }
 .plans-list-page .task-status { display:inline-block; padding:3px 7px; border:1px solid rgba(0,0,0,.12); border-radius:10px; color:#111; }
@@ -287,8 +346,14 @@ $userNames = loadUserNames($userIds);
 .plans-list-page .task-modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .task-modal-body { max-height:calc(85vh - 58px); padding:16px; overflow:auto; }
 .plans-list-page .task-modal-close { border:0; background:none; font-size:26px; line-height:1; cursor:pointer; }
-.plans-list-page .task-details-list { display:grid; grid-template-columns:minmax(190px,35%) 1fr; gap:8px 14px; margin:0; }
+.plans-list-page .task-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:14px; border:1px solid #dfe3e8; border-radius:8px; background:#f8f9fa; font-size:16px; }
+.plans-list-page .task-card-head .task-status { flex:0 0 auto; font-size:12px; }
+.plans-list-page .task-card-section { margin-top:14px; padding:14px; border:1px solid #e3e6e9; border-radius:8px; }
+.plans-list-page .task-card-section h5 { margin:0 0 12px; padding-bottom:8px; border-bottom:1px solid #e9ecef; font-size:14px; font-weight:700; }
+.plans-list-page .task-details-list { display:grid; grid-template-columns:minmax(190px,35%) 1fr; gap:9px 16px; margin:0; }
 .plans-list-page .task-details-list dt, .plans-list-page .task-details-list dd { margin:0; white-space:pre-wrap; }
+.plans-list-page .task-details-list dt { color:#6c757d; font-weight:500; }
+.plans-list-page .task-details-list dd { font-weight:500; }
 .plans-list-page .actions { min-width:190px; }
 .plans-list-page .actions .btn { display:block; width:100%; margin-bottom:7px; }
 .plans-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
@@ -376,6 +441,7 @@ document.addEventListener('change', function (event) {
     var modal = document.querySelector('.task-modal');
     var backdrop = document.querySelector('.task-modal-backdrop');
     var body = modal.querySelector('.task-modal-body');
+    var title = modal.querySelector('#task-modal-title');
 
     function closeModal() {
         modal.style.display = 'none';
@@ -384,10 +450,21 @@ document.addEventListener('change', function (event) {
     }
 
     document.addEventListener('click', function (event) {
+        var sectionToggle = event.target.closest('.js-task-section-toggle');
+        if (sectionToggle) {
+            var sectionBody = document.getElementById(sectionToggle.getAttribute('aria-controls'));
+            var willOpen = sectionToggle.getAttribute('aria-expanded') !== 'true';
+            sectionToggle.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (sectionBody) {
+                sectionBody.classList.toggle('is-open', willOpen);
+            }
+        }
+
         var trigger = event.target.closest('.js-task-details');
         if (trigger) {
             var template = document.getElementById(trigger.getAttribute('data-template'));
             if (template) {
+                title.textContent = 'Описание задачи: ' + trigger.textContent.trim();
                 body.innerHTML = template.innerHTML;
                 backdrop.style.display = 'block';
                 modal.style.display = 'block';
