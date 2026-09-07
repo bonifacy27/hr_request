@@ -22,7 +22,7 @@ if (
 }
 
 if (!$checkMassRetryRequest) {
-    echo "<div style='font-size:11px;color:#777'>check_mass.php v4.2 (Workflow retry)</div>";
+    echo "<div style='font-size:11px;color:#777'>check_mass.php v5.0 (Direct form API)</div>";
 }
 
 /* ================================================================
@@ -56,9 +56,16 @@ const CHECK_MASS_LOG_NAME = 'check_mass.log';
 const CANDIDATE_IBLOCK_ID = 207;
 const CANDIDATE_FW_ID_PROPERTY_ID = 1594;
 const VACANCY_FW_ID_PROPERTY_ID = 1595;
-const CANDIDATE_WORKFLOW_TEMPLATE_ID = 466;
 const LINK_WORKFLOW_TEMPLATE_ID = 328;
-const LINK_WORKFLOW_START_INTERVAL_SECONDS = 2;
+const CANDIDATE_PASSWORD_PROPERTY_ID = 1223;
+const CANDIDATE_LINK_PROPERTY_ID = 1090;
+
+// API for creating the public candidate form link.
+const FORM_API_URL = 'https://www.test.ru/local/tools/api/';
+const FORM_API_USERNAME = 'test';
+const FORM_API_PASSWORD = 'test';
+const FORM_API_TYPE = 'Массовый подбор';
+const FORM_API_STATUS = 1;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
 
@@ -140,9 +147,6 @@ function checkMassShowContinuation($message, $token, $delaySeconds = 1)
 function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
 {
     $errors = [];
-    if ((int)$templateId === LINK_WORKFLOW_TEMPLATE_ID) {
-        checkMassWaitForLinkWorkflowSlot();
-    }
     $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId];
     $workflowId = CBPDocument::StartWorkflow((int)$templateId, $documentId, [], $errors);
 
@@ -157,52 +161,58 @@ function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
     return $workflowId;
 }
 
-/**
- * Reserves a start slot for workflow 328 across concurrent web requests.
- * The workflow calls an external API which cannot handle a burst of requests.
- */
-function checkMassWaitForLinkWorkflowSlot()
+function checkMassRequestCandidateLink($elementId, $password)
 {
-    static $lastStartInRequest = 0.0;
+    $payload = [
+        'form_id' => (string)(int)$elementId,
+        'form_password' => (string)$password,
+        'form_type' => FORM_API_TYPE,
+        'form_status' => (string)FORM_API_STATUS,
+    ];
+    $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => FORM_API_URL,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $json,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'Authorization: Basic ' . base64_encode(FORM_API_USERNAME . ':' . FORM_API_PASSWORD),
+        ],
+        CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
+        CURLOPT_TIMEOUT => FW_REQUEST_TIMEOUT,
+    ]);
+    $raw = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
 
-    $lockDir = rtrim($_SERVER['DOCUMENT_ROOT'], '/') . '/upload/check_mass_locks';
-    if (!is_dir($lockDir) && !@mkdir($lockDir, 0755, true) && !is_dir($lockDir)) {
-        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
-        if ($wait > 0) usleep((int)ceil($wait * 1000000));
-        $lastStartInRequest = microtime(true);
-        return;
-    }
+    $response = json_decode((string)$raw, true);
+    $link = is_array($response) ? urldecode(trim((string)($response['link'] ?? ''))) : '';
+    $success = $httpCode >= 200 && $httpCode < 300 && checkMassIsValidCandidateLink($link);
+    checkMassLog($success ? 'Candidate link received from API' : 'Candidate link API request failed', [
+        'element_id' => (int)$elementId,
+        'http' => $httpCode,
+        'curl_error' => $curlError,
+        'response' => mb_substr((string)$raw, 0, 1000),
+    ]);
 
-    $handle = @fopen($lockDir . '/workflow_328.lock', 'c+');
-    if (!$handle || !flock($handle, LOCK_EX)) {
-        if ($handle) fclose($handle);
-        $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStartInRequest);
-        if ($wait > 0) usleep((int)ceil($wait * 1000000));
-        $lastStartInRequest = microtime(true);
-        return;
-    }
-
-    rewind($handle);
-    $lastStart = (float)trim((string)stream_get_contents($handle));
-    $wait = LINK_WORKFLOW_START_INTERVAL_SECONDS - (microtime(true) - $lastStart);
-    if ($wait > 0) usleep((int)ceil($wait * 1000000));
-
-    $reservedAt = microtime(true);
-    ftruncate($handle, 0);
-    rewind($handle);
-    fwrite($handle, sprintf('%.6F', $reservedAt));
-    fflush($handle);
-    flock($handle, LOCK_UN);
-    fclose($handle);
-    $lastStartInRequest = $reservedAt;
+    return [
+        'success' => $success,
+        'link' => $link,
+        'http' => $httpCode,
+        'error' => $curlError,
+    ];
 }
 
 function checkMassIsValidCandidateLink($link)
 {
     $parts = parse_url(trim((string)$link));
     return is_array($parts)
-        && strtolower((string)($parts['scheme'] ?? '')) === 'https'
-        && strtolower((string)($parts['host'] ?? '')) === 'trcol.ru'
+        && in_array(strtolower((string)($parts['scheme'] ?? '')), ['http', 'https'], true)
+        && trim((string)($parts['host'] ?? '')) !== ''
         && trim((string)($parts['path'] ?? ''), '/') !== '';
 }
 
@@ -286,39 +296,45 @@ if ($checkMassRetryRequest) {
         exit;
     }
 
-    $errors = [];
-    $workflowId = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
-    if ($workflowId === false) {
+    $generated = checkMassReadGeneratedLink($elementId);
+    if (!preg_match('/^\d{4}$/', $generated['password'])) {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'message' => 'Не удалось запустить процесс ID 328: ' . checkMassWorkflowErrorsText($errors),
+            'message' => 'В анкете нет корректного 4-значного пароля.',
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
-    $generated = ['link' => '', 'password' => ''];
-    for ($attempt = 0; $attempt < 20; $attempt++) {
-        $generated = checkMassReadGeneratedLink($elementId);
-        if (checkMassIsValidCandidateLink($generated['link'])) break;
-        usleep(500000);
+    $apiResult = checkMassRequestCandidateLink($elementId, $generated['password']);
+    if (!$apiResult['success']) {
+        http_response_code(502);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Не удалось получить ссылку от API (HTTP ' . $apiResult['http'] . '). Попробуйте ещё раз.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
-    $valid = checkMassIsValidCandidateLink($generated['link']);
-    if (!$valid) {
-        checkMassLog('Candidate link retry returned invalid link', [
-            'element_id' => $elementId,
-            'workflow_id' => $workflowId,
-            'link' => $generated['link'],
-        ]);
+
+    CIBlockElement::SetPropertyValuesEx($elementId, CANDIDATE_IBLOCK_ID, [
+        CANDIDATE_LINK_PROPERTY_ID => $apiResult['link'],
+    ]);
+    $saved = checkMassReadGeneratedLink($elementId);
+    $valid = $saved['link'] === $apiResult['link'] && checkMassIsValidCandidateLink($saved['link']);
+    $workflowId = false;
+    if ($valid) {
+        $errors = [];
+        $workflowId = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+        $valid = $workflowId !== false;
     }
     echo json_encode([
         'success' => $valid,
         'workflow_id' => $workflowId,
-        'link' => $generated['link'],
-        'password' => $generated['password'],
+        'link' => $saved['link'],
+        'password' => $saved['password'],
         'message' => $valid
-            ? 'Ссылка сгенерирована, список обновлён.'
-            : 'Процесс ID 328 завершился без корректной ссылки. Попробуйте запустить его ещё раз.',
+            ? 'Ссылка получена и процесс ID 328 запущен.'
+            : 'Ссылка получена, но не удалось сохранить её или запустить процесс ID 328.',
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
@@ -836,6 +852,7 @@ if ($doProcess) {
             'debug'     => $debug
         ];
 
+        $candidatePassword = (string)random_int(1000, 9999);
         $properties = [
             1083 => $ln,
             1084 => $fn,
@@ -846,6 +863,7 @@ if ($doProcess) {
             1323 => $assignedRecruiter,
             CANDIDATE_FW_ID_PROPERTY_ID => (string)$candidateId,
             VACANCY_FW_ID_PROPERTY_ID => (string)$jobId,
+            CANDIDATE_PASSWORD_PROPERTY_ID => $candidatePassword,
         ];
 
         // Serialize the final duplicate check and insert. This also protects
@@ -888,17 +906,9 @@ if ($doProcess) {
                 'PHONE'     => $phone,
                 'RECRUITER' => $assignedRecruiter,
                 'LINK'      => '',
-                'PASSWORD'  => ''
+                'PASSWORD'  => $candidatePassword
             ];
-
-            $errors = [];
-            $wfId1 = checkMassStartListWorkflow(CANDIDATE_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
-            if ($wfId1 !== false) {
-                echo "<span style='color:blue'>БП #1 запущен: " . htmlspecialchars((string)$wfId1) . "</span><br>";
-            } else {
-                echo "<span style='color:red'>Не удалось запустить БП #1: "
-                    . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
-            }
+            echo "Пароль: <b>" . htmlspecialchars($candidatePassword) . "</b><br>";
 
             $dateNow = date("Y-m-d\TH:i:s");
             $payloadStatus = [
@@ -929,38 +939,35 @@ if ($doProcess) {
         }
     }
 
-    echo "<h2>Запуск БП #2</h2>";
+    echo "<h2>Получение ссылок и запуск процесса ID 328</h2>";
     foreach ($createdElements as $elementId) {
-        $errors = [];
-        $wfId2 = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
         echo "<hr>Анкета $elementId — ";
-        if ($wfId2 !== false) {
-            echo "БП #2 запущен: " . htmlspecialchars((string)$wfId2) . "<br>";
-        } else {
-            echo "<span style='color:red'>не удалось запустить БП #2: "
-                . htmlspecialchars(checkMassWorkflowErrorsText($errors)) . "</span><br>";
-        }
-        $link = '';
-        $password = '';
-        for ($i = 0; $i < 10; $i++) {
-            $generated = checkMassReadGeneratedLink($elementId);
-            $link = $generated['link'];
-            $password = $generated['password'];
-            if ($link || $password) break;
-            usleep(500000);
+        $password = $elementData[$elementId]['PASSWORD'];
+        $apiResult = checkMassRequestCandidateLink($elementId, $password);
+        $link = $apiResult['link'];
+        $wfId2 = false;
+        if ($apiResult['success']) {
+            CIBlockElement::SetPropertyValuesEx($elementId, CANDIDATE_IBLOCK_ID, [
+                CANDIDATE_LINK_PROPERTY_ID => $link,
+            ]);
+            $saved = checkMassReadGeneratedLink($elementId);
+            if ($saved['link'] === $link) {
+                $errors = [];
+                $wfId2 = checkMassStartListWorkflow(LINK_WORKFLOW_TEMPLATE_ID, $elementId, $errors);
+            }
         }
         $elementData[$elementId]['LINK'] = $link;
-        $elementData[$elementId]['PASSWORD'] = $password;
         echo "Ссылка: <b data-link-value='" . (int)$elementId . "'>" . htmlspecialchars((string)$link) . "</b><br>";
-        if (!checkMassIsValidCandidateLink($link)) {
+        if (!$apiResult['success'] || $wfId2 === false) {
             $elementData[$elementId]['LINK_INVALID'] = true;
             echo "<div data-link-result='" . (int)$elementId . "' style='margin:6px 0;padding:8px;border:1px solid #d99;background:#fff4e5;color:#8a4b00'>"
-                . "⚠️ Создана некорректная ссылка. Нужно сгенерировать ссылку заново, запустив процесс ID 328."
-                . " <button type='button' data-link-retry='" . (int)$elementId . "' onclick='checkMassRetryLink(" . (int)$elementId . ", this)'>Запустить ID 328 и обновить список</button>"
+                . "⚠️ Не удалось получить/сохранить ссылку или запустить ID 328."
+                . " <button type='button' data-link-retry='" . (int)$elementId . "' onclick='checkMassRetryLink(" . (int)$elementId . ", this)'>Повторить получение ссылки</button>"
                 . "</div>";
             checkMassLog('Invalid candidate link generated', [
                 'element_id' => (int)$elementId,
                 'workflow_id' => $wfId2,
+                'api_http' => $apiResult['http'],
                 'link' => (string)$link,
             ]);
         }
@@ -1009,7 +1016,7 @@ if ($doProcess) {
             .catch(function(error) {
                 alert(error.message);
                 buttons.forEach(function(item) { item.disabled = false; });
-                button.textContent = 'Запустить ID 328 и обновить список';
+                button.textContent = 'Повторить получение ссылки';
             });
     }
     </script>";
@@ -1039,8 +1046,8 @@ if ($doProcess) {
             $safeLink = htmlspecialchars((string)$d['LINK'], ENT_QUOTES);
             echo "<a href='{$safeLink}' target='_blank' rel='noopener noreferrer'>{$safeLink}</a>";
         } elseif (!empty($d['LINK_INVALID'])) {
-            echo "<span style='color:#b35c00;font-weight:bold'>⚠️ Некорректная ссылка.</span> "
-                . "<button type='button' data-link-retry='" . (int)$eid . "' onclick='checkMassRetryLink(" . (int)$eid . ", this)'>Запустить ID 328 и обновить список</button>";
+            echo "<span style='color:#b35c00;font-weight:bold'>⚠️ Ссылка не получена или процесс ID 328 не запущен.</span> "
+                . "<button type='button' data-link-retry='" . (int)$eid . "' onclick='checkMassRetryLink(" . (int)$eid . ", this)'>Повторить получение ссылки</button>";
         } else {
             echo "-";
         }
