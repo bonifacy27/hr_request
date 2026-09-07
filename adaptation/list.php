@@ -552,7 +552,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $bpErrors = [];
         $workflowId = CBPDocument::StartWorkflow(
             START_ADAPTATION_WORKFLOW_ID,
-            ['lists', 'BizprocDocument', $elementId],
+            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
             [],
             $bpErrors
         );
