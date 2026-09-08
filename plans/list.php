@@ -41,6 +41,7 @@ const PROP_STATUS_COLOR = 3168;
 const PROP_EMPLOYEE_CARD = 2801;
 const EMPLOYEE_CARD_IBLOCK_ID = 196;
 const PROP_PVD_CREATED_AT = 3064;
+const EMPLOYEE_CARD_VIEW_URL = '/forms/staff_recruitment/adaptation/view.php?id=';
 const PVD_REVIEW_TASK_TYPE_ID = 3347538;
 const COMPLETED_TASK_STATUS_ID = 3347534;
 const PAGE_SIZE = 20;
@@ -406,6 +407,7 @@ while ($plan = $plansResult->Fetch()) {
     ]);
     $plan['BP_TASK_ID'] = currentPlanTaskId((int)$plan['ID'], $currentUserId);
     $employeeCardId = (int)($plan['PROPERTY_' . PROP_EMPLOYEE_CARD . '_VALUE'] ?? 0);
+    $plan['EMPLOYEE_CARD_ID'] = $employeeCardId;
     $plan['PVD_CREATED_AT'] = loadPvdCreatedAt($employeeCardId);
     $plan['PVD_IS_MISSING'] = !$plan['PVD_TASKS'] && !$plan['KPI_TASKS']
         && isLessThanDayBeforeEmployment($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?? '');
@@ -455,6 +457,9 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
 .plans-list-page .task-modal { position:fixed; top:50%; left:50%; z-index:9999; display:none; width:min(700px,92vw); max-height:85vh; transform:translate(-50%,-50%); overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
 .plans-list-page .task-modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .task-modal-body { max-height:calc(85vh - 58px); padding:16px; overflow:auto; }
+.plans-list-page .task-modal.is-employee-card { width:min(1100px,96vw); height:90vh; max-height:90vh; }
+.plans-list-page .task-modal.is-employee-card .task-modal-body { height:calc(90vh - 58px); max-height:none; padding:0; overflow:hidden; }
+.plans-list-page .employee-card-frame { display:block; width:100%; height:100%; border:0; background:#fff; }
 .plans-list-page .task-modal-close { border:0; background:none; font-size:26px; line-height:1; cursor:pointer; }
 .plans-list-page .task-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:14px; border:1px solid #dfe3e8; border-radius:8px; background:#f8f9fa; font-size:16px; }
 .plans-list-page .task-card-head .task-status { flex:0 0 auto; font-size:12px; }
@@ -537,7 +542,11 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                 ?>
                 <tr class="<?= h($rowClass) ?>">
                     <td class="fio-column">
-                        <?= h($plan['NAME']) ?>
+                        <?php if ((int)$plan['EMPLOYEE_CARD_ID'] > 0): ?>
+                            <button type="button" class="task-name js-employee-card" data-url="<?= h(EMPLOYEE_CARD_VIEW_URL . (int)$plan['EMPLOYEE_CARD_ID']) ?>" data-name="<?= h($plan['NAME']) ?>"><?= h($plan['NAME']) ?></button>
+                        <?php else: ?>
+                            <?= h($plan['NAME']) ?>
+                        <?php endif; ?>
                         <?php if ($plan['PVD_IS_MISSING']): ?>
                             <span class="plan-notice">ПВД не заполнен.</span>
                         <?php endif; ?>
@@ -607,6 +616,7 @@ document.addEventListener('change', function (event) {
     function closeModal() {
         modal.style.display = 'none';
         backdrop.style.display = 'none';
+        modal.classList.remove('is-employee-card');
         body.innerHTML = '';
     }
 
@@ -630,6 +640,19 @@ document.addEventListener('change', function (event) {
                 backdrop.style.display = 'block';
                 modal.style.display = 'block';
             }
+        }
+        var employeeTrigger = event.target.closest('.js-employee-card');
+        if (employeeTrigger) {
+            modal.classList.add('is-employee-card');
+            title.textContent = 'Карточка сотрудника: ' + employeeTrigger.getAttribute('data-name');
+            var frame = document.createElement('iframe');
+            frame.className = 'employee-card-frame';
+            frame.src = employeeTrigger.getAttribute('data-url');
+            frame.title = title.textContent;
+            body.innerHTML = '';
+            body.appendChild(frame);
+            backdrop.style.display = 'block';
+            modal.style.display = 'block';
         }
         if (event.target.closest('.js-task-modal-close')) {
             closeModal();
