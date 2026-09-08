@@ -314,13 +314,61 @@ function renderTaskTable(array $tasks, $type, $title)
 }
 $request = Context::getCurrent()->getRequest();
 $search = trim((string)$request->get('q'));
+$managerFilter = max(0, (int)$request->get('manager'));
+$recruiterFilter = max(0, (int)$request->get('recruiter'));
+$missingPvdFilter = (string)$request->get('pvd_missing') === 'Y';
+$sortField = (string)$request->get('sort') === 'name' ? 'name' : 'employment';
+$sortDirection = strtoupper((string)$request->get('order')) === 'ASC' ? 'ASC' : 'DESC';
+$sort = $sortField === 'name'
+    ? ['NAME' => $sortDirection, 'ID' => 'DESC']
+    : ['PROPERTY_' . PROP_EMPLOYMENT_DATE => $sortDirection, 'ID' => 'DESC'];
+
+$managerIds = [];
+$recruiterIds = [];
+$filteredPlanIds = [];
+$filterCandidates = CIBlockElement::GetList(
+    ['ID' => 'DESC'],
+    ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+    false,
+    false,
+    ['ID', 'PROPERTY_' . PROP_MANAGER, 'PROPERTY_' . PROP_RECRUITER,
+        'PROPERTY_' . PROP_EMPLOYMENT_DATE]
+);
+while ($candidate = $filterCandidates->Fetch()) {
+    $candidateManagerId = userIdFromPlanValue($candidate['PROPERTY_' . PROP_MANAGER . '_VALUE'] ?? '');
+    $candidateRecruiterId = userIdFromPlanValue($candidate['PROPERTY_' . PROP_RECRUITER . '_VALUE'] ?? '');
+    if ($candidateManagerId > 0) {
+        $managerIds[$candidateManagerId] = $candidateManagerId;
+    }
+    if ($candidateRecruiterId > 0) {
+        $recruiterIds[$candidateRecruiterId] = $candidateRecruiterId;
+    }
+    if ($managerFilter > 0 && $candidateManagerId !== $managerFilter) {
+        continue;
+    }
+    if ($recruiterFilter > 0 && $candidateRecruiterId !== $recruiterFilter) {
+        continue;
+    }
+    if ($missingPvdFilter && (
+        loadLinkedIds((int)$candidate['ID'], PROP_PVD_TASKS)
+        || loadLinkedIds((int)$candidate['ID'], PROP_KPI_TASKS)
+        || !isLessThanDayBeforeEmployment($candidate['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?? '')
+    )) {
+        continue;
+    }
+    $filteredPlanIds[] = (int)$candidate['ID'];
+}
+
 $filter = ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'];
 if ($search !== '') {
     $filter['%NAME'] = $search;
 }
+if ($managerFilter > 0 || $recruiterFilter > 0 || $missingPvdFilter) {
+    $filter['ID'] = $filteredPlanIds ?: [-1];
+}
 
 $plansResult = CIBlockElement::GetList(
-    ['ID' => 'DESC'],
+    $sort,
     $filter,
     false,
     ['nPageSize' => PAGE_SIZE, 'bShowAll' => false],
@@ -330,7 +378,7 @@ $plansResult = CIBlockElement::GetList(
 );
 
 $plans = [];
-$userIds = [];
+$userIds = array_merge(array_values($managerIds), array_values($recruiterIds));
 $currentUserId = (int)$USER->GetID();
 while ($plan = $plansResult->Fetch()) {
     $managerId = userIdFromPlanValue($plan['PROPERTY_' . PROP_MANAGER . '_VALUE'] ?? '');
@@ -372,13 +420,22 @@ while ($plan = $plansResult->Fetch()) {
     $plans[] = $plan;
 }
 $userNames = loadUserNames($userIds);
+$managerNames = array_intersect_key($userNames, $managerIds);
+$recruiterNames = array_intersect_key($userNames, $recruiterIds);
+asort($managerNames, SORT_NATURAL | SORT_FLAG_CASE);
+asort($recruiterNames, SORT_NATURAL | SORT_FLAG_CASE);
+$nameSortOrder = $sortField === 'name' && $sortDirection === 'ASC' ? 'DESC' : 'ASC';
+$employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' ? 'ASC' : 'DESC';
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
 .plans-list-page { padding:16px 24px; }
 .plans-list-page .table > thead > tr > th { white-space:nowrap; vertical-align:middle; }
 .plans-list-page .table > tbody > tr > td { vertical-align:top; }
-.plans-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; padding:12px 14px; }
+.plans-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; padding:12px 14px; flex-wrap:wrap; }
+.plans-list-page .fio-column { width:20%; max-width:20%; overflow-wrap:anywhere; }
+.plans-list-page .sort-link { color:inherit; text-decoration:none; }
+.plans-list-page .sort-link:hover { color:inherit; text-decoration:underline; }
 .plans-list-page .plan-task-table { width:100%; min-width:260px; border-collapse:collapse; font-size:12px; }
 .plans-list-page .plan-task-table td { padding:4px 6px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .plan-task-table td:last-child { width:35%; white-space:nowrap; }
@@ -425,12 +482,36 @@ $userNames = loadUserNames($userIds);
     <h2 class="mb-3">Планы ввода в должность</h2>
     <form method="get" class="card mb-3">
         <div class="filter-toolbar">
+            <input type="hidden" name="sort" value="<?= h($sortField) ?>">
+            <input type="hidden" name="order" value="<?= h($sortDirection) ?>">
             <div style="width:360px;max-width:100%;">
                 <label class="mb-1" for="plans-search">Поиск по ФИО</label>
                 <input id="plans-search" type="text" name="q" value="<?= h($search) ?>" class="form-control form-control-sm" placeholder="Введите ФИО">
             </div>
+            <div style="min-width:220px;">
+                <label class="mb-1" for="plans-manager">Руководитель</label>
+                <select id="plans-manager" name="manager" class="form-control form-control-sm">
+                    <option value="">Все руководители</option>
+                    <?php foreach ($managerNames as $userId => $userName): ?>
+                        <option value="<?= (int)$userId ?>"<?= (int)$userId === $managerFilter ? ' selected' : '' ?>><?= h($userName) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="min-width:220px;">
+                <label class="mb-1" for="plans-recruiter">Рекрутер</label>
+                <select id="plans-recruiter" name="recruiter" class="form-control form-control-sm">
+                    <option value="">Все рекрутеры</option>
+                    <?php foreach ($recruiterNames as $userId => $userName): ?>
+                        <option value="<?= (int)$userId ?>"<?= (int)$userId === $recruiterFilter ? ' selected' : '' ?>><?= h($userName) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-check mb-1">
+                <input id="plans-pvd-missing" type="checkbox" name="pvd_missing" value="Y" class="form-check-input"<?= $missingPvdFilter ? ' checked' : '' ?>>
+                <label class="form-check-label" for="plans-pvd-missing">ПВД не заполнен</label>
+            </div>
             <button type="submit" class="btn btn-primary btn-sm">Применить</button>
-            <a href="<?= h(buildUrl([], ['q', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+            <a href="<?= h(buildUrl([], ['q', 'manager', 'recruiter', 'pvd_missing', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
         </div>
     </form>
 
@@ -438,7 +519,10 @@ $userNames = loadUserNames($userIds);
     <div class="table-responsive">
         <table class="table table-sm table-bordered table-hover">
             <thead class="thead-dark"><tr>
-                <th>ФИО</th><th>Руководитель</th><th>ИС</th><th>Рекрутер</th>
+                <th class="fio-column"><a class="sort-link" href="<?= h(buildUrl(['sort' => 'name', 'order' => $nameSortOrder], ['PAGEN_1'])) ?>">ФИО<?= $sortField === 'name' ? ($sortDirection === 'ASC' ? ' ↑' : ' ↓') : '' ?></a></th>
+                <th>Руководитель</th>
+                <th><a class="sort-link" href="<?= h(buildUrl(['sort' => 'employment', 'order' => $employmentSortOrder], ['PAGEN_1'])) ?>">ИС<?= $sortField === 'employment' ? ($sortDirection === 'ASC' ? ' ↑' : ' ↓') : '' ?></a></th>
+                <th>Рекрутер</th>
                 <th>Задачи</th><th>ПВД</th><th>Действия</th>
             </tr></thead>
             <tbody>
@@ -452,7 +536,7 @@ $userNames = loadUserNames($userIds);
                 $rowClass = $plan['PVD_IS_MISSING'] ? 'plan-critical' : ($plan['PVD_REVIEW_IS_PENDING'] ? 'plan-attention' : '');
                 ?>
                 <tr class="<?= h($rowClass) ?>">
-                    <td>
+                    <td class="fio-column">
                         <?= h($plan['NAME']) ?>
                         <?php if ($plan['PVD_IS_MISSING']): ?>
                             <span class="plan-notice">ПВД не заполнен.</span>
