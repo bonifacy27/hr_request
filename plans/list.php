@@ -35,8 +35,15 @@ const PROP_RECRUITER = 2796;
 const PROP_PVD_TASKS = 2761;
 const PROP_KPI_TASKS = 2769;
 const PROP_PVD_STATUS = 2767;
+const PROP_PVD_TASK_TYPE = 2764;
 const PROP_KPI_STATUS = 2805;
 const PROP_STATUS_COLOR = 3168;
+const PROP_EMPLOYEE_CARD = 2801;
+const EMPLOYEE_CARD_IBLOCK_ID = 196;
+const PROP_PVD_CREATED_AT = 3064;
+const EMPLOYEE_CARD_VIEW_URL = '/forms/staff_recruitment/adaptation/view.php?id=';
+const PVD_REVIEW_TASK_TYPE_ID = 3347538;
+const COMPLETED_TASK_STATUS_ID = 3347534;
 const PAGE_SIZE = 20;
 
 function h($value)
@@ -135,7 +142,7 @@ function currentTaskExecutors($elementId, $iblockId)
     return array_values(array_filter(array_unique($names)));
 }
 
-function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields)
+function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields, $typePropertyId = 0)
 {
     $result = [];
     if (!$ids) {
@@ -143,6 +150,9 @@ function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields
     }
 
     $select = ['ID', 'NAME', 'PROPERTY_' . (int)$statusPropertyId];
+    if ($typePropertyId > 0) {
+        $select[] = 'PROPERTY_' . (int)$typePropertyId;
+    }
     foreach ($detailFields as $propertyId => $label) {
         $select[] = 'PROPERTY_' . (int)$propertyId;
     }
@@ -183,12 +193,43 @@ function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields
             'ID' => (int)$task['ID'],
             'NAME' => (string)$task['NAME'],
             'STATUS' => $status,
+            'STATUS_ID' => $statusId,
+            'TYPE_ID' => $typePropertyId > 0
+                ? (int)($task['PROPERTY_' . (int)$typePropertyId . '_VALUE'] ?? 0)
+                : 0,
             'STATUS_COLOR' => $statusColor,
             'EXECUTORS' => currentTaskExecutors((int)$task['ID'], (int)$iblockId),
             'DETAILS' => $details,
         ];
     }
     return $result;
+}
+
+function loadPvdCreatedAt($employeeCardId)
+{
+    if ((int)$employeeCardId <= 0) {
+        return '';
+    }
+    $property = CIBlockElement::GetProperty(
+        EMPLOYEE_CARD_IBLOCK_ID,
+        (int)$employeeCardId,
+        ['sort' => 'asc', 'id' => 'asc'],
+        ['ID' => PROP_PVD_CREATED_AT]
+    )->Fetch();
+    return trim((string)($property['VALUE'] ?? ''));
+}
+
+function isLessThanDayBeforeEmployment($dateValue)
+{
+    $dateValue = trim((string)$dateValue);
+    if ($dateValue === '') {
+        return false;
+    }
+    $timestamp = MakeTimeStamp($dateValue);
+    if (!$timestamp) {
+        $timestamp = strtotime($dateValue);
+    }
+    return $timestamp !== false && ($timestamp - time()) < 86400;
 }
 function currentPlanTaskId($planId, $userId)
 {
@@ -274,22 +315,71 @@ function renderTaskTable(array $tasks, $type, $title)
 }
 $request = Context::getCurrent()->getRequest();
 $search = trim((string)$request->get('q'));
+$managerFilter = max(0, (int)$request->get('manager'));
+$recruiterFilter = max(0, (int)$request->get('recruiter'));
+$missingPvdFilter = (string)$request->get('pvd_missing') === 'Y';
+$sortField = (string)$request->get('sort') === 'name' ? 'name' : 'employment';
+$sortDirection = strtoupper((string)$request->get('order')) === 'ASC' ? 'ASC' : 'DESC';
+$sort = $sortField === 'name'
+    ? ['NAME' => $sortDirection, 'ID' => 'DESC']
+    : ['PROPERTY_' . PROP_EMPLOYMENT_DATE => $sortDirection, 'ID' => 'DESC'];
+
+$managerIds = [];
+$recruiterIds = [];
+$filteredPlanIds = [];
+$filterCandidates = CIBlockElement::GetList(
+    ['ID' => 'DESC'],
+    ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+    false,
+    false,
+    ['ID', 'PROPERTY_' . PROP_MANAGER, 'PROPERTY_' . PROP_RECRUITER,
+        'PROPERTY_' . PROP_EMPLOYMENT_DATE]
+);
+while ($candidate = $filterCandidates->Fetch()) {
+    $candidateManagerId = userIdFromPlanValue($candidate['PROPERTY_' . PROP_MANAGER . '_VALUE'] ?? '');
+    $candidateRecruiterId = userIdFromPlanValue($candidate['PROPERTY_' . PROP_RECRUITER . '_VALUE'] ?? '');
+    if ($candidateManagerId > 0) {
+        $managerIds[$candidateManagerId] = $candidateManagerId;
+    }
+    if ($candidateRecruiterId > 0) {
+        $recruiterIds[$candidateRecruiterId] = $candidateRecruiterId;
+    }
+    if ($managerFilter > 0 && $candidateManagerId !== $managerFilter) {
+        continue;
+    }
+    if ($recruiterFilter > 0 && $candidateRecruiterId !== $recruiterFilter) {
+        continue;
+    }
+    if ($missingPvdFilter && (
+        loadLinkedIds((int)$candidate['ID'], PROP_PVD_TASKS)
+        || loadLinkedIds((int)$candidate['ID'], PROP_KPI_TASKS)
+        || !isLessThanDayBeforeEmployment($candidate['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?? '')
+    )) {
+        continue;
+    }
+    $filteredPlanIds[] = (int)$candidate['ID'];
+}
+
 $filter = ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'];
 if ($search !== '') {
     $filter['%NAME'] = $search;
 }
+if ($managerFilter > 0 || $recruiterFilter > 0 || $missingPvdFilter) {
+    $filter['ID'] = $filteredPlanIds ?: [-1];
+}
 
 $plansResult = CIBlockElement::GetList(
-    ['ID' => 'DESC'],
+    $sort,
     $filter,
     false,
     ['nPageSize' => PAGE_SIZE, 'bShowAll' => false],
     ['ID', 'NAME', 'PROPERTY_' . PROP_MANAGER, 'PROPERTY_' . PROP_EMPLOYMENT_DATE,
-        'PROPERTY_' . PROP_TRIAL_END_DATE, 'PROPERTY_' . PROP_RECRUITER]
+        'PROPERTY_' . PROP_TRIAL_END_DATE, 'PROPERTY_' . PROP_RECRUITER,
+        'PROPERTY_' . PROP_EMPLOYEE_CARD]
 );
 
 $plans = [];
-$userIds = [];
+$userIds = array_merge(array_values($managerIds), array_values($recruiterIds));
 $currentUserId = (int)$USER->GetID();
 while ($plan = $plansResult->Fetch()) {
     $managerId = userIdFromPlanValue($plan['PROPERTY_' . PROP_MANAGER . '_VALUE'] ?? '');
@@ -306,7 +396,7 @@ while ($plan = $plansResult->Fetch()) {
         2762 => 'Фактический результат',
         2807 => 'Планируемый срок исполнения',
         2806 => 'Фактический срок исполнения',
-    ]);
+    ], PROP_PVD_TASK_TYPE);
     $plan['KPI_TASKS'] = loadTasks($kpiIds, KPI_TASK_IBLOCK_ID, PROP_KPI_STATUS, [
         2785 => 'Планируемый результат',
         2791 => 'Фактический результат',
@@ -316,16 +406,38 @@ while ($plan = $plansResult->Fetch()) {
         2804 => 'Процент выполнения (%)',
     ]);
     $plan['BP_TASK_ID'] = currentPlanTaskId((int)$plan['ID'], $currentUserId);
+    $employeeCardId = (int)($plan['PROPERTY_' . PROP_EMPLOYEE_CARD . '_VALUE'] ?? 0);
+    $plan['EMPLOYEE_CARD_ID'] = $employeeCardId;
+    $plan['PVD_CREATED_AT'] = loadPvdCreatedAt($employeeCardId);
+    $plan['PVD_IS_MISSING'] = !$plan['PVD_TASKS'] && !$plan['KPI_TASKS']
+        && isLessThanDayBeforeEmployment($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?? '');
+    $plan['PVD_REVIEW_IS_PENDING'] = false;
+    foreach ($plan['PVD_TASKS'] as $pvdTask) {
+        if ((int)$pvdTask['TYPE_ID'] === PVD_REVIEW_TASK_TYPE_ID
+            && (int)$pvdTask['STATUS_ID'] !== COMPLETED_TASK_STATUS_ID) {
+            $plan['PVD_REVIEW_IS_PENDING'] = true;
+            break;
+        }
+    }
     $plans[] = $plan;
 }
 $userNames = loadUserNames($userIds);
+$managerNames = array_intersect_key($userNames, $managerIds);
+$recruiterNames = array_intersect_key($userNames, $recruiterIds);
+asort($managerNames, SORT_NATURAL | SORT_FLAG_CASE);
+asort($recruiterNames, SORT_NATURAL | SORT_FLAG_CASE);
+$nameSortOrder = $sortField === 'name' && $sortDirection === 'ASC' ? 'DESC' : 'ASC';
+$employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' ? 'ASC' : 'DESC';
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
 .plans-list-page { padding:16px 24px; }
 .plans-list-page .table > thead > tr > th { white-space:nowrap; vertical-align:middle; }
 .plans-list-page .table > tbody > tr > td { vertical-align:top; }
-.plans-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; padding:12px 14px; }
+.plans-list-page .filter-toolbar { display:flex; align-items:flex-end; gap:12px; padding:12px 14px; flex-wrap:wrap; }
+.plans-list-page .fio-column { width:20%; max-width:20%; overflow-wrap:anywhere; }
+.plans-list-page .sort-link { color:inherit; text-decoration:none; }
+.plans-list-page .sort-link:hover { color:inherit; text-decoration:underline; }
 .plans-list-page .plan-task-table { width:100%; min-width:260px; border-collapse:collapse; font-size:12px; }
 .plans-list-page .plan-task-table td { padding:4px 6px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .plan-task-table td:last-child { width:35%; white-space:nowrap; }
@@ -345,6 +457,9 @@ $userNames = loadUserNames($userIds);
 .plans-list-page .task-modal { position:fixed; top:50%; left:50%; z-index:9999; display:none; width:min(700px,92vw); max-height:85vh; transform:translate(-50%,-50%); overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
 .plans-list-page .task-modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #dee2e6; }
 .plans-list-page .task-modal-body { max-height:calc(85vh - 58px); padding:16px; overflow:auto; }
+.plans-list-page .task-modal.is-employee-card { width:min(1100px,96vw); height:90vh; max-height:90vh; }
+.plans-list-page .task-modal.is-employee-card .task-modal-body { height:calc(90vh - 58px); max-height:none; padding:0; overflow:hidden; }
+.plans-list-page .employee-card-frame { display:block; width:100%; height:100%; border:0; background:#fff; }
 .plans-list-page .task-modal-close { border:0; background:none; font-size:26px; line-height:1; cursor:pointer; }
 .plans-list-page .task-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:14px; border:1px solid #dfe3e8; border-radius:8px; background:#f8f9fa; font-size:16px; }
 .plans-list-page .task-card-head .task-status { flex:0 0 auto; font-size:12px; }
@@ -359,18 +474,49 @@ $userNames = loadUserNames($userIds);
 .plans-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .plans-list-page .pagination a, .plans-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .plans-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
+.plans-list-page tr.plan-attention > td { background:#fff3cd; }
+.plans-list-page tr.plan-critical > td { background:#f8d7da; }
+.plans-list-page .plan-notice { display:block; margin-top:6px; padding:5px 7px; border-radius:4px; background:rgba(255,255,255,.72); color:#721c24; font-size:12px; font-weight:600; line-height:1.35; }
+.plans-list-page .pvd-document { min-width:90px; text-align:center; }
+.plans-list-page .pvd-date { display:block; margin-bottom:4px; color:#6c757d; font-size:10px; line-height:1.2; }
+.plans-list-page .pdf-link { display:inline-flex; align-items:center; justify-content:center; width:38px; height:42px; border-radius:4px; background:#c82333; color:#fff; font-size:11px; font-weight:700; text-decoration:none; box-shadow:0 1px 2px rgba(0,0,0,.2); }
+.plans-list-page .pdf-link:hover { background:#a71d2a; color:#fff; text-decoration:none; }
 </style>
 
 <div class="container-fluid plans-list-page">
     <h2 class="mb-3">Планы ввода в должность</h2>
     <form method="get" class="card mb-3">
         <div class="filter-toolbar">
+            <input type="hidden" name="sort" value="<?= h($sortField) ?>">
+            <input type="hidden" name="order" value="<?= h($sortDirection) ?>">
             <div style="width:360px;max-width:100%;">
                 <label class="mb-1" for="plans-search">Поиск по ФИО</label>
                 <input id="plans-search" type="text" name="q" value="<?= h($search) ?>" class="form-control form-control-sm" placeholder="Введите ФИО">
             </div>
+            <div style="min-width:220px;">
+                <label class="mb-1" for="plans-manager">Руководитель</label>
+                <select id="plans-manager" name="manager" class="form-control form-control-sm">
+                    <option value="">Все руководители</option>
+                    <?php foreach ($managerNames as $userId => $userName): ?>
+                        <option value="<?= (int)$userId ?>"<?= (int)$userId === $managerFilter ? ' selected' : '' ?>><?= h($userName) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="min-width:220px;">
+                <label class="mb-1" for="plans-recruiter">Рекрутер</label>
+                <select id="plans-recruiter" name="recruiter" class="form-control form-control-sm">
+                    <option value="">Все рекрутеры</option>
+                    <?php foreach ($recruiterNames as $userId => $userName): ?>
+                        <option value="<?= (int)$userId ?>"<?= (int)$userId === $recruiterFilter ? ' selected' : '' ?>><?= h($userName) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="form-check mb-1">
+                <input id="plans-pvd-missing" type="checkbox" name="pvd_missing" value="Y" class="form-check-input"<?= $missingPvdFilter ? ' checked' : '' ?>>
+                <label class="form-check-label" for="plans-pvd-missing">ПВД не заполнен</label>
+            </div>
             <button type="submit" class="btn btn-primary btn-sm">Применить</button>
-            <a href="<?= h(buildUrl([], ['q', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+            <a href="<?= h(buildUrl([], ['q', 'manager', 'recruiter', 'pvd_missing', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
         </div>
     </form>
 
@@ -378,26 +524,50 @@ $userNames = loadUserNames($userIds);
     <div class="table-responsive">
         <table class="table table-sm table-bordered table-hover">
             <thead class="thead-dark"><tr>
-                <th>ФИО</th><th>Руководитель</th><th>ИС</th><th>Рекрутер</th>
-                <th>Задачи</th><th>Действия</th>
+                <th class="fio-column"><a class="sort-link" href="<?= h(buildUrl(['sort' => 'name', 'order' => $nameSortOrder], ['PAGEN_1'])) ?>">ФИО<?= $sortField === 'name' ? ($sortDirection === 'ASC' ? ' ↑' : ' ↓') : '' ?></a></th>
+                <th>Руководитель</th>
+                <th><a class="sort-link" href="<?= h(buildUrl(['sort' => 'employment', 'order' => $employmentSortOrder], ['PAGEN_1'])) ?>">ИС<?= $sortField === 'employment' ? ($sortDirection === 'ASC' ? ' ↑' : ' ↓') : '' ?></a></th>
+                <th>Рекрутер</th>
+                <th>Задачи</th><th>ПВД</th><th>Действия</th>
             </tr></thead>
             <tbody>
             <?php if (!$plans): ?>
-                <tr><td colspan="6" class="text-muted">Планы не найдены.</td></tr>
+                <tr><td colspan="7" class="text-muted">Планы не найдены.</td></tr>
             <?php else: foreach ($plans as $plan): ?>
                 <?php
                 $planId = (int)$plan['ID'];
                 $taskId = (int)$plan['BP_TASK_ID'];
                 $reportUrl = '/forms/staff_recruitment/onboarding_plan_report.php?PLAN_ID=' . $planId;
+                $rowClass = $plan['PVD_IS_MISSING'] ? 'plan-critical' : ($plan['PVD_REVIEW_IS_PENDING'] ? 'plan-attention' : '');
                 ?>
-                <tr>
-                    <td><?= h($plan['NAME']) ?></td>
+                <tr class="<?= h($rowClass) ?>">
+                    <td class="fio-column">
+                        <?php if ((int)$plan['EMPLOYEE_CARD_ID'] > 0): ?>
+                            <button type="button" class="task-name js-employee-card" data-url="<?= h(EMPLOYEE_CARD_VIEW_URL . (int)$plan['EMPLOYEE_CARD_ID']) ?>" data-name="<?= h($plan['NAME']) ?>"><?= h($plan['NAME']) ?></button>
+                        <?php else: ?>
+                            <?= h($plan['NAME']) ?>
+                        <?php endif; ?>
+                        <?php if ($plan['PVD_IS_MISSING']): ?>
+                            <span class="plan-notice">ПВД не заполнен.</span>
+                        <?php endif; ?>
+                        <?php if ($plan['PVD_REVIEW_IS_PENDING']): ?>
+                            <span class="plan-notice">С планом ввода в должность вам необходимо ознакомить сотрудника в первые 3 р.д. с даты выхода сотрудника.</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?= h($userNames[(int)$plan['MANAGER_ID']] ?? '—') ?></td>
                     <td><?= h(($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?: '—') . '–' . ($plan['PROPERTY_' . PROP_TRIAL_END_DATE . '_VALUE'] ?: '—')) ?></td>
                     <td><?= h($userNames[(int)$plan['RECRUITER_ID']] ?? '—') ?></td>
                     <td>
                         <?= renderTaskTable($plan['PVD_TASKS'], 'pvd', 'Задачи ПВД') ?>
                         <?= renderTaskTable($plan['KPI_TASKS'], 'kpi', 'Задачи KPI') ?>
+                    </td>
+                    <td class="pvd-document">
+                        <?php if ($plan['PVD_TASKS'] || $plan['KPI_TASKS']): ?>
+                            <?php if ($plan['PVD_CREATED_AT'] !== ''): ?>
+                                <small class="pvd-date">Дата формирования:<br><?= h($plan['PVD_CREATED_AT']) ?></small>
+                            <?php endif; ?>
+                            <a class="pdf-link" href="/pub/apps/plans/plan.php?id_plan=<?= $planId ?>" target="_blank" rel="noopener" title="Сформировать PDF плана ввода в должность" aria-label="Сформировать PDF плана ввода в должность">PDF</a>
+                        <?php else: ?>—<?php endif; ?>
                     </td>
                     <td class="actions">
                         <?php if ($taskId > 0): ?>
@@ -446,6 +616,7 @@ document.addEventListener('change', function (event) {
     function closeModal() {
         modal.style.display = 'none';
         backdrop.style.display = 'none';
+        modal.classList.remove('is-employee-card');
         body.innerHTML = '';
     }
 
@@ -469,6 +640,19 @@ document.addEventListener('change', function (event) {
                 backdrop.style.display = 'block';
                 modal.style.display = 'block';
             }
+        }
+        var employeeTrigger = event.target.closest('.js-employee-card');
+        if (employeeTrigger) {
+            modal.classList.add('is-employee-card');
+            title.textContent = 'Карточка сотрудника: ' + employeeTrigger.getAttribute('data-name');
+            var frame = document.createElement('iframe');
+            frame.className = 'employee-card-frame';
+            frame.src = employeeTrigger.getAttribute('data-url');
+            frame.title = title.textContent;
+            body.innerHTML = '';
+            body.appendChild(frame);
+            backdrop.style.display = 'block';
+            modal.style.display = 'block';
         }
         if (event.target.closest('.js-task-modal-close')) {
             closeModal();
