@@ -16,7 +16,6 @@ use Bitrix\Main\Loader;
 use Bitrix\Main\Context;
 use Bitrix\Main\UI\Extension;
 use PhpOffice\PhpWord\Shared\Converter;
-use PhpOffice\PhpWord\Style\TablePosition;
 
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
 
@@ -917,7 +916,10 @@ if ((string)$request->getQuery('export') === 'word') {
             'borderSize' => 6,
             'borderColor' => 'B8C4D1',
             'cellMargin' => Converter::cmToTwip(0.12),
-            'position' => TablePosition::POSITION_CENTER,
+            // Обычная центровка таблицы задаётся через alignment. TablePosition
+            // предназначен для плавающих таблиц, а POSITION_CENTER отсутствует
+            // в используемой на портале версии PhpWord.
+            'alignment' => 'center',
         ]);
 
         $fieldsByGroup = [];
