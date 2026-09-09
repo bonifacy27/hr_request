@@ -15,6 +15,7 @@
 use Bitrix\Main\Loader;
 use Bitrix\Main\Context;
 use Bitrix\Main\UI\Extension;
+use PhpOffice\PhpWord\Settings;
 use PhpOffice\PhpWord\Shared\Converter;
 
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
@@ -882,9 +883,27 @@ function getDisplayValueForExport($code, $value, $referenceMap) {
     return trim((string)$rawValue);
 }
 
+/**
+ * Удаляет из пользовательских данных символы, недопустимые в XML 1.0.
+ * Иначе Word считает document.xml повреждённым, даже если ZIP-контейнер DOCX корректен.
+ */
+function sanitizeWordText($value) {
+    $value = (string)$value;
+    if (!mb_check_encoding($value, 'UTF-8')) {
+        $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+    }
+
+    $sanitized = preg_replace(
+        '/[^\x{0009}\x{000A}\x{000D}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u',
+        '',
+        $value
+    );
+    return $sanitized === null ? '' : $sanitized;
+}
+
 /** Добавляет многострочный текст в ячейку без потери переносов строк. */
 function addMultilineTextToWordCell($cell, $value, $fontStyle = []) {
-    $lines = preg_split('/\R/u', trim((string)$value)) ?: [''];
+    $lines = preg_split('/\R/u', trim(sanitizeWordText($value))) ?: [''];
     $textRun = $cell->addTextRun(['spaceAfter' => 0]);
     foreach ($lines as $index => $line) {
         if ($index > 0) $textRun->addTextBreak();
@@ -899,6 +918,9 @@ if ((string)$request->getQuery('export') === 'word') {
     if (!class_exists(\PhpOffice\PhpWord\PhpWord::class)) {
         ShowError('Библиотека PhpWord не установлена.');
     } else {
+        // Значения полей могут содержать &, < и >. Без XML-экранирования такие
+        // данные делают word/document.xml невалидным и Word не открывает файл.
+        Settings::setOutputEscapingEnabled(true);
         $phpWord = new \PhpOffice\PhpWord\PhpWord();
         $phpWord->setDefaultFontName('Arial');
         $phpWord->setDefaultFontSize(10);
@@ -910,7 +932,7 @@ if ((string)$request->getQuery('export') === 'word') {
             'marginLeft' => Converter::cmToTwip(1.5),
         ]);
         $section->addTitle('Заявка на подбор №'.(int)$elementId, 1);
-        $section->addText((string)$elementFields['NAME'], ['bold' => true, 'size' => 12], ['spaceAfter' => 240]);
+        $section->addText(sanitizeWordText($elementFields['NAME']), ['bold' => true, 'size' => 12], ['spaceAfter' => 240]);
 
         $phpWord->addTableStyle('RecruitRequestTable', [
             'borderSize' => 6,
@@ -942,12 +964,12 @@ if ((string)$request->getQuery('export') === 'word') {
             }
             if (!$rows) continue;
 
-            $section->addText($groupTitle, ['bold' => true, 'size' => 13, 'color' => '244A78'], ['spaceBefore' => 180, 'spaceAfter' => 80]);
+            $section->addText(sanitizeWordText($groupTitle), ['bold' => true, 'size' => 13, 'color' => '244A78'], ['spaceBefore' => 180, 'spaceAfter' => 80]);
             $table = $section->addTable('RecruitRequestTable');
             foreach ($rows as [$field, $displayValue]) {
                 $tableRow = $table->addRow();
                 $labelCell = $tableRow->addCell(Converter::cmToTwip(6.2), ['bgColor' => 'EEF3F8', 'valign' => 'center']);
-                $labelCell->addText(labelWithoutPrivyazka((string)$field['NAME']), ['bold' => true]);
+                $labelCell->addText(sanitizeWordText(labelWithoutPrivyazka((string)$field['NAME'])), ['bold' => true]);
                 $valueCell = $tableRow->addCell(Converter::cmToTwip(11.3), ['valign' => 'center']);
                 addMultilineTextToWordCell($valueCell, $displayValue);
             }
