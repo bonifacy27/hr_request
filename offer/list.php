@@ -64,6 +64,7 @@ const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 const PDF_WORKFLOW_TEMPLATE_ID = 1353;
 const PDF_WORKFLOW_EXTRA_USER_ID = 3532;
+const PDF_ALLOWED_STATUS_ENUM_IDS = [882, 883];
 
 function decodeStatusHistoryHtml(string $raw): string
 {
@@ -424,16 +425,20 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
             ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y'],
             false,
             ['nTopCount' => 1],
-            ['ID', PROP_RECRUITER]
+            ['ID', PROP_RECRUITER, PROP_STATUS]
         )->Fetch();
         $offerRecruiterId = $offer ? userIdFromValue($offer[PROP_RECRUITER . '_VALUE'] ?? '') : 0;
-        $canGeneratePdf = $offer && (
+        $offerStatusId = $offer ? (int)($offer[PROP_STATUS . '_ENUM_ID'] ?? 0) : 0;
+        $hasPdfStatus = in_array($offerStatusId, PDF_ALLOWED_STATUS_ENUM_IDS, true);
+        $hasPdfPermission = $offer && (
             $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID
             || ($currentUserId > 0 && $offerRecruiterId > 0 && $currentUserId === $offerRecruiterId)
         );
 
-        if (!$canGeneratePdf) {
+        if (!$hasPdfPermission) {
             $result = 'denied';
+        } elseif (!$hasPdfStatus) {
+            $result = 'invalid_status';
         } else {
             try {
                 $errors = [];
@@ -580,6 +585,7 @@ while ($ob = $res->GetNextElement()) {
         'ORGANIZATION' => getPropertyValue($p, 2753) ?: getFieldValue($f, PROP_ORGANIZATION),
         'RECRUITER_ID' => $recruiterId,
         'STATUS' => getFieldValue($f, PROP_STATUS),
+        'STATUS_ID' => (int)($f[PROP_STATUS . '_ENUM_ID'] ?? 0),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
         'OFFER_PDF_URL' => getUrlFromHtmlField($f, PROP_OFFER_PDF),
         'DETAILS_HTML' => renderOfferDetailsHtml($detailSections),
@@ -678,6 +684,8 @@ function navPageUrl(int $pageNum): string
         <div class="alert alert-success">Процесс формирования PDF запущен.</div>
     <?php elseif ($pdfWorkflowResult === 'denied'): ?>
         <div class="alert alert-danger">Недостаточно прав для формирования PDF этого оффера.</div>
+    <?php elseif ($pdfWorkflowResult === 'invalid_status'): ?>
+        <div class="alert alert-danger">Формирование PDF доступно только для офферов в статусах «Согласовано» и «Оффер сформирован».</div>
     <?php elseif ($pdfWorkflowResult === 'session_error'): ?>
         <div class="alert alert-danger">Сессия истекла. Обновите страницу и повторите действие.</div>
     <?php elseif ($pdfWorkflowResult === 'error'): ?>
@@ -757,7 +765,8 @@ function navPageUrl(int $pageNum): string
                 $recruiterId = (int)$row['RECRUITER_ID'];
                 $isRecruiterForOffer = ($recruiterId > 0 && $recruiterId === $currentUserId);
                 $canManage = $isAdmin || $isRecruiterForOffer || $isCbManager || $isRecruitHead;
-                $canGeneratePdf = $isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID;
+                $hasPdfStatus = in_array((int)$row['STATUS_ID'], PDF_ALLOWED_STATUS_ENUM_IDS, true);
+                $canGeneratePdf = $hasPdfStatus && ($isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID);
                 $taskId = (int)$row['TASK_ID_FOR_CURRENT_USER'];
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
