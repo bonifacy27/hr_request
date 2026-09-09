@@ -15,6 +15,8 @@
 use Bitrix\Main\Loader;
 use Bitrix\Main\Context;
 use Bitrix\Main\UI\Extension;
+use PhpOffice\PhpWord\Settings;
+use PhpOffice\PhpWord\Shared\Converter;
 
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
 
@@ -857,6 +859,132 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
     return $v !== '';
 }
 
+/**
+ * Возвращает то же человекочитаемое значение, которое пользователь видит на странице.
+ */
+function getDisplayValueForExport($code, $value, $referenceMap) {
+    $rawValue = normPropValue($value);
+
+    if (isset($referenceMap[$code])) {
+        return getElementNameById((int)$referenceMap[$code], (int)$rawValue);
+    }
+    if (in_array($code, ['NEPOSREDSTVENNYY_RUKOVODITEL', 'REKRUTER'], true)) {
+        return getUserFullNameByRaw((string)$rawValue);
+    }
+    if ($code === 'RUKOVODYASHCHAYA_DOLZHNOST') {
+        $normalized = mb_strtoupper(trim((string)$rawValue));
+        if ($normalized === 'Y') return 'Да';
+        if ($normalized === 'N') return 'Нет';
+    }
+    if (is_array($rawValue)) {
+        return implode("\n", array_map('strval', $rawValue));
+    }
+
+    return trim((string)$rawValue);
+}
+
+/**
+ * Удаляет из пользовательских данных символы, недопустимые в XML 1.0.
+ * Иначе Word считает document.xml повреждённым, даже если ZIP-контейнер DOCX корректен.
+ */
+function sanitizeWordText($value) {
+    $value = (string)$value;
+    if (!mb_check_encoding($value, 'UTF-8')) {
+        $value = mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+    }
+
+    $sanitized = preg_replace(
+        '/[^\x{0009}\x{000A}\x{000D}\x{0020}-\x{D7FF}\x{E000}-\x{FFFD}\x{10000}-\x{10FFFF}]/u',
+        '',
+        $value
+    );
+    return $sanitized === null ? '' : $sanitized;
+}
+
+/** Добавляет многострочный текст в ячейку без потери переносов строк. */
+function addMultilineTextToWordCell($cell, $value, $fontStyle = []) {
+    $lines = preg_split('/\R/u', trim(sanitizeWordText($value))) ?: [''];
+    $textRun = $cell->addTextRun(['spaceAfter' => 0]);
+    foreach ($lines as $index => $line) {
+        if ($index > 0) $textRun->addTextBreak();
+        $textRun->addText($line, $fontStyle);
+    }
+}
+
+/* =========================================================
+ * 6) WORD EXPORT
+ * =======================================================*/
+if ((string)$request->getQuery('export') === 'word') {
+    if (!class_exists(\PhpOffice\PhpWord\PhpWord::class)) {
+        ShowError('Библиотека PhpWord не установлена.');
+    } else {
+        // Значения полей могут содержать &, < и >. Без XML-экранирования такие
+        // данные делают word/document.xml невалидным и Word не открывает файл.
+        Settings::setOutputEscapingEnabled(true);
+        $phpWord = new \PhpOffice\PhpWord\PhpWord();
+        $phpWord->setDefaultFontName('Arial');
+        $phpWord->setDefaultFontSize(10);
+
+        $section = $phpWord->addSection([
+            'marginTop' => Converter::cmToTwip(1.5),
+            'marginRight' => Converter::cmToTwip(1.5),
+            'marginBottom' => Converter::cmToTwip(1.5),
+            'marginLeft' => Converter::cmToTwip(1.5),
+        ]);
+        $section->addTitle('Заявка на подбор №'.(int)$elementId, 1);
+        $section->addText(sanitizeWordText($elementFields['NAME']), ['bold' => true, 'size' => 12], ['spaceAfter' => 240]);
+
+        $phpWord->addTableStyle('RecruitRequestTable', [
+            'borderSize' => 6,
+            'borderColor' => 'B8C4D1',
+            'cellMargin' => Converter::cmToTwip(0.12),
+            // Обычная центровка таблицы задаётся через alignment. TablePosition
+            // предназначен для плавающих таблиц, а POSITION_CENTER отсутствует
+            // в используемой на портале версии PhpWord.
+            'alignment' => 'center',
+        ]);
+
+        $fieldsByGroup = [];
+        foreach ($FIELDS as $field) {
+            $code = (string)$field['CODE'];
+            $group = getGroupByCode($code, $GROUP_MAP);
+            $fieldsByGroup[$group][] = $field;
+        }
+
+        // Поля отдельного экранного блока «Комментарии» в документ не попадают.
+        $commentCodes = ['KOMMENTARII_K_ZAYAVKE', 'KOMMENTARII_C_B', 'KOMMENTARII_HR', 'ZAMETKI_REKRUTERA'];
+        foreach ($GROUP_ORDER as $groupTitle) {
+            $rows = [];
+            foreach ($fieldsByGroup[$groupTitle] ?? [] as $field) {
+                $code = (string)$field['CODE'];
+                if ($code === 'RAZNITSA_TEKSTOV' || in_array($code, $commentCodes, true)) continue;
+                $value = $curProps[$code] ?? '';
+                if (!hasDisplayValue($code, $value, $REFERENCE_IBLOCK_BY_CODE, $curProps)) continue;
+                $rows[] = [$field, getDisplayValueForExport($code, $value, $REFERENCE_IBLOCK_BY_CODE)];
+            }
+            if (!$rows) continue;
+
+            $section->addText(sanitizeWordText($groupTitle), ['bold' => true, 'size' => 13, 'color' => '244A78'], ['spaceBefore' => 180, 'spaceAfter' => 80]);
+            $table = $section->addTable('RecruitRequestTable');
+            foreach ($rows as [$field, $displayValue]) {
+                $tableRow = $table->addRow();
+                $labelCell = $tableRow->addCell(Converter::cmToTwip(6.2), ['bgColor' => 'EEF3F8', 'valign' => 'center']);
+                $labelCell->addText(sanitizeWordText(labelWithoutPrivyazka((string)$field['NAME'])), ['bold' => true]);
+                $valueCell = $tableRow->addCell(Converter::cmToTwip(11.3), ['valign' => 'center']);
+                addMultilineTextToWordCell($valueCell, $displayValue);
+            }
+        }
+
+        $filename = 'staffing_request_'.(int)$elementId.'.docx';
+        $APPLICATION->RestartBuffer();
+        header('Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        header('Content-Disposition: attachment; filename="'.$filename.'"');
+        header('Cache-Control: max-age=0, no-cache, no-store, must-revalidate');
+        \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007')->save('php://output');
+        die();
+    }
+}
+
 ?>
 <style>
   .req-group{
@@ -1080,6 +1208,7 @@ function hasDisplayValue($code, $value, $referenceMap, $curProps) {
     <div class="ui-form-label"></div>
     <div class="ui-form-content">
       <a href="/forms/staff_recruitment/staffing/list.php" class="ui-btn ui-btn-light-border">Вернуться к заявкам</a>
+      <a href="?ID=<?= (int)$elementId ?>&amp;export=word" class="ui-btn ui-btn-primary">Экспорт в Word</a>
     </div>
   </div>
 </div>
