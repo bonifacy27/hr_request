@@ -604,7 +604,7 @@ if ($recruiterRaw !== '') {
 $isHrRole = $isRecruiter || $isRecruitHead;
 $isCommentsAdministrator = $currentUserId === ADMINISTRATOR_USER_ID;
 $canViewPrivateComments = $isCbManager || $isHrRole || $isCommentsAdministrator;
-$canManageRecruiterNotes = $isHrRole || $isCommentsAdministrator;
+$canManageRecruiterNotes = $isRecruiter || $isCommentsAdministrator;
 
 $actorType = null;
 $roleLabel = '';
@@ -630,7 +630,8 @@ foreach ($FIELDS as &$fieldItem) {
     if ($actorType === 'cb') {
         continue;
     }
-    $fieldItem['EDITABLE'] = in_array((string)$fieldItem['CODE'], $RECRUITER_ALLOWED_CODES, true);
+    $fieldItem['EDITABLE'] = $actorType === 'recruiter'
+        && in_array((string)$fieldItem['CODE'], $RECRUITER_ALLOWED_CODES, true);
 }
 unset($fieldItem);
 
@@ -1462,7 +1463,7 @@ function renderInput($code, $name, $editable, $meta, $value, $referenceMap) {
     <?php endif; ?>
   <?php endif; ?>
   <?php if ($canManageRecruiterNotes): ?>
-    <?= renderCommentHistory('Заметки рекрутера', $curProps['ZAMETKI_REKRUTERA'] ?? '', 'recruiter', 'Заметки видны только рекрутеру и руководителю отдела подбора и адаптации.') ?>
+    <?= renderCommentHistory('Заметки рекрутера', $curProps['ZAMETKI_REKRUTERA'] ?? '', 'recruiter', 'Заметки доступны только рекрутеру.') ?>
     <form method="post" class="req-comments__form">
       <?= bitrix_sessid_post() ?><input type="hidden" name="comment_action" value="add"><input type="hidden" name="comment_type" value="recruiter_notes">
       <div class="ui-ctl ui-ctl-textarea ui-ctl-w100"><textarea class="ui-ctl-element" name="comment_text" rows="3" required placeholder="Добавить заметку рекрутера"></textarea></div>
