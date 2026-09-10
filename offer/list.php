@@ -15,7 +15,8 @@ $APPLICATION->SetTitle('Заявки на оффер');
 if (!Loader::includeModule('main')) { ShowError('Модуль main не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
 if (!Loader::includeModule('iblock')) { ShowError('Модуль iblock не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
 if (!Loader::includeModule('bizproc')) { ShowError('Модуль bizproc не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
-CJSCore::Init(['popup']);
+if (!Loader::includeModule('lists')) { ShowError('Модуль lists не установлен'); require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php'); return; }
+CJSCore::Init(['popup', 'ui.entity-selector', 'ui.buttons', 'ui.notification']);
 
 const IBL_OFFERS = 218;
 const PROP_CANDIDATE_FIO = 'PROPERTY_1157';
@@ -68,6 +69,7 @@ const PDF_ALLOWED_STATUS_ENUM_IDS = [882, 883];
 const HRD_APPROVAL_STATUS_ENUM_ID = 879;
 const HRD_COMMENTS_PROPERTY_ID = 3171;
 const COMMENTS_ADMIN_USER_ID = 3532;
+const OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID = 707;
 
 function decodeStatusHistoryHtml(string $raw): string
 {
@@ -393,6 +395,67 @@ function appendOfferHrdComment(int $offerId, string $message): void
     CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, [HRD_COMMENTS_PROPERTY_ID => $newValue]);
 }
 
+function getExclusiveRecruiterTaskId(int $offerId, int $recruiterId): int
+{
+    if ($offerId <= 0 || $recruiterId <= 0) return 0;
+
+    $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
+    try {
+        foreach ((array)CBPDocument::GetDocumentStates($documentType, $documentId) as $state) {
+            $workflowId = (string)($state['ID'] ?? '');
+            if ($workflowId === '') continue;
+
+            $taskUsers = [];
+            $tasks = CBPTaskService::GetList(
+                ['ID' => 'ASC'],
+                ['WORKFLOW_ID' => $workflowId, 'STATUS' => CBPTaskStatus::Running],
+                false,
+                false,
+                ['ID', 'USER_ID']
+            );
+            while ($task = $tasks->Fetch()) {
+                $taskId = (int)($task['ID'] ?? 0);
+                $userId = (int)($task['USER_ID'] ?? 0);
+                if ($taskId > 0 && $userId > 0) $taskUsers[$taskId][$userId] = true;
+            }
+            foreach ($taskUsers as $taskId => $users) {
+                if (count($users) === 1 && isset($users[$recruiterId])) return (int)$taskId;
+            }
+        }
+    } catch (\Throwable $e) {
+        return 0;
+    }
+    return 0;
+}
+
+function delegateOfferTask(int $taskId, int $fromUserId, int $toUserId): array
+{
+    if ($taskId <= 0) return [true, ''];
+    try {
+        CBPTaskService::delegateTask($taskId, $fromUserId, $toUserId);
+        return [true, ''];
+    } catch (\Throwable $e) {
+        return [false, $e->getMessage()];
+    }
+}
+
+function startOfferRightsWorkflow(int $offerId): array
+{
+    $errors = [];
+    try {
+        $workflowId = CBPDocument::StartWorkflow(
+            OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID,
+            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId],
+            [],
+            $errors
+        );
+        return [(string)$workflowId !== '', $errors];
+    } catch (\Throwable $e) {
+        return [false, [['message' => $e->getMessage()]]];
+    }
+}
+
 function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
 {
     $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
@@ -490,6 +553,68 @@ $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
 $canApproveAsHrd = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
 $currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
+if ($request->isPost() && (string)$request->getPost('action') === 'delegate_offer') {
+    $offerId = (int)$request->getPost('offer_id');
+    $toUserId = (int)$request->getPost('delegate_to_user_id');
+    $comment = trim((string)$request->getPost('comment'));
+    $result = 'error';
+
+    if (!check_bitrix_sessid()) {
+        $result = 'session_error';
+    } elseif ($comment === '') {
+        $result = 'comment_required';
+    } else {
+        $offer = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'NAME', PROP_RECRUITER, 'PREVIEW_TEXT']
+        )->Fetch();
+        $oldRecruiterId = $offer ? userIdFromValue($offer[PROP_RECRUITER . '_VALUE'] ?? '') : 0;
+        $canDelegateOffer = $offer && ($isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID || $oldRecruiterId === $currentUserId);
+        $targetUser = $toUserId > 0 ? CUser::GetByID($toUserId)->Fetch() : false;
+
+        if (!$canDelegateOffer) {
+            $result = 'denied';
+        } elseif (!$targetUser || (string)($targetUser['ACTIVE'] ?? '') !== 'Y') {
+            $result = 'invalid_user';
+        } elseif ($oldRecruiterId <= 0 || $oldRecruiterId === $toUserId) {
+            $result = 'same_user';
+        } else {
+            $taskId = getExclusiveRecruiterTaskId($offerId, $oldRecruiterId);
+            [$taskDelegated, $taskError] = delegateOfferTask($taskId, $oldRecruiterId, $toUserId);
+            if (!$taskDelegated) {
+                $result = 'task_error';
+            } else {
+                $actorName = getUserDisplayNameById($currentUserId) ?: ('Пользователь #' . $currentUserId);
+                $oldRecruiterName = getUserDisplayNameById($oldRecruiterId) ?: ('Пользователь #' . $oldRecruiterId);
+                $newRecruiterName = getUserDisplayNameById($toUserId) ?: ('Пользователь #' . $toUserId);
+                $date = date('d.m.Y H:i');
+                $historyLine = $date . ': ' . $actorName . ' изменил рекрутера: ' . $oldRecruiterName . ' → ' . $newRecruiterName;
+                $hrComment = $date . ' ' . $actorName . ': Оффер передан от ' . $oldRecruiterName . ' сотруднику ' . $newRecruiterName . '. Комментарий: ' . $comment;
+
+                $history = decodeStatusHistoryHtml((string)($offer['PREVIEW_TEXT'] ?? ''));
+                $element = new CIBlockElement();
+                $historyUpdated = $element->Update($offerId, [
+                    'PREVIEW_TEXT' => ($history !== '' ? $history . "\n" : '') . $historyLine,
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
+                CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, [1190 => $toUserId]);
+                appendOfferHrdComment($offerId, $hrComment);
+
+                [$workflowStarted] = startOfferRightsWorkflow($offerId);
+                if (!$historyUpdated) {
+                    $result = 'history_error';
+                } else {
+                    $result = $workflowStarted ? 'delegated' : 'workflow_error';
+                }
+            }
+        }
+    }
+    LocalRedirect(buildUrl(['offer_delegate' => $result], []));
+}
+
 if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_hrd') {
     $offerId = (int)$request->getPost('offer_id');
     $approvalComment = trim((string)$request->getPost('comment'));
@@ -564,6 +689,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
+$offerDelegateResult = (string)$request->get('offer_delegate');
 
 $statusEnumOptions = [];
 $rsEnum = CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'VALUE' => 'ASC'], ['IBLOCK_ID' => IBL_OFFERS, 'PROPERTY_ID' => 1189]);
@@ -785,6 +911,17 @@ function navPageUrl(int $pageNum): string
 <div class="container-fluid offer-list-page">
     <h2 class="mb-3">Заявки на оффер</h2>
 
+    <?php if ($offerDelegateResult === 'delegated'): ?><div class="alert alert-success">Оффер делегирован, рекрутер и история обновлены, процесс установки прав запущен.</div>
+    <?php elseif ($offerDelegateResult === 'workflow_error'): ?><div class="alert alert-warning">Оффер делегирован, но процесс установки прав запустить не удалось.</div>
+    <?php elseif ($offerDelegateResult === 'denied'): ?><div class="alert alert-danger">Недостаточно прав для делегирования этого оффера.</div>
+    <?php elseif ($offerDelegateResult === 'comment_required'): ?><div class="alert alert-danger">Комментарий при делегировании обязателен.</div>
+    <?php elseif ($offerDelegateResult === 'invalid_user'): ?><div class="alert alert-danger">Выберите активного сотрудника для делегирования.</div>
+    <?php elseif ($offerDelegateResult === 'same_user'): ?><div class="alert alert-danger">Новый рекрутер должен отличаться от текущего.</div>
+    <?php elseif ($offerDelegateResult === 'task_error'): ?><div class="alert alert-danger">Не удалось делегировать текущее задание рекрутера. Оффер не был передан.</div>
+    <?php elseif ($offerDelegateResult === 'history_error'): ?><div class="alert alert-warning">Оффер передан, но запись в историю добавить не удалось.</div>
+    <?php elseif ($offerDelegateResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла. Обновите страницу и повторите действие.</div>
+    <?php elseif ($offerDelegateResult === 'error'): ?><div class="alert alert-danger">Не удалось делегировать оффер.</div><?php endif; ?>
+
     <?php if ($hrdApprovalResult === 'approved'): ?><div class="alert alert-success">Оффер согласован за HRD.</div>
     <?php elseif ($hrdApprovalResult === 'denied'): ?><div class="alert alert-danger">Недостаточно прав для согласования за HRD.</div>
     <?php elseif ($hrdApprovalResult === 'invalid_status'): ?><div class="alert alert-danger">Действие доступно только в статусе «Согласование HRD».</div>
@@ -880,6 +1017,7 @@ function navPageUrl(int $pageNum): string
                 $hasPdfStatus = in_array((int)$row['STATUS_ID'], PDF_ALLOWED_STATUS_ENUM_IDS, true);
                 $canApproveThisAsHrd = $canApproveAsHrd && (int)$row['STATUS_ID'] === HRD_APPROVAL_STATUS_ENUM_ID;
                 $canGeneratePdf = $hasPdfStatus && ($isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID);
+                $canDelegateOffer = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
                 $taskId = (int)$row['TASK_ID_FOR_CURRENT_USER'];
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
@@ -923,10 +1061,11 @@ function navPageUrl(int $pageNum): string
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
 
-                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd): ?>
+                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canDelegateOffer): ?>
                                 <select class="form-control form-control-sm actions-select js-offer-action-select"
                                         aria-label="Действия с оффером"
                                         data-offer-id="<?= (int)$row['ID'] ?>"
+                                        data-recruiter-id="<?= $recruiterId ?>"
                                         data-sessid="<?= h(bitrix_sessid()) ?>"
                                         data-view-url="<?= h($row['VIEW_URL']) ?>"
                                         data-edit-url="<?= h($row['EDIT_URL']) ?>">
@@ -935,6 +1074,7 @@ function navPageUrl(int $pageNum): string
                                         <option value="view">Просмотр</option>
                                         <option value="edit">Редактирование</option>
                                     <?php endif; ?>
+                                    <?php if ($canDelegateOffer): ?><option value="delegate">Делегировать</option><?php endif; ?>
                                     <?php if ($canApproveThisAsHrd): ?><option value="approve_as_hrd">Согласовать за HRD</option><?php endif; ?>
                                     <?php if ($canGeneratePdf): ?>
                                         <option value="generate_pdf">Сформировать PDF</option>
@@ -942,7 +1082,7 @@ function navPageUrl(int $pageNum): string
                                 </select>
                             <?php endif; ?>
 
-                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && $taskUrl === ''): ?>
+                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canDelegateOffer && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
                         </div>
@@ -985,8 +1125,10 @@ function navPageUrl(int $pageNum): string
   var closeBtn = document.getElementById('offer-modal-close');
   var content = document.getElementById('offer-modal-content');
   var title = document.getElementById('offer-modal-title');
+  var delegateSelector = null;
 
   function closeModal() {
+    try { if (delegateSelector && delegateSelector.isOpen()) delegateSelector.hide(); } catch (err) {}
     backdrop.style.display = 'none';
     modal.style.display = 'none';
     content.textContent = '';
@@ -1026,6 +1168,54 @@ function navPageUrl(int $pageNum): string
         openModal('Согласовать за HRD', '<p>Данное действие согласует оффер за HRD.</p><form method="post" id="approve-as-hrd-form"><input type="hidden" name="action" value="approve_as_hrd"><input type="hidden" name="offer_id" value="' + offerId + '"><input type="hidden" name="sessid" value="' + sessid + '"><label for="approve-as-hrd-comment">Комментарий <span class="text-danger">*</span></label><textarea id="approve-as-hrd-comment" name="comment" class="form-control" rows="4" required></textarea><div class="mt-3"><button type="submit" class="btn btn-primary">Согласовать за HRD</button> <button type="button" class="btn btn-secondary" id="approve-as-hrd-cancel">Отмена</button></div></form>');
         var cancel = document.getElementById('approve-as-hrd-cancel');
         if (cancel) cancel.addEventListener('click', closeModal);
+        select.value = '';
+        return;
+      } else if (action === 'delegate') {
+        var delegateOfferId = select.getAttribute('data-offer-id') || '0';
+        var delegateSessid = select.getAttribute('data-sessid') || '';
+        var oldRecruiterId = select.getAttribute('data-recruiter-id') || '0';
+        openModal('Делегировать оффер', '<form method="post" id="delegate-offer-form"><input type="hidden" name="action" value="delegate_offer"><input type="hidden" name="offer_id" value="' + delegateOfferId + '"><input type="hidden" name="sessid" value="' + delegateSessid + '"><input type="hidden" name="delegate_to_user_id" id="delegate-offer-user-id" value=""><div class="form-group"><label>Сотрудник <span class="text-danger">*</span></label><div><button type="button" class="btn btn-outline-primary btn-sm" id="delegate-offer-pick-user">Выбрать сотрудника</button> <span class="text-muted" id="delegate-offer-selected-user">Сотрудник не выбран</span></div></div><div class="form-group"><label for="delegate-offer-comment">Комментарии <span class="text-danger">*</span></label><textarea id="delegate-offer-comment" name="comment" class="form-control" rows="4" required></textarea></div><button type="submit" class="btn btn-primary">Делегировать оффер</button> <button type="button" class="btn btn-secondary" id="delegate-offer-cancel">Отмена</button></form>');
+
+        var pickButton = document.getElementById('delegate-offer-pick-user');
+        var selectedUser = document.getElementById('delegate-offer-selected-user');
+        var userInput = document.getElementById('delegate-offer-user-id');
+        var delegateForm = document.getElementById('delegate-offer-form');
+        document.getElementById('delegate-offer-cancel').addEventListener('click', closeModal);
+        pickButton.addEventListener('click', function() {
+          try { if (delegateSelector) delegateSelector.destroy(); } catch (err) {}
+          delegateSelector = new BX.UI.EntitySelector.Dialog({
+            targetNode: pickButton,
+            context: 'delegate-offer',
+            multiple: false,
+            dropdownMode: true,
+            enableSearch: true,
+            zIndex: 21000,
+            popupOptions: { zIndex: 21000 },
+            entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
+            events: {
+              'Item:onSelect': function(event) {
+                var item = event.getData().item;
+                var rawId = item ? item.getId() : '';
+                var userId = parseInt(String(rawId).replace(/[^\d]/g, ''), 10) || 0;
+                if (!userId || String(userId) === String(oldRecruiterId)) {
+                  alert(userId ? 'Выберите сотрудника, отличного от текущего рекрутера.' : 'Не удалось определить сотрудника.');
+                  return;
+                }
+                userInput.value = String(userId);
+                selectedUser.textContent = item.getTitle() || ('ID ' + userId);
+                selectedUser.classList.remove('text-muted');
+                delegateSelector.hide();
+              }
+            }
+          });
+          delegateSelector.show();
+        });
+        delegateForm.addEventListener('submit', function(event) {
+          if (!userInput.value || !document.getElementById('delegate-offer-comment').value.trim()) {
+            event.preventDefault();
+            alert(!userInput.value ? 'Выберите сотрудника для делегирования.' : 'Поле «Комментарии» обязательно.');
+          }
+        });
         select.value = '';
         return;
       } else if (action === 'generate_pdf') {
