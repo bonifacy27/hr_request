@@ -22,6 +22,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 const CANDIDATE_IBLOCK_ID = 207;
 const VIEW_URL = 'view.php?id=';
 const CREATE_URL = 'create_anketa.php';
+const RIGHTS_WORKFLOW_TOOL_URL = 'start_rights_workflow.php';
 const PER_PAGE = 20;
 const BP_TEMPLATE_ON_RECRUITER_CHANGE = 844;
 const BP_TEMPLATE_ON_CANCEL_CHECK = 1343;
@@ -617,6 +618,9 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 
     <div class="d-flex flex-wrap align-items-center mb-3">
         <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
+        <?php if ($isAdmin): ?>
+            <a href="<?=h(RIGHTS_WORKFLOW_TOOL_URL)?>" class="btn btn-outline-secondary mb-2">Запустить БП изменения прав</a>
+        <?php endif; ?>
     </div>
 
     <form method="get" class="card mb-3">
