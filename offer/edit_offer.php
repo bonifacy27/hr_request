@@ -73,6 +73,11 @@ const OFFER_PROP_REQUEST_ID = 1601;
 const OFFER_PROP_CANDIDATE_ID = 1603;
 const OFFER_PROP_FW_CANDIDATE_ID = 1602;
 const OFFER_PROP_COMMENT = 2857;
+const OFFER_PROP_COMMENTS_CB = 3170;
+const OFFER_PROP_COMMENTS_HR = 3171;
+const OFFER_PROP_COMMENTS_RECRUITER = 3172;
+const OFFER_PROP_COMMENTS_MANAGER = 3173;
+const COMMENTS_ADMIN_USER_ID = 3532;
 const CB_GLOBAL_VAR_ID = 'Variable1722502594854';
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 
@@ -357,6 +362,10 @@ function getOfferById(int $offerId): ?array
         OFFER_PROP_CANDIDATE_ID,
         OFFER_PROP_FW_CANDIDATE_ID,
         OFFER_PROP_COMMENT,
+        OFFER_PROP_COMMENTS_CB,
+        OFFER_PROP_COMMENTS_HR,
+        OFFER_PROP_COMMENTS_RECRUITER,
+        OFFER_PROP_COMMENTS_MANAGER,
     ];
 
     $values = [];
@@ -700,6 +709,10 @@ $formData = [
     'candidate_id' => '',
     'fw_candidate_id' => '',
     'comment' => '',
+    'comments_cb' => '',
+    'comments_hr' => '',
+    'comments_recruiter' => '',
+    'comments_manager' => '',
 ];
 
 $props = $offerItem['PROPS'];
@@ -744,6 +757,10 @@ $formData['request_id'] = (string)$props[OFFER_PROP_REQUEST_ID];
 $formData['candidate_id'] = (string)$props[OFFER_PROP_CANDIDATE_ID];
 $formData['fw_candidate_id'] = (string)$props[OFFER_PROP_FW_CANDIDATE_ID];
 $formData['comment'] = (string)$props[OFFER_PROP_COMMENT];
+$formData['comments_cb'] = (string)$props[OFFER_PROP_COMMENTS_CB];
+$formData['comments_hr'] = (string)$props[OFFER_PROP_COMMENTS_HR];
+$formData['comments_recruiter'] = (string)$props[OFFER_PROP_COMMENTS_RECRUITER];
+$formData['comments_manager'] = (string)$props[OFFER_PROP_COMMENTS_MANAGER];
 
 $currentUserId = (int)$USER->GetID();
 $currentUserTag = mb_strtolower('user_' . $currentUserId);
@@ -753,6 +770,58 @@ $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isCbManager = in_array($currentUserTag, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTag, $recruitHeads, true);
 $isOfferRecruiter = ((int)$formData['recruiter'] > 0 && (int)$formData['recruiter'] === $currentUserId);
+$isOfferManager = ((int)$formData['chief'] > 0 && (int)$formData['chief'] === $currentUserId);
+$isCommentsAdministrator = $currentUserId === COMMENTS_ADMIN_USER_ID;
+$canViewSharedComments = $isCbManager || $isOfferRecruiter || $isRecruitHead || $isCommentsAdministrator;
+$canViewRecruiterComments = $isOfferRecruiter || $isCommentsAdministrator;
+$canViewManagerComments = $isOfferManager || $isOfferRecruiter || $isCbManager || $isRecruitHead || $isCommentsAdministrator;
+$canAddCbComment = $isCbManager;
+$canAddHrComment = $isOfferRecruiter || $isRecruitHead;
+$canAddRecruiterComment = $isOfferRecruiter;
+$canAddManagerComment = $isOfferManager;
+
+$commentErrors = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['action'] ?? '') === 'add_comment') {
+    if (!check_bitrix_sessid()) {
+        $commentErrors[] = 'Сессия истекла. Обновите страницу и повторите попытку.';
+    } else {
+        $commentType = (string)($_POST['comment_type'] ?? '');
+        $commentText = trim((string)($_POST['comment_text'] ?? ''));
+        $commentConfig = [
+            'cb' => [OFFER_PROP_COMMENTS_CB, $canAddCbComment],
+            'hr' => [OFFER_PROP_COMMENTS_HR, $canAddHrComment],
+            'recruiter' => [OFFER_PROP_COMMENTS_RECRUITER, $canAddRecruiterComment],
+            'manager' => [OFFER_PROP_COMMENTS_MANAGER, $canAddManagerComment],
+        ];
+        if (!isset($commentConfig[$commentType]) || !$commentConfig[$commentType][1]) {
+            $commentErrors[] = 'У вас нет прав на добавление этого комментария.';
+        } elseif ($commentText === '') {
+            $commentErrors[] = 'Введите текст комментария.';
+        } else {
+            $propertyId = (int)$commentConfig[$commentType][0];
+            $oldValue = getOfferPropertyValue($offerId, ['ID' => $propertyId]);
+            $userName = trim((string)$USER->GetFullName()) ?: ('Пользователь #' . $currentUserId);
+            CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, [
+                $propertyId => appendOfferComment($oldValue, $commentText, $userName),
+            ]);
+            LocalRedirect($APPLICATION->GetCurPageParam('comment_added=Y', ['comment_added', 'sessid']));
+        }
+    }
+}
+
+
+function appendOfferComment(string $oldValue, string $comment, string $userName): string
+{
+    $line = date('d.m.Y H:i') . ' ' . trim($userName) . ': ' . trim($comment);
+    return trim($oldValue) !== '' ? rtrim($oldValue) . "\n" . $line : $line;
+}
+
+function renderOfferCommentHistory(string $label, string $value, string $type): string
+{
+    $content = trim($value) === '' ? '<span class="offer-comments__empty">Комментариев пока нет</span>' : nl2br(h($value));
+    return '<div class="offer-comments__item offer-comments__item--' . h($type) . '"><strong>' . h($label)
+        . '</strong><div class="offer-comments__history">' . $content . '</div></div>';
+}
 
 $changeType = null;
 if ($isAdmin || $isCbManager) {
@@ -1174,6 +1243,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
 .offer-page .links-card {
     background: #f8fafc;
 }
+.offer-comments { border:2px solid #8eabd2; border-radius:14px; background:#f7faff; padding:16px; }
+.offer-comments__item { margin:12px 0; padding:14px; border-radius:10px; }
+.offer-comments__item--manager { background:#f4f8fd; } .offer-comments__item--cb { background:#fff8e8; } .offer-comments__item--hr { background:#f0faf3; } .offer-comments__item--recruiter { background:#f8f2ff; }
+.offer-comments__history { margin-top:8px; padding:10px; border:1px solid #d8e1ec; border-radius:8px; background:#fff; white-space:normal; }
+.offer-comments__empty { color:#828b95; font-style:italic; } .offer-comments__form { margin-top:10px; }
 </style>
 <div class="container my-4 offer-page">
     <div class="d-flex align-items-center mb-3">
@@ -1484,11 +1558,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             </div>
         </div>
 
+
+
         <div class="text-right">
             <button type="submit" class="btn btn-primary" name="action" value="save">Сохранить изменения</button>
             <a href="/forms/staff_recruitment/offer/list.php" class="btn btn-link">К списку офферов</a>
         </div>
     </form>
+        <?php if ((string)($_GET['comment_added'] ?? '') === 'Y'): ?><div class="alert alert-success">Комментарий добавлен.</div><?php endif; ?>
+        <?php foreach ($commentErrors as $commentError): ?><div class="alert alert-danger"><?=h($commentError)?></div><?php endforeach; ?>
+        <?php if ($canViewSharedComments || $canViewRecruiterComments || $canViewManagerComments): ?>
+        <section class="offer-comments mb-3"><h2 class="h5">Комментарии</h2>
+        <?php if ($canViewManagerComments): ?>
+            <?=renderOfferCommentHistory('Комментарии руководителя', $formData['comments_manager'], 'manager')?>
+            <?php if ($canAddManagerComment): ?><form method="post" class="offer-comments__form"><?=bitrix_sessid_post()?><input type="hidden" name="action" value="add_comment"><input type="hidden" name="comment_type" value="manager"><textarea class="form-control" name="comment_text" required rows="3" placeholder="Добавить комментарий руководителя"></textarea><button class="btn btn-primary btn-sm mt-2">Добавить</button></form><?php endif; ?>
+        <?php endif; ?>
+          <?php if ($canViewSharedComments): ?>
+            <?=renderOfferCommentHistory('Комментарии C&B', $formData['comments_cb'], 'cb')?>
+            <?php if ($canAddCbComment): ?><form method="post" class="offer-comments__form"><?=bitrix_sessid_post()?><input type="hidden" name="action" value="add_comment"><input type="hidden" name="comment_type" value="cb"><textarea class="form-control" name="comment_text" required rows="3"></textarea><button class="btn btn-primary btn-sm mt-2">Добавить</button></form><?php endif; ?>
+            <?=renderOfferCommentHistory('Комментарии HR', $formData['comments_hr'], 'hr')?>
+            <?php if ($canAddHrComment): ?><form method="post" class="offer-comments__form"><?=bitrix_sessid_post()?><input type="hidden" name="action" value="add_comment"><input type="hidden" name="comment_type" value="hr"><textarea class="form-control" name="comment_text" required rows="3"></textarea><button class="btn btn-primary btn-sm mt-2">Добавить</button></form><?php endif; ?>
+          <?php endif; ?>
+          <?php if ($canViewRecruiterComments): ?><?=renderOfferCommentHistory('Комментарии рекрутера', $formData['comments_recruiter'], 'recruiter')?><?php if ($canAddRecruiterComment): ?><form method="post" class="offer-comments__form"><?=bitrix_sessid_post()?><input type="hidden" name="action" value="add_comment"><input type="hidden" name="comment_type" value="recruiter"><textarea class="form-control" name="comment_text" required rows="3"></textarea><button class="btn btn-primary btn-sm mt-2">Добавить</button></form><?php endif; ?><?php endif; ?>
+        </section><?php endif; ?>
 </div>
 <script>
 BX.ready(function () {
