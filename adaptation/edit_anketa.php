@@ -31,6 +31,7 @@ const IBL_OFFERS = 218;
 const IBL_CANDIDATES = 207;
 const IBL_FURNITURE = 400;
 const IBL_EQUIPMENT = 326;
+const IBL_ONBOARDING_PLAN = 359;
 const BP_TEMPLATE_CHANGES = 1358;
 const NEWS_REQUIRED_ORGANIZATION_ID = 3197820;
 const ADAPTATION_LIST_URL = '/forms/staff_recruitment/adaptation/list.php';
@@ -176,6 +177,53 @@ function getUserFullFioById(int $userId): string
     return trim((string)CUser::FormatName(CSite::GetNameFormat(false), $user, true, false));
 }
 
+function onboardingPlanDocumentIds(int $planId): array
+{
+    return [
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$planId],
+        ['lists', 'BizprocDocument', 'lists_' . IBL_ONBOARDING_PLAN . '_' . $planId],
+        ['lists', 'lists_' . IBL_ONBOARDING_PLAN . '_group_206', $planId],
+        ['lists', 'lists_' . IBL_ONBOARDING_PLAN, $planId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . IBL_ONBOARDING_PLAN . '_' . $planId],
+    ];
+}
+
+function delegateOnboardingPlanTasks(int $planId, int $oldManagerId, int $newManagerId): array
+{
+    if ($planId <= 0 || $oldManagerId <= 0 || $newManagerId <= 0 || $oldManagerId === $newManagerId) {
+        return [];
+    }
+
+    $errors = [];
+    $taskIds = [];
+    foreach (onboardingPlanDocumentIds($planId) as $documentId) {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'DESC'],
+            [
+                'DOCUMENT_ID' => $documentId,
+                'USER_ID' => $oldManagerId,
+                'STATUS' => CBPTaskStatus::Running,
+            ],
+            false,
+            false,
+            ['ID']
+        );
+        while ($task = $tasks->Fetch()) {
+            $taskIds[(int)$task['ID']] = (int)$task['ID'];
+        }
+    }
+
+    foreach ($taskIds as $taskId) {
+        try {
+            CBPTaskService::DelegateTask($taskId, $oldManagerId, $newManagerId);
+        } catch (Throwable $exception) {
+            $errors[] = 'Не удалось делегировать задание плана #' . $taskId . ': ' . $exception->getMessage();
+        }
+    }
+
+    return $errors;
+}
+
 if ((string)($_GET['ajax'] ?? '') === 'get_user_fio') {
     while (ob_get_level() > 0) {
         @ob_end_clean();
@@ -311,6 +359,7 @@ foreach ($fields as $field) {
     }
 }
 $propertyCodes[] = 'ISTORIYA_ANKETY';
+$propertyCodes[] = 'PLAN_VVODA_V_DOLZHNOST_ID';
 $loadedProperties = [];
 CIBlockElement::GetPropertyValuesArray($loadedProperties, IBL_ADAPTATION, ['ID' => $anketaId], ['CODE' => $propertyCodes]);
 $loadedProperties = $loadedProperties[$anketaId] ?? [];
@@ -360,6 +409,7 @@ $formData['EST_REKOMENDATSIYA'] = (
 ) ? 'Y' : 'N';
 $sourceSnapshot = $formData;
 $oldHistory = trim((string)$propertyValue($loadedProperties, 'ISTORIYA_ANKETY'));
+$onboardingPlanId = (int)$propertyValue($loadedProperties, 'PLAN_VVODA_V_DOLZHNOST_ID');
 
 $furnitureSelectedIds = [];
 $storedFurniture = normalizeFurnitureText((string)$formData['NEOBKHODIMAYA_MEBEL_TEKST']);
@@ -459,19 +509,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             $name = trim($formData['FAMILIYA'] . ' ' . $formData['IMYA'] . ' ' . $formData['OTCHESTVO']);
             if (!$element->Update($anketaId, ['NAME' => $name])) {
                 $errors[] = 'Не удалось обновить анкету: ' . ($element->LAST_ERROR ?: 'неизвестная ошибка');
-            } elseif (!Loader::includeModule('bizproc')) {
-                $errors[] = 'Анкета обновлена, но модуль бизнес-процессов недоступен.';
             } else {
-                $bpErrors = [];
-                $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', $anketaId], [
-                    'par_Changes_type' => 'анкета сотрудника',
-                    'par_Changes' => $historyBlock,
-                ], $bpErrors);
-                if (!$workflowId || $bpErrors) {
-                    $errors[] = 'Анкета и история обновлены, но процесс уведомления об изменениях не запущен.';
+                $planValues = [];
+                if ($onboardingPlanId > 0) {
+                    if ($formData['DATA_PRIEMA'] !== $sourceSnapshot['DATA_PRIEMA']) {
+                        $planValues['DATA_TRUDOUSTROYSTVA'] = normalizeDate($formData['DATA_PRIEMA']);
+                    }
+                    if ($formData['DATA_OKONCHANIYA_IS'] !== $sourceSnapshot['DATA_OKONCHANIYA_IS']) {
+                        $planValues['DATA_OKONCHANIYA_IS'] = normalizeDate($formData['DATA_OKONCHANIYA_IS']);
+                    }
+                    if ($formData['RUKOVODITEL'] !== $sourceSnapshot['RUKOVODITEL']) {
+                        $planValues['RUKOVODITEL'] = (int)$formData['RUKOVODITEL'];
+                    }
+                    if ($planValues) {
+                        $plan = CIBlockElement::GetList([], [
+                            'IBLOCK_ID' => IBL_ONBOARDING_PLAN,
+                            'ID' => $onboardingPlanId,
+                        ], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                        if ($plan) {
+                            CIBlockElement::SetPropertyValuesEx($onboardingPlanId, IBL_ONBOARDING_PLAN, $planValues);
+                        } else {
+                            $errors[] = 'Анкета обновлена, но связанный план ввода в должность не найден.';
+                        }
+                    }
+                }
+
+                if (!Loader::includeModule('bizproc')) {
+                    $errors[] = 'Анкета обновлена, но модуль бизнес-процессов недоступен.';
                 } else {
-                    LocalRedirect(ADAPTATION_LIST_URL);
-                    return;
+                    if (isset($planValues['RUKOVODITEL'])) {
+                        $errors = array_merge($errors, delegateOnboardingPlanTasks(
+                            $onboardingPlanId,
+                            (int)$sourceSnapshot['RUKOVODITEL'],
+                            (int)$formData['RUKOVODITEL']
+                        ));
+                    }
+
+                    $bpErrors = [];
+                    $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', $anketaId], [
+                        'par_Changes_type' => 'анкета сотрудника',
+                        'par_Changes' => $historyBlock,
+                    ], $bpErrors);
+                    if (!$workflowId || $bpErrors) {
+                        $errors[] = 'Анкета и история обновлены, но процесс уведомления об изменениях не запущен.';
+                    } elseif (!$errors) {
+                        LocalRedirect(ADAPTATION_LIST_URL);
+                        return;
+                    }
                 }
             }
         }
