@@ -211,7 +211,7 @@ $fields = [
     ['id' => 951, 'code' => 'FAMILIYA', 'label' => 'Фамилия', 'type' => 'S'],
     ['id' => 952, 'code' => 'IMYA', 'label' => 'Имя', 'type' => 'S'],
     ['id' => 953, 'code' => 'OTCHESTVO', 'label' => 'Отчество', 'type' => 'S'],
-    ['id' => 954, 'code' => 'STATUS_SOTRUDNIKA', 'label' => 'Статус сотрудника', 'type' => 'L'],
+    ['id' => 954, 'code' => 'STATUS_SOTRUDNIKA', 'label' => 'Статус сотрудника', 'type' => 'L', 'allowed_values' => ['691', '692']],
     ['id' => 1835, 'code' => 'ORGANIZATSIYA', 'label' => 'Организация', 'type' => 'E', 'link_iblock' => IBL_ORGANIZATION],
     ['id' => 955, 'code' => 'POL', 'label' => 'Пол', 'type' => 'L'],
     ['id' => 956, 'code' => 'DIREKTSIYA', 'label' => 'Дирекция', 'type' => 'S'],
@@ -421,6 +421,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             }
         } elseif ($f['type'] !== 'FURNITURE') {
             $value = trim((string)$value);
+        }
+        if (isset($f['allowed_values']) && !in_array($value, $f['allowed_values'], true)) {
+            $value = '';
         }
 
         $formData[$code] = $value;
@@ -654,7 +657,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>">
                                 <option value="">— не выбрано —</option>
-                                <?php foreach ($options as $opt): ?><option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['VALUE']) ?></option><?php endforeach; ?>
+                                <?php foreach ($options as $opt): ?>
+                                    <?php if (isset($f['allowed_values']) && !in_array($opt['ID'], $f['allowed_values'], true)) { continue; } ?>
+                                    <option value="<?= h($opt['ID']) ?>" <?= ((string)$formData[$code] === (string)$opt['ID']) ? 'selected' : '' ?>><?= h($opt['VALUE']) ?></option>
+                                <?php endforeach; ?>
                             </select>
                         <?php elseif ($f['type'] === 'YESNO'): ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>">
