@@ -906,6 +906,9 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .offer-detail-grid { display:grid; grid-template-columns:minmax(240px, 38%) 1fr; gap:6px 14px; }
 .offer-list-page .offer-detail-label { color:#6c757d; }
 .offer-list-page .offer-detail-value { font-weight:500; white-space:pre-wrap; }
+/* Entity Selector is appended to <body>, outside of the modal. Keep its popup above the custom modal. */
+.popup-window.offer-delegate-selector-popup,
+.popup-window.ui-entity-selector-dialog { z-index:21000 !important; }
 </style>
 
 <div class="container-fluid offer-list-page">
@@ -1190,7 +1193,7 @@ function navPageUrl(int $pageNum): string
             dropdownMode: true,
             enableSearch: true,
             zIndex: 21000,
-            popupOptions: { zIndex: 21000 },
+            popupOptions: { zIndex: 21000, className: 'offer-delegate-selector-popup' },
             entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
             events: {
               'Item:onSelect': function(event) {
@@ -1209,6 +1212,19 @@ function navPageUrl(int $pageNum): string
             }
           });
           delegateSelector.show();
+          var selectorPopup = delegateSelector.getPopup();
+          if (selectorPopup) {
+            if (typeof selectorPopup.setZindex === 'function') selectorPopup.setZindex(21000);
+            else if (typeof selectorPopup.setZIndex === 'function') selectorPopup.setZIndex(21000);
+            var popupContainer = selectorPopup.getPopupContainer ? selectorPopup.getPopupContainer() : null;
+            if (popupContainer) {
+              popupContainer.classList.add('offer-delegate-selector-popup');
+              popupContainer.style.setProperty('z-index', '21000', 'important');
+            }
+            setTimeout(function() {
+              try { selectorPopup.adjustPosition(); } catch (err) {}
+            }, 0);
+          }
         });
         delegateForm.addEventListener('submit', function(event) {
           if (!userInput.value || !document.getElementById('delegate-offer-comment').value.trim()) {
