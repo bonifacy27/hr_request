@@ -70,6 +70,13 @@ const HRD_APPROVAL_STATUS_ENUM_ID = 879;
 const HRD_COMMENTS_PROPERTY_ID = 3171;
 const COMMENTS_ADMIN_USER_ID = 3532;
 const OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID = 707;
+const IBL_REQUESTS = 201;
+const IBL_CANDIDATES = 207;
+const CANDIDATE_REQUEST_PROPERTY_ID = 1596;
+const REQUEST_STATUS_PROPERTY_ID = 1042;
+const REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
+const OFFER_CANCELLED_STATUS_ENUM_ID = 7396;
+const REQUEST_REPEAT_WORKFLOW_TEMPLATE_ID = 1269;
 
 function decodeStatusHistoryHtml(string $raw): string
 {
@@ -97,6 +104,7 @@ function getStatusBadgeColor(string $status): string
         'Оффер принят' => '#22c55e',
         'Оффер не принят' => '#ef4444',
         'Черновик' => '#9ca3af',
+        'Отменен' => '#ef4444',
     ];
     return $map[$status] ?? '#cbd5e1';
 }
@@ -395,6 +403,64 @@ function appendOfferHrdComment(int $offerId, string $message): void
     CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, [HRD_COMMENTS_PROPERTY_ID => $newValue]);
 }
 
+function getElementPropertyInt(int $iblockId, int $elementId, int $propertyId): int
+{
+    if ($elementId <= 0) return 0;
+    $property = CIBlockElement::GetProperty(
+        $iblockId,
+        $elementId,
+        ['sort' => 'asc'],
+        ['ID' => $propertyId]
+    )->Fetch();
+    return (int)($property['VALUE'] ?? 0);
+}
+
+function getOfferRequestId(int $requestId, int $candidateId): int
+{
+    if ($requestId > 0) return $requestId;
+    return $candidateId > 0
+        ? getElementPropertyInt(IBL_CANDIDATES, $candidateId, CANDIDATE_REQUEST_PROPERTY_ID)
+        : 0;
+}
+
+function terminateOfferWorkflows(int $offerId): array
+{
+    $errors = [];
+    $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
+    foreach ((array)CBPDocument::GetDocumentStates($documentType, $documentId) as $state) {
+        $workflowId = (string)($state['ID'] ?? '');
+        if ($workflowId === '') continue;
+        $workflowErrors = [];
+        try {
+            CBPDocument::TerminateWorkflow($workflowId, $documentId, $workflowErrors);
+        } catch (\Throwable $e) {
+            $workflowErrors[] = ['message' => $e->getMessage()];
+        }
+        foreach ($workflowErrors as $error) {
+            $errors[] = is_array($error) ? (string)($error['message'] ?? 'Ошибка остановки бизнес-процесса.') : (string)$error;
+        }
+    }
+    return array_values(array_filter($errors));
+}
+
+function startRequestRepeatWorkflow(int $requestId, int $recruiterId): bool
+{
+    if ($requestId <= 0 || $recruiterId <= 0) return false;
+    $errors = [];
+    try {
+        $workflowId = CBPDocument::StartWorkflow(
+            REQUEST_REPEAT_WORKFLOW_TEMPLATE_ID,
+            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $requestId],
+            ['par_Repeat' => 'Y', 'par_Recruiter' => 'user_' . $recruiterId],
+            $errors
+        );
+        return (string)$workflowId !== '' && empty($errors);
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
 function getExclusiveRecruiterTaskId(int $offerId, int $recruiterId): int
 {
     if ($offerId <= 0 || $recruiterId <= 0) return 0;
@@ -553,6 +619,65 @@ $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
 $canApproveAsHrd = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
 $currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
+if ($request->isPost() && (string)$request->getPost('action') === 'cancel_approval') {
+    $offerId = (int)$request->getPost('offer_id');
+    $comment = trim((string)$request->getPost('comment'));
+    $requestAction = (string)$request->getPost('request_action');
+    $result = 'error';
+
+    if (!check_bitrix_sessid()) {
+        $result = 'session_error';
+    } elseif ($comment === '') {
+        $result = 'comment_required';
+    } else {
+        $offer = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'PREVIEW_TEXT', PROP_RECRUITER, PROP_REQUEST_ID, PROP_CANDIDATE_ID]
+        )->Fetch();
+        $recruiterId = $offer ? userIdFromValue($offer[PROP_RECRUITER . '_VALUE'] ?? '') : 0;
+        $canCancelApproval = $offer && ($isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID || $recruiterId === $currentUserId);
+        $linkedRequestId = $offer ? getOfferRequestId(
+            (int)($offer[PROP_REQUEST_ID . '_VALUE'] ?? 0),
+            (int)($offer[PROP_CANDIDATE_ID . '_VALUE'] ?? 0)
+        ) : 0;
+
+        if (!$canCancelApproval) {
+            $result = 'denied';
+        } elseif ($linkedRequestId > 0 && !in_array($requestAction, ['continue', 'stop'], true)) {
+            $result = 'request_action_required';
+        } else {
+            $workflowErrors = terminateOfferWorkflows($offerId);
+            $actorName = getUserDisplayNameById($currentUserId) ?: ('Пользователь #' . $currentUserId);
+            $date = date('d.m.Y H:i');
+            $requestDecision = $requestAction === 'continue'
+                ? 'Продолжить работу по заявке на подбор.'
+                : ($requestAction === 'stop' ? 'Прервать процесс подбора.' : 'Связанная заявка на подбор отсутствует.');
+            $historyLine = $date . ': ' . $actorName . ' отменил согласование оффера. ' . $requestDecision . ' Комментарий: ' . $comment;
+            $history = decodeStatusHistoryHtml((string)($offer['PREVIEW_TEXT'] ?? ''));
+            $element = new CIBlockElement();
+            $historyUpdated = $element->Update($offerId, [
+                'PREVIEW_TEXT' => ($history !== '' ? $history . "\n" : '') . $historyLine,
+                'PREVIEW_TEXT_TYPE' => 'text',
+            ]);
+            CIBlockElement::SetPropertyValuesEx($offerId, IBL_OFFERS, [1189 => OFFER_CANCELLED_STATUS_ENUM_ID]);
+            appendOfferHrdComment($offerId, $historyLine);
+
+            $requestUpdated = true;
+            if ($linkedRequestId > 0 && $requestAction === 'continue') {
+                $requestUpdated = startRequestRepeatWorkflow($linkedRequestId, $recruiterId);
+            } elseif ($linkedRequestId > 0 && $requestAction === 'stop') {
+                CIBlockElement::SetPropertyValuesEx($linkedRequestId, IBL_REQUESTS, [REQUEST_STATUS_PROPERTY_ID => REQUEST_CANCELLED_STATUS_ENUM_ID]);
+            }
+
+            $result = $historyUpdated && $requestUpdated && empty($workflowErrors) ? 'cancelled' : 'partial_error';
+        }
+    }
+    LocalRedirect(buildUrl(['approval_cancel' => $result], []));
+}
+
 if ($request->isPost() && (string)$request->getPost('action') === 'delegate_offer') {
     $offerId = (int)$request->getPost('offer_id');
     $toUserId = (int)$request->getPost('delegate_to_user_id');
@@ -690,6 +815,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
 $offerDelegateResult = (string)$request->get('offer_delegate');
+$approvalCancelResult = (string)$request->get('approval_cancel');
 
 $statusEnumOptions = [];
 $rsEnum = CIBlockPropertyEnum::GetList(['SORT' => 'ASC', 'VALUE' => 'ASC'], ['IBLOCK_ID' => IBL_OFFERS, 'PROPERTY_ID' => 1189]);
@@ -724,6 +850,8 @@ $arSelect = [
     PROP_RECRUITER,
     PROP_STATUS,
     PROP_OFFER_PDF,
+    PROP_REQUEST_ID,
+    PROP_CANDIDATE_ID,
     'PREVIEW_TEXT',
 ];
 
@@ -815,6 +943,10 @@ while ($ob = $res->GetNextElement()) {
         'POSITION' => getFieldValue($f, PROP_POSITION),
         'ORGANIZATION' => getPropertyValue($p, 2753) ?: getFieldValue($f, PROP_ORGANIZATION),
         'RECRUITER_ID' => $recruiterId,
+        'REQUEST_ID' => getOfferRequestId(
+            (int)($f[PROP_REQUEST_ID . '_VALUE'] ?? 0),
+            (int)($f[PROP_CANDIDATE_ID . '_VALUE'] ?? 0)
+        ),
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_ID' => (int)($f[PROP_STATUS . '_ENUM_ID'] ?? 0),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
@@ -913,6 +1045,14 @@ function navPageUrl(int $pageNum): string
 
 <div class="container-fluid offer-list-page">
     <h2 class="mb-3">Заявки на оффер</h2>
+
+    <?php if ($approvalCancelResult === 'cancelled'): ?><div class="alert alert-success">Согласование оффера отменено.</div>
+    <?php elseif ($approvalCancelResult === 'partial_error'): ?><div class="alert alert-warning">Оффер отменен, но одну из связанных операций выполнить не удалось. Обратитесь к администратору.</div>
+    <?php elseif ($approvalCancelResult === 'denied'): ?><div class="alert alert-danger">Недостаточно прав для отмены согласования этого оффера.</div>
+    <?php elseif ($approvalCancelResult === 'comment_required'): ?><div class="alert alert-danger">Комментарий обязателен.</div>
+    <?php elseif ($approvalCancelResult === 'request_action_required'): ?><div class="alert alert-danger">Выберите действие с заявкой на подбор.</div>
+    <?php elseif ($approvalCancelResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла. Обновите страницу и повторите действие.</div>
+    <?php elseif ($approvalCancelResult === 'error'): ?><div class="alert alert-danger">Не удалось отменить согласование оффера.</div><?php endif; ?>
 
     <?php if ($offerDelegateResult === 'delegated'): ?><div class="alert alert-success">Оффер делегирован, рекрутер и история обновлены, процесс установки прав запущен.</div>
     <?php elseif ($offerDelegateResult === 'workflow_error'): ?><div class="alert alert-warning">Оффер делегирован, но процесс установки прав запустить не удалось.</div>
@@ -1021,6 +1161,7 @@ function navPageUrl(int $pageNum): string
                 $canApproveThisAsHrd = $canApproveAsHrd && (int)$row['STATUS_ID'] === HRD_APPROVAL_STATUS_ENUM_ID;
                 $canGeneratePdf = $hasPdfStatus && ($isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID);
                 $canDelegateOffer = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
+                $canCancelApproval = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
                 $taskId = (int)$row['TASK_ID_FOR_CURRENT_USER'];
                 $taskUrl = $taskId > 0 ? getBizprocTaskUrl($taskId, $currentUserId) : '';
                 ?>
@@ -1064,11 +1205,12 @@ function navPageUrl(int $pageNum): string
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
 
-                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canDelegateOffer): ?>
+                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canDelegateOffer || $canCancelApproval): ?>
                                 <select class="form-control form-control-sm actions-select js-offer-action-select"
                                         aria-label="Действия с оффером"
                                         data-offer-id="<?= (int)$row['ID'] ?>"
                                         data-recruiter-id="<?= $recruiterId ?>"
+                                        data-request-id="<?= (int)$row['REQUEST_ID'] ?>"
                                         data-sessid="<?= h(bitrix_sessid()) ?>"
                                         data-view-url="<?= h($row['VIEW_URL']) ?>"
                                         data-edit-url="<?= h($row['EDIT_URL']) ?>">
@@ -1082,10 +1224,11 @@ function navPageUrl(int $pageNum): string
                                     <?php if ($canGeneratePdf): ?>
                                         <option value="generate_pdf">Сформировать PDF</option>
                                     <?php endif; ?>
+                                    <?php if ($canCancelApproval): ?><option value="cancel_approval">Отмена согласования</option><?php endif; ?>
                                 </select>
                             <?php endif; ?>
 
-                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canDelegateOffer && $taskUrl === ''): ?>
+                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canDelegateOffer && !$canCancelApproval && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
                         </div>
@@ -1230,6 +1373,25 @@ function navPageUrl(int $pageNum): string
           if (!userInput.value || !document.getElementById('delegate-offer-comment').value.trim()) {
             event.preventDefault();
             alert(!userInput.value ? 'Выберите сотрудника для делегирования.' : 'Поле «Комментарии» обязательно.');
+          }
+        });
+        select.value = '';
+        return;
+      } else if (action === 'cancel_approval') {
+        var cancelOfferId = select.getAttribute('data-offer-id') || '0';
+        var cancelSessid = select.getAttribute('data-sessid') || '';
+        var requestId = parseInt(select.getAttribute('data-request-id') || '0', 10) || 0;
+        var requestChoice = requestId > 0
+          ? '<div class="form-group"><div class="font-weight-bold mb-2">Что сделать с заявкой на подбор?</div><label class="d-block"><input type="radio" name="request_action" value="continue" required> Продолжить работу по заявке на подбор</label><label class="d-block"><input type="radio" name="request_action" value="stop" required> Прервать процесс подбора</label></div>'
+          : '';
+        openModal('Отмена согласования', '<form method="post" id="cancel-approval-form"><input type="hidden" name="action" value="cancel_approval"><input type="hidden" name="offer_id" value="' + cancelOfferId + '"><input type="hidden" name="sessid" value="' + cancelSessid + '">' + requestChoice + '<div class="form-group"><label for="cancel-approval-comment">Комментарий <span class="text-danger">*</span></label><textarea id="cancel-approval-comment" name="comment" class="form-control" rows="4" required></textarea></div><button type="submit" class="btn btn-danger">Отменить согласование</button> <button type="button" class="btn btn-secondary" id="cancel-approval-close">Отмена</button></form>');
+        document.getElementById('cancel-approval-close').addEventListener('click', closeModal);
+        document.getElementById('cancel-approval-form').addEventListener('submit', function(event) {
+          var comment = document.getElementById('cancel-approval-comment');
+          var choice = this.querySelector('input[name="request_action"]:checked');
+          if (!comment.value.trim() || (requestId > 0 && !choice)) {
+            event.preventDefault();
+            alert(!comment.value.trim() ? 'Поле «Комментарий» обязательно.' : 'Выберите действие с заявкой на подбор.');
           }
         });
         select.value = '';
