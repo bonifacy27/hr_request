@@ -28,7 +28,6 @@ const PROP_EMAIL = 1089;
 const PROP_HISTORY = 1276;
 const PROP_FRIENDWORK_ID = 1594;
 
-const PROPERTIES_TO_CLEAR = [1093];
 const FILE_PROPERTIES_TO_CLEAR = [1086, 1224, 1225, 1226, 1227, 3071, 3153, 1228, 1689, 1731, 1732, 1733];
 
 function h($value): string
@@ -144,9 +143,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             PROP_PHONE => maskPhone(propertyString($properties, PROP_PHONE)),
             PROP_EMAIL => maskEmail(propertyString($properties, PROP_EMAIL)),
         ];
-        foreach (PROPERTIES_TO_CLEAR as $propertyId) {
-            $updates[$propertyId] = '';
-        }
         foreach (FILE_PROPERTIES_TO_CLEAR as $propertyId) {
             $property = propertyById($properties, $propertyId);
             if ($property) {
