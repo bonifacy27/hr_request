@@ -22,6 +22,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 const CANDIDATE_IBLOCK_ID = 207;
 const VIEW_URL = 'view.php?id=';
 const EDIT_URL = 'edit_anketa.php?id=';
+const DEPERSONALIZE_URL = 'depersonalize.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const RIGHTS_WORKFLOW_TOOL_URL = 'start_rights_workflow.php';
 const PER_PAGE = 20;
@@ -32,6 +33,7 @@ const RECRUIT_REQUEST_IBLOCK_ID = 201;
 const RECRUIT_REQUEST_STATUS_PROPERTY_ID = 1042;
 const RECRUIT_REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
 const RECRUIT_REQUEST_REPEAT_WORKFLOW_TEMPLATE_ID = 1269;
+const PERSONAL_DATA_GROUP_ID = 82;
 
 const PROP_LASTNAME = 1083;
 const PROP_FIRSTNAME = 1084;
@@ -376,6 +378,8 @@ function buildQueryUrl(array $override = [])
 $currentUserId = (int)$USER->GetID();
 $currentUserGroups = CUser::GetUserGroup($currentUserId);
 $isAdmin = in_array(1, array_map('intval', (array)$currentUserGroups), true);
+$canDepersonalize = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID
+    || in_array(PERSONAL_DATA_GROUP_ID, array_map('intval', (array)$currentUserGroups), true);
 $currentUserTagLower = mb_strtolower('user_' . $currentUserId);
 $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
@@ -794,6 +798,9 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                                 $actions = [];
                                 $bpAction = null;
                                 $actions[] = ['type' => 'link', 'title' => 'Открыть', 'href' => VIEW_URL . $id];
+                                if ($canDepersonalize) {
+                                    $actions[] = ['type' => 'link', 'title' => 'Обезличить ПД', 'href' => DEPERSONALIZE_URL . $id];
+                                }
                                 if ($canChangeRecruiter) {
                                     $actions[] = ['type' => 'change_recruiter', 'title' => 'Сменить рекрутера'];
                                 }
