@@ -21,6 +21,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 
 const CANDIDATE_IBLOCK_ID = 207;
 const VIEW_URL = 'view.php?id=';
+const EDIT_URL = 'edit_anketa.php?id=';
 const CREATE_URL = 'create_anketa.php';
 const RIGHTS_WORKFLOW_TOOL_URL = 'start_rights_workflow.php';
 const PER_PAGE = 20;
@@ -789,11 +790,15 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                             <?php
                                 $canChangeRecruiter = $isAdmin || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $canCancelCheck = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
+                                $canEditCandidate = $canCancelCheck;
                                 $actions = [];
                                 $bpAction = null;
                                 $actions[] = ['type' => 'link', 'title' => 'Открыть', 'href' => VIEW_URL . $id];
                                 if ($canChangeRecruiter) {
                                     $actions[] = ['type' => 'change_recruiter', 'title' => 'Сменить рекрутера'];
+                                }
+                                if ($canEditCandidate) {
+                                    $actions[] = ['type' => 'link', 'title' => 'Редактировать', 'href' => EDIT_URL . $id];
                                 }
                                 if ($canCancelCheck) {
                                     $actions[] = ['type' => 'cancel_check', 'title' => 'Отменить проверку'];
