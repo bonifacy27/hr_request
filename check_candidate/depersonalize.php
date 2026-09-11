@@ -82,23 +82,55 @@ function maskEmail(string $email): string
     return (string)preg_replace('/[^@.]/u', 'X', $email);
 }
 
-function fileDeletionValue(array $property)
+function existingFileRecords(array $property): array
 {
-    if (($property['MULTIPLE'] ?? 'N') !== 'Y') {
-        return ['VALUE' => ['del' => 'Y']];
-    }
-
+    $values = is_array($property['VALUE'] ?? null) ? $property['VALUE'] : [$property['VALUE'] ?? ''];
     $valueIds = is_array($property['PROPERTY_VALUE_ID'] ?? null)
         ? $property['PROPERTY_VALUE_ID']
         : [$property['PROPERTY_VALUE_ID'] ?? 0];
-    $deletions = [];
-    foreach ($valueIds as $valueId) {
-        $valueId = (int)$valueId;
-        if ($valueId > 0) {
-            $deletions[$valueId] = ['VALUE' => ['del' => 'Y']];
+    $valueIdsByPosition = array_values($valueIds);
+    $records = [];
+    $position = 0;
+    foreach ($values as $key => $fileId) {
+        $fileId = (int)$fileId;
+        if ($fileId > 0) {
+            $records[] = [
+                'FILE_ID' => $fileId,
+                'PROPERTY_VALUE_ID' => (int)($valueIds[$key] ?? $valueIdsByPosition[$position] ?? 0),
+            ];
         }
+        $position++;
     }
-    return $deletions;
+    return $records;
+}
+
+function deleteFilesFromProperty(int $candidateId, int $propertyId, array $property): void
+{
+    $records = existingFileRecords($property);
+    if (!$records) {
+        return;
+    }
+
+    if (($property['MULTIPLE'] ?? 'N') === 'Y') {
+        $deletions = [];
+        foreach ($records as $record) {
+            if ($record['PROPERTY_VALUE_ID'] > 0) {
+                $deletions[$record['PROPERTY_VALUE_ID']] = ['VALUE' => ['del' => 'Y']];
+            }
+        }
+        if ($deletions) {
+            CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [$propertyId => $deletions]);
+        }
+    } else {
+        CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
+            $propertyId => ['VALUE' => ['del' => 'Y']],
+        ]);
+    }
+
+    // При обезличивании файл должен быть удалён не только из свойства, но и из хранилища Bitrix.
+    foreach ($records as $record) {
+        CFile::Delete($record['FILE_ID']);
+    }
 }
 
 $currentUserId = (int)$USER->GetID();
@@ -146,7 +178,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach (FILE_PROPERTIES_TO_CLEAR as $propertyId) {
             $property = propertyById($properties, $propertyId);
             if ($property) {
-                $updates[$propertyId] = fileDeletionValue($property);
+                deleteFilesFromProperty($candidateId, $propertyId, $property);
             }
         }
 
