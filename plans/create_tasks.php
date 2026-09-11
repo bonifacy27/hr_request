@@ -236,7 +236,7 @@ $rukoUserId     = (int)($planProps['RUKOVODITEL']['VALUE'] ?? 0);
 $rekrUserId     = (int)($planProps['REKRUTER']['VALUE'] ?? 0);
 $dateHireRaw    = (string)($planProps['DATA_TRUDOUSTROYSTVA']['VALUE'] ?? '');
 $dateIsEndRaw   = (string)($planProps['DATA_OKONCHANIYA_IS']['VALUE'] ?? '');
-$pdfUrl         = (string)($planProps['PLAN_VVODA_V_DOLZHNOST_PDF']['VALUE'] ?? '');
+$pdfUrl         = '/pub/apps/plans/plan.php?id_plan=' . $planId;
 
 if ($rukoUserId <= 0) { header('Content-Type: text/html; charset=utf-8'); die('Ошибка: не указан руководитель (RUKOVODITEL) в ПВД.'); }
 if ($dateHireRaw === '') { header('Content-Type: text/html; charset=utf-8'); die('Ошибка: не указана дата трудоустройства (DATA_TRUDOUSTROYSTVA) в ПВД.'); }
