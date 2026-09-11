@@ -91,8 +91,12 @@ function existingFileRecords(array $property): array
     $valueIdsByPosition = array_values($valueIds);
     $records = [];
     $position = 0;
-    foreach ($values as $key => $fileId) {
-        $fileId = (int)$fileId;
+    foreach ($values as $key => $fileValue) {
+        // В зависимости от способа получения свойства Bitrix может вернуть
+        // идентификатор файла как скаляр или как массив с ключом ID/VALUE.
+        $fileId = is_array($fileValue)
+            ? (int)($fileValue['ID'] ?? $fileValue['VALUE'] ?? 0)
+            : (int)$fileValue;
         if ($fileId > 0) {
             $records[] = [
                 'FILE_ID' => $fileId,
@@ -127,14 +131,14 @@ function deleteFilesFromProperty(int $candidateId, int $propertyId, array $prope
         ]);
     }
 
-    // Полностью очищаем значение свойства штатным методом. Маркеры выше нужны,
-    // чтобы Bitrix обработал файловые значения, а SetPropertyValues гарантирует,
-    // что в самом свойстве не останутся ссылки на удалённые файлы.
+    // false удаляет все записи свойства, в том числе множественного. Пустой
+    // массив для множественного свойства Bitrix может воспринять как отсутствие
+    // изменений и оставить старые ссылки на файлы.
     $propertyCode = trim((string)($property['CODE'] ?? ''));
     CIBlockElement::SetPropertyValues(
         $candidateId,
         CANDIDATE_IBLOCK_ID,
-        ($property['MULTIPLE'] ?? 'N') === 'Y' ? [] : false,
+        false,
         $propertyCode !== '' ? $propertyCode : (string)$propertyId
     );
 
@@ -147,8 +151,19 @@ function deleteFilesFromProperty(int $candidateId, int $propertyId, array $prope
 function appendCandidateHistory(int $candidateId, array $historyProperty, string $historyLine): void
 {
     if (($historyProperty['MULTIPLE'] ?? 'N') === 'Y') {
+        $historyValues = $historyProperty['VALUE'] ?? [];
+        if (!is_array($historyValues)) {
+            $historyValues = $historyValues !== '' ? [$historyValues] : [];
+        }
+        $historyValues = array_values(array_filter($historyValues, static function ($value) {
+            return !is_array($value) && (string)$value !== '';
+        }));
+        $historyValues[] = $historyLine;
+
+        // SetPropertyValuesEx заменяет весь набор значений множественного
+        // свойства, поэтому передаём старую историю вместе с новой записью.
         CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
-            PROP_HISTORY => ['n' . str_replace('.', '', uniqid('', true)) => $historyLine],
+            PROP_HISTORY => $historyValues,
         ]);
         return;
     }
