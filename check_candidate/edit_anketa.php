@@ -21,6 +21,7 @@ const CANDIDATE_IBLOCK_ID = 207;
 const EDIT_ADMIN_USER_ID = 3532;
 const RECRUIT_HEAD_GLOBAL_VAR_ID = 'Variable1722503621093';
 const RECRUITER_PROPERTY_ID = 1323;
+const HISTORY_PROPERTY_ID = 1276;
 
 $editableFileProperties = [
     1086 => ['CODE' => 'PASPORT', 'NAME' => 'Паспорт'],
@@ -264,6 +265,30 @@ function uploadedFilesForProperty(int $propertyId): array
     return $files;
 }
 
+function propertyById(array $properties, int $propertyId): ?array
+{
+    foreach ($properties as $property) {
+        if ((int)($property['ID'] ?? 0) === $propertyId) {
+            return $property;
+        }
+    }
+    return null;
+}
+
+function fileNameById(int $fileId): string
+{
+    $file = $fileId > 0 ? CFile::GetFileArray($fileId) : false;
+    return $file
+        ? (string)($file['ORIGINAL_NAME'] ?? $file['FILE_NAME'] ?? ('Файл #' . $fileId))
+        : ('Файл #' . $fileId);
+}
+
+function appendHistory(string $history, string $line): string
+{
+    $history = trim($history);
+    return $history === '' ? $line : ($history . "\n" . $line);
+}
+
 $candidateId = (int)($_GET['id'] ?? 0);
 if ($candidateId <= 0) {
     ShowError('Некорректный ID анкеты кандидата.');
@@ -294,13 +319,7 @@ if (!$element) {
 
 $elementFields = $element->GetFields();
 $properties = $element->GetProperties();
-$recruiterProperty = null;
-foreach ($properties as $property) {
-    if ((int)($property['ID'] ?? 0) === RECRUITER_PROPERTY_ID) {
-        $recruiterProperty = $property;
-        break;
-    }
-}
+$recruiterProperty = propertyById($properties, RECRUITER_PROPERTY_ID);
 
 $currentUserId = (int)$USER->GetID();
 $currentUserTag = mb_strtolower('user_' . $currentUserId);
@@ -319,11 +338,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $saveError = 'Сессия истекла. Обновите страницу и повторите действие.';
     } else {
         $updates = [];
+        $historyChanges = [];
         foreach ($editableFileProperties as $propertyId => $config) {
             $uploadedFiles = uploadedFilesForProperty((int)$propertyId);
-            if (!$uploadedFiles) {
-                continue;
-            }
             foreach ($uploadedFiles as $uploadedFile) {
                 if ($uploadedFile['error'] !== UPLOAD_ERR_OK || $uploadedFile['tmp_name'] === '' || !is_uploaded_file($uploadedFile['tmp_name'])) {
                     $saveError = 'Не удалось загрузить файл для поля «' . $config['NAME'] . '».';
@@ -331,26 +348,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
 
-            $property = null;
-            foreach ($properties as $candidateProperty) {
-                if ((int)($candidateProperty['ID'] ?? 0) === (int)$propertyId) {
-                    $property = $candidateProperty;
-                    break;
-                }
-            }
+            $property = propertyById($properties, (int)$propertyId);
             if (!$property) {
                 $saveError = 'Поле «' . $config['NAME'] . '» не найдено в анкете.';
                 break;
             }
 
             $mode = (string)($_POST['file_mode'][$propertyId] ?? 'append');
+            $oldFileIds = array_values(array_filter(array_map('intval', normalizeValues($property['VALUE'] ?? []))));
+            $requestedDeleteIds = array_map('intval', (array)($_POST['delete_files'][$propertyId] ?? []));
+            $deleteIds = array_values(array_intersect($oldFileIds, $requestedDeleteIds));
+            if (!$uploadedFiles && !$deleteIds) {
+                continue;
+            }
+
+            $removedFileIds = $deleteIds;
+            $retainedFileIds = array_values(array_diff($oldFileIds, $deleteIds));
+            if ($uploadedFiles && ($mode === 'replace' || ($property['MULTIPLE'] ?? 'N') !== 'Y')) {
+                $removedFileIds = $oldFileIds;
+                $retainedFileIds = [];
+            }
+
             $values = [];
-            if ($mode !== 'replace') {
-                foreach (normalizeValues($property['VALUE'] ?? []) as $fileId) {
-                    if ((int)$fileId > 0) {
-                        $values[] = ['VALUE' => (int)$fileId];
-                    }
-                }
+            foreach ($retainedFileIds as $fileId) {
+                $values[] = ['VALUE' => $fileId];
             }
             foreach ($uploadedFiles as $uploadedFile) {
                 $values[] = ['VALUE' => $uploadedFile];
@@ -359,12 +380,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $values = end($values);
             }
             $updates[$propertyId] = $values;
+
+            $parts = [];
+            if ($uploadedFiles) {
+                $parts[] = 'добавлены файлы: ' . implode(', ', array_map(static function ($file) {
+                    return (string)$file['name'];
+                }, $uploadedFiles));
+            }
+            if ($removedFileIds) {
+                $parts[] = 'удалены файлы: ' . implode(', ', array_map('fileNameById', $removedFileIds));
+            }
+            $historyChanges[] = $config['NAME'] . ' — ' . implode('; ', $parts);
         }
 
         if ($saveError === '' && !$updates) {
             $saveError = 'Выберите хотя бы один документ для загрузки.';
         }
         if ($saveError === '') {
+            $historyProperty = propertyById($properties, HISTORY_PROPERTY_ID);
+            $history = implode("\n", array_map('strval', normalizeValues($historyProperty['VALUE'] ?? '')));
+            $historyLine = date('d.m.Y H:i') . ': ' . formatUserNameById($currentUserId)
+                . ' изменил документы анкеты. ' . implode('. ', $historyChanges) . '.';
+            $updates[HISTORY_PROPERTY_ID] = appendHistory($history, $historyLine);
             CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, $updates);
             LocalRedirect('edit_anketa.php?id=' . $candidateId . '&saved=Y');
         }
@@ -425,8 +462,30 @@ $propertiesByCode['CANDIDATE_FIO'] = [
             <div class="card-header"><strong>Добавление и замена документов</strong></div>
             <div class="card-body p-0">
                 <?php foreach ($editableFileProperties as $propertyId => $config): ?>
+                    <?php
+                    $editableProperty = propertyById($properties, (int)$propertyId);
+                    $currentFileIds = array_values(array_filter(array_map('intval', normalizeValues($editableProperty['VALUE'] ?? []))));
+                    ?>
                     <div class="document-edit-row">
                         <label for="document-<?= (int)$propertyId ?>"><strong><?= h($config['NAME']) ?></strong></label>
+                        <?php if ($currentFileIds): ?>
+                            <div class="mb-2">
+                                <?php foreach ($currentFileIds as $fileId): ?>
+                                    <?php $filePath = CFile::GetPath($fileId); ?>
+                                    <label class="d-block mb-1">
+                                        <input type="checkbox" name="delete_files[<?= (int)$propertyId ?>][]" value="<?= (int)$fileId ?>">
+                                        Удалить
+                                        <?php if ($filePath !== ''): ?>
+                                            <a href="<?= h($filePath) ?>" target="_blank"><?= h(fileNameById($fileId)) ?></a>
+                                        <?php else: ?>
+                                            <?= h(fileNameById($fileId)) ?>
+                                        <?php endif; ?>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="text-muted mb-2">Документы не загружены</div>
+                        <?php endif; ?>
                         <input
                             type="file"
                             class="form-control-file"
