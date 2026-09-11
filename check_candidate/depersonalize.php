@@ -191,6 +191,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $historyLine = date('d.m.Y H:i') . ': ' . formatUserNameById($currentUserId)
             . ' удалил персональные данные из анкеты.';
 
+        $candidateElement = new CIBlockElement();
+        $candidateElement->Update($candidateId, [
+            'NAME' => 'Анкета кандидата ' . $candidateId . ' (обезличена)',
+        ]);
         CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, $updates);
         appendCandidateHistory($candidateId, $historyLine);
         LocalRedirect('list.php?msg=success&text=' . rawurlencode('Персональные данные анкеты обезличены.'));
