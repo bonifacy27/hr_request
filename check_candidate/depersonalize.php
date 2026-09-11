@@ -127,10 +127,36 @@ function deleteFilesFromProperty(int $candidateId, int $propertyId, array $prope
         ]);
     }
 
+    // Полностью очищаем значение свойства штатным методом. Маркеры выше нужны,
+    // чтобы Bitrix обработал файловые значения, а SetPropertyValues гарантирует,
+    // что в самом свойстве не останутся ссылки на удалённые файлы.
+    $propertyCode = trim((string)($property['CODE'] ?? ''));
+    CIBlockElement::SetPropertyValues(
+        $candidateId,
+        CANDIDATE_IBLOCK_ID,
+        ($property['MULTIPLE'] ?? 'N') === 'Y' ? [] : false,
+        $propertyCode !== '' ? $propertyCode : (string)$propertyId
+    );
+
     // При обезличивании файл должен быть удалён не только из свойства, но и из хранилища Bitrix.
     foreach ($records as $record) {
         CFile::Delete($record['FILE_ID']);
     }
+}
+
+function appendCandidateHistory(int $candidateId, array $historyProperty, string $historyLine): void
+{
+    if (($historyProperty['MULTIPLE'] ?? 'N') === 'Y') {
+        CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
+            PROP_HISTORY => ['n' . str_replace('.', '', uniqid('', true)) => $historyLine],
+        ]);
+        return;
+    }
+
+    $history = $historyProperty ? propertyString([$historyProperty], PROP_HISTORY) : '';
+    CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
+        PROP_HISTORY => ($history !== '' ? $history . "\n" : '') . $historyLine,
+    ]);
 }
 
 $currentUserId = (int)$USER->GetID();
@@ -182,12 +208,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $history = propertyString($properties, PROP_HISTORY);
         $historyLine = date('d.m.Y H:i') . ': ' . formatUserNameById($currentUserId)
             . ' удалил персональные данные из анкеты.';
-        $updates[PROP_HISTORY] = ($history !== '' ? $history . "\n" : '') . $historyLine;
 
         CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, $updates);
+        appendCandidateHistory($candidateId, propertyById($properties, PROP_HISTORY) ?? [], $historyLine);
         LocalRedirect('list.php?msg=success&text=' . rawurlencode('Персональные данные анкеты обезличены.'));
     }
 }
