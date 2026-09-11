@@ -289,6 +289,28 @@ function appendHistory(string $history, string $line): string
     return $history === '' ? $line : ($history . "\n" . $line);
 }
 
+function existingFileRecords(array $property): array
+{
+    $values = is_array($property['VALUE'] ?? null) ? $property['VALUE'] : [$property['VALUE'] ?? ''];
+    $valueIds = is_array($property['PROPERTY_VALUE_ID'] ?? null)
+        ? $property['PROPERTY_VALUE_ID']
+        : [$property['PROPERTY_VALUE_ID'] ?? 0];
+    $valueIdsByPosition = array_values($valueIds);
+    $records = [];
+    $position = 0;
+    foreach ($values as $key => $fileId) {
+        $fileId = (int)$fileId;
+        if ($fileId <= 0) {
+            $position++;
+            continue;
+        }
+        $propertyValueId = (int)($valueIds[$key] ?? $valueIdsByPosition[$position] ?? 0);
+        $records[] = ['FILE_ID' => $fileId, 'PROPERTY_VALUE_ID' => $propertyValueId];
+        $position++;
+    }
+    return $records;
+}
+
 $candidateId = (int)($_GET['id'] ?? 0);
 if ($candidateId <= 0) {
     ShowError('Некорректный ID анкеты кандидата.');
@@ -355,7 +377,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $mode = (string)($_POST['file_mode'][$propertyId] ?? 'append');
-            $oldFileIds = array_values(array_filter(array_map('intval', normalizeValues($property['VALUE'] ?? []))));
+            $oldFileRecords = existingFileRecords($property);
+            $oldFileIds = array_column($oldFileRecords, 'FILE_ID');
             $requestedDeleteIds = array_map('intval', (array)($_POST['delete_files'][$propertyId] ?? []));
             $deleteIds = array_values(array_intersect($oldFileIds, $requestedDeleteIds));
             if (!$uploadedFiles && !$deleteIds) {
@@ -363,23 +386,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $removedFileIds = $deleteIds;
-            $retainedFileIds = array_values(array_diff($oldFileIds, $deleteIds));
             if ($uploadedFiles && ($mode === 'replace' || ($property['MULTIPLE'] ?? 'N') !== 'Y')) {
                 $removedFileIds = $oldFileIds;
-                $retainedFileIds = [];
             }
 
-            $values = [];
-            foreach ($retainedFileIds as $fileId) {
-                $values[] = ['VALUE' => $fileId];
+            $isMultiple = ($property['MULTIPLE'] ?? 'N') === 'Y';
+            if ($isMultiple) {
+                $values = [];
+                foreach ($oldFileRecords as $record) {
+                    if (in_array($record['FILE_ID'], $removedFileIds, true) && $record['PROPERTY_VALUE_ID'] > 0) {
+                        $values[$record['PROPERTY_VALUE_ID']] = ['VALUE' => ['del' => 'Y']];
+                    }
+                }
+                foreach ($uploadedFiles as $index => $uploadedFile) {
+                    $values['n' . $index] = ['VALUE' => $uploadedFile];
+                }
+                $updates[$propertyId] = $values;
+            } else {
+                $updates[$propertyId] = ['VALUE' => $uploadedFiles ? end($uploadedFiles) : ['del' => 'Y']];
             }
-            foreach ($uploadedFiles as $uploadedFile) {
-                $values[] = ['VALUE' => $uploadedFile];
-            }
-            if (($property['MULTIPLE'] ?? 'N') !== 'Y') {
-                $values = end($values);
-            }
-            $updates[$propertyId] = $values;
 
             $parts = [];
             if ($uploadedFiles) {
