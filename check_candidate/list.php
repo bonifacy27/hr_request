@@ -168,6 +168,20 @@ function propertyValueById(array $properties, $propertyId, $valueKey = 'VALUE')
     return '';
 }
 
+function userIdFromPropertyValue($value): int
+{
+    if (is_array($value)) {
+        $value = reset($value);
+    }
+
+    $value = trim((string)$value);
+    if (stripos($value, 'user_') === 0) {
+        return (int)substr($value, 5);
+    }
+
+    return (int)$value;
+}
+
 function getEnumMap($propertyId)
 {
     $map = [];
@@ -397,9 +411,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
         $props = $el ? $el->GetProperties() : [];
-        $oldRecruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+        $oldRecruiterId = userIdFromPropertyValue(propertyValueById($props, PROP_RECRUITER, 'VALUE'));
+        $currentUserTaskId = findActiveTaskIdForUser($elementId, $currentUserId);
 
-        $canChange = $isAdmin || $isRecruitHead || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
+        // The workflow task is the authoritative indication that a recruiter is
+        // currently responsible for the candidate. The property can temporarily
+        // contain an outdated user after a workflow assignment has changed.
+        $canChange = $isAdmin
+            || $isRecruitHead
+            || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId)
+            || $currentUserTaskId > 0;
 
         if ($elementId <= 0 || $newRecruiterId <= 0 || $comment === '') {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
@@ -417,11 +438,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $line = $now . ': ' . $actorName . ' сменил рекрутера ' . $oldName . ' на ' . $newName . '. Комментарий: ' . $comment;
         $newHistory = appendHistoryLine($history, $line);
 
-        $taskId = findActiveTaskIdForUser($elementId, $oldRecruiterId);
-        if ($taskId > 0 && $oldRecruiterId !== $newRecruiterId) {
+        $taskOwnerId = $oldRecruiterId;
+        $taskId = findActiveTaskIdForUser($elementId, $taskOwnerId);
+        if ($taskId <= 0) {
+            $taskId = $currentUserTaskId;
+            $taskOwnerId = $currentUserId;
+        }
+        if ($taskId > 0 && $taskOwnerId !== $newRecruiterId) {
+            $taskOwnerName = formatUserNameById($taskOwnerId);
             try {
-                CBPTaskService::DelegateTask($taskId, $oldRecruiterId, $newRecruiterId);
-                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $oldName . ' на ' . $newName . '.');
+                CBPTaskService::DelegateTask($taskId, $taskOwnerId, $newRecruiterId);
+                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $taskOwnerName . ' на ' . $newName . '.');
             } catch (\Throwable $e) {
                 $newHistory = appendHistoryLine($newHistory, $now . ': Не удалось делегировать задание БП #' . $taskId . ' — ' . $e->getMessage());
             }
@@ -454,7 +481,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
         $props = $el ? $el->GetProperties() : [];
-        $recruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+        $recruiterId = userIdFromPropertyValue(propertyValueById($props, PROP_RECRUITER, 'VALUE'));
         $recruitRequestId = (int)propertyValueById($props, PROP_RECRUIT_REQUEST_ID, 'VALUE');
 
         $canCancel = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID
@@ -554,7 +581,7 @@ while ($ob = $rs->GetNextElement()) {
     $p = $ob->GetProperties();
 
     $id = (int)$f['ID'];
-    $rid = (int)propertyValueById($p, PROP_RECRUITER, 'VALUE');
+    $rid = userIdFromPropertyValue(propertyValueById($p, PROP_RECRUITER, 'VALUE'));
     if ($rid > 0) {
         $recruiterIds[$rid] = $rid;
     }
@@ -792,7 +819,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                     <td>
                         <div class="actions-cell">
                             <?php
-                                $canChangeRecruiter = $isAdmin || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
+                                $canChangeRecruiter = $isAdmin
+                                    || $isRecruitHead
+                                    || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId)
+                                    || $taskId > 0;
                                 $canCancelCheck = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $canEditCandidate = $canCancelCheck;
                                 $actions = [];
