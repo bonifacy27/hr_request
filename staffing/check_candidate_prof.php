@@ -323,6 +323,16 @@ function fwGetPublicAccounts(): array
             'paging.perPage' => FW_ACCOUNTS_PER_PAGE,
         ]);
         $response = fwExternal('GET', '/api/v2/accounts?' . $query);
+        if ($response['http'] === 404 && $page === 1) {
+            // Совместимый read-only endpoint для инсталляций, где accounts v2
+            // не опубликован или скрыт для текущего токена.
+            $legacyResponse = fwExternal('GET', '/accounts');
+            if ($legacyResponse['http'] === 200 && is_array($legacyResponse['data'])) {
+                $legacyResponse['accounts'] = $legacyResponse['data'];
+                return $legacyResponse;
+            }
+            $response = $legacyResponse;
+        }
         if ($response['http'] !== 200 || !is_array($response['data'])) {
             $response['accounts'] = [];
             return $response;

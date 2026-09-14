@@ -686,14 +686,29 @@ if (!$candidates) {
     3) GET EXTERNAL ACCOUNTS (с email рекрутёров)
    ===================================================================== */
 $fwAccounts = fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500");
-if ($fwAccounts['http'] != 200) {
-    echo "<h2>Ошибка получения аккаунтов (внешний API)</h2>";
-    echo "<pre>".htmlspecialchars($fwAccounts['raw'])."</pre>";
-    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
-    exit;
+$accountItems = $fwAccounts['data']['items'] ?? null;
+if ($fwAccounts['http'] === 404 || !is_array($accountItems)) {
+    // Метод v2 может быть недоступен для токена без административного доступа.
+    // Старый read-only метод аккаунтов всё ещё нужен для сопоставления responsibleId.
+    $publicApiError = $fwAccounts;
+    $fwAccounts = fwExternal("GET", "/accounts");
+    $accountItems = is_array($fwAccounts['data'] ?? null) ? $fwAccounts['data'] : null;
+    checkMassLog('Public API accounts v2 fallback used', [
+        'v2_http' => $publicApiError['http'],
+        'fallback_http' => $fwAccounts['http'],
+    ]);
 }
 $externalAcc = [];
-foreach (($fwAccounts['data']['items'] ?? []) as $acc) {
+if ($fwAccounts['http'] !== 200 || !is_array($accountItems)) {
+    checkMassLog('FriendWork accounts are unavailable; recruiter mapping will use fallback rules', [
+        'http' => $fwAccounts['http'],
+        'error' => $fwAccounts['err'],
+        'response' => mb_substr((string)$fwAccounts['raw'], 0, 500),
+    ]);
+    echo "<div style='color:#a66'>Предупреждение: аккаунты FriendWork недоступны; рекрутер будет определён по резервным правилам.</div>";
+    $accountItems = [];
+}
+foreach ($accountItems as $acc) {
     $id = $acc['accountId'];
     $email = strtolower($acc['userName'] ?? '');
     $fio   = trim(($acc['firstName'] ?? '') . " " . ($acc['lastName'] ?? ''));

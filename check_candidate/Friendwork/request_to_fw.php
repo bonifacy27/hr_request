@@ -318,7 +318,8 @@ function fwGetAccounts($accessToken, $search = '')
     if (trim((string)$search) !== '') {
         $query['search'] = trim((string)$search);
     }
-    $ch = curl_init(FW_ACCOUNTS_ENDPOINT . '?' . http_build_query($query));
+    $url = FW_ACCOUNTS_ENDPOINT . '?' . http_build_query($query);
+    $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Authorization: Bearer ' . $accessToken,
         'Accept: application/json',
@@ -330,6 +331,22 @@ function fwGetAccounts($accessToken, $search = '')
     $curlErr = curl_error($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    // На части инсталляций endpoint v2 скрыт (404), хотя read-only /accounts
+    // доступен тому же Public API-токену.
+    if ($httpCode === 404) {
+        $ch = curl_init(FW_PUBLIC_API_URL . '/accounts');
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $accessToken,
+            'Accept: application/json',
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        $responseRaw = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    }
 
     if ($responseRaw === false) {
         fwLog('Ошибка CURL при получении аккаунтов FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr]);
