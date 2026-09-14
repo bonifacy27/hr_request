@@ -554,15 +554,6 @@ document.addEventListener("DOMContentLoaded", function() {
     exit;
 }
 
-$fwCredentials = checkMassGetFriendWorkCredentials();
-$fwAccessToken = trim((string)$fwCredentials['token']);
-if ($fwCredentials['error'] !== '' || $fwCredentials['username'] === '' || $fwCredentials['password'] === '' || $fwAccessToken === '') {
-    checkMassLog('FriendWork credentials are unavailable', ['error' => $fwCredentials['error']]);
-    echo '<h2>Не удалось получить доступы FriendWork из глобальных констант БП.</h2>';
-    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
-    exit;
-}
-
 /* =====================================================================
     1) AUTH INTERNAL API
    ===================================================================== */
@@ -585,6 +576,25 @@ if (!$loadState || (int)($loadState['job_id'] ?? 0) !== $jobId) {
     checkMassLog('Candidate loading started', [
         'job_id' => $jobId, 'per_page' => FW_CANDIDATES_PER_PAGE, 'token' => $loadToken,
     ]);
+}
+
+$fwCredentials = checkMassGetFriendWorkCredentials();
+$fwAccessToken = trim((string)$fwCredentials['token']);
+if ($fwCredentials['error'] !== '') {
+    checkMassLog('FriendWork global constants read failed', ['error' => $fwCredentials['error']]);
+}
+
+// В openapi.yaml нет метода получения кандидатов по вакансии. Пока FriendWork
+// не предоставит его в Public API, незагруженные страницы требуют legacy-доступы.
+if (empty($loadState['completed']) && ($fwCredentials['username'] === '' || $fwCredentials['password'] === '')) {
+    checkMassLog('Legacy FriendWork credentials required for candidate loading', [
+        'username_present' => $fwCredentials['username'] !== '',
+        'password_present' => $fwCredentials['password'] !== '',
+        'token_present' => $fwAccessToken !== '',
+    ]);
+    echo '<h2>Не удалось загрузить кандидатов: FriendWork Public API не содержит метода выборки кандидатов по вакансии, а legacy-логин или пароль отсутствует.</h2>';
+    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
 }
 
 /* =====================================================================
@@ -685,9 +695,11 @@ if (!$candidates) {
 /* =====================================================================
     3) GET EXTERNAL ACCOUNTS (с email рекрутёров)
    ===================================================================== */
-$fwAccounts = fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500");
+$fwAccounts = $fwAccessToken !== ''
+    ? fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500")
+    : ['http' => 0, 'data' => null, 'raw' => '', 'err' => 'API-токен не задан'];
 $accountItems = $fwAccounts['data']['items'] ?? null;
-if ($fwAccounts['http'] === 404 || !is_array($accountItems)) {
+if ($fwAccessToken !== '' && ($fwAccounts['http'] === 404 || !is_array($accountItems))) {
     // Метод v2 может быть недоступен для токена без административного доступа.
     // Старый read-only метод аккаунтов всё ещё нужен для сопоставления responsibleId.
     $publicApiError = $fwAccounts;
@@ -982,14 +994,20 @@ if ($doProcess) {
                 "DateCreated" => $dateNow,
                 "Description" => "Status updated by Bitrix24"
             ];
-            $fwUpd = fwExternal("POST",
-                "/Candidate/{$candidateId}/CandidateHistories/set",
-                $payloadStatus
-            );
-            if ($fwUpd['http'] == 200 || $fwUpd['http'] == 201) {
-                echo "<span style='color:green'>Статус кандидата обновлён</span><br>";
+            if ($fwAccessToken === '') {
+                echo "<span style='color:#a66'>Статус FriendWork не обновлён: API-токен не задан.</span><br>";
             } else {
-                echo "<span style='color:red'>Ошибка обновления статуса (FW external)</span><br>";
+                // В openapi.yaml этот legacy-метод отсутствует; вызов сохранён
+                // только для обратной совместимости существующего процесса.
+                $fwUpd = fwExternal("POST",
+                    "/Candidate/{$candidateId}/CandidateHistories/set",
+                    $payloadStatus
+                );
+                if ($fwUpd['http'] == 200 || $fwUpd['http'] == 201) {
+                    echo "<span style='color:green'>Статус кандидата обновлён</span><br>";
+                } else {
+                    echo "<span style='color:red'>Ошибка обновления статуса (legacy FW API)</span><br>";
+                }
             }
         } else {
             checkMassLog('Candidate element creation failed', [
