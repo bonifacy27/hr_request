@@ -168,6 +168,20 @@ function propertyValueById(array $properties, $propertyId, $valueKey = 'VALUE')
     return '';
 }
 
+function userIdFromPropertyValue($value): int
+{
+    if (is_array($value)) {
+        $value = reset($value);
+    }
+
+    $value = trim((string)$value);
+    if (stripos($value, 'user_') === 0) {
+        return (int)substr($value, 5);
+    }
+
+    return (int)$value;
+}
+
 function getEnumMap($propertyId)
 {
     $map = [];
@@ -397,7 +411,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
         $props = $el ? $el->GetProperties() : [];
-        $oldRecruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+        $oldRecruiterId = userIdFromPropertyValue(propertyValueById($props, PROP_RECRUITER, 'VALUE'));
 
         $canChange = $isAdmin || $isRecruitHead || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
 
@@ -454,7 +468,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
         $props = $el ? $el->GetProperties() : [];
-        $recruiterId = (int)propertyValueById($props, PROP_RECRUITER, 'VALUE');
+        $recruiterId = userIdFromPropertyValue(propertyValueById($props, PROP_RECRUITER, 'VALUE'));
         $recruitRequestId = (int)propertyValueById($props, PROP_RECRUIT_REQUEST_ID, 'VALUE');
 
         $canCancel = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID
@@ -554,7 +568,7 @@ while ($ob = $rs->GetNextElement()) {
     $p = $ob->GetProperties();
 
     $id = (int)$f['ID'];
-    $rid = (int)propertyValueById($p, PROP_RECRUITER, 'VALUE');
+    $rid = userIdFromPropertyValue(propertyValueById($p, PROP_RECRUITER, 'VALUE'));
     if ($rid > 0) {
         $recruiterIds[$rid] = $rid;
     }
