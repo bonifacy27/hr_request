@@ -13,6 +13,7 @@ if (!$checkMassRetryRequest) {
 }
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\Application;
 if (
     !Loader::includeModule("iblock") ||
     !Loader::includeModule("lists") ||
@@ -28,13 +29,13 @@ if (!$checkMassRetryRequest) {
 /* ================================================================
     CONFIG
    ================================================================ */
-// INTERNAL FRIENDWORK API (OLD — to get candidates)
-const FW_USER_INTERNAL = 'user';
-const FW_PASS_INTERNAL = 'pass';
+// Учётные данные хранятся в глобальных константах бизнес-процессов.
+const FW_USERNAME_CONST_ID = 'Constant1698403240866';
+const FW_PASSWORD_CONST_ID = 'Constant1698403290839';
+const FW_TOKEN_CONST_ID = 'Constant1789370789700';
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
 
-// EXTERNAL FRIENDWORK API (NEW — to get recruiters, update statuses)
-const FW_TOKEN_EXTERNAL = 'token';
+// FriendWork Public API (аккаунты и доступные публичные операции).
 const FW_API_EXTERNAL   = 'https://api.friend.work';
 
 // ↓↓↓ БЕЛЫЙ СПИСОК ID РЕКРУТЕРОВ ↓↓↓
@@ -68,6 +69,42 @@ const FORM_API_TYPE = 'Массовый подбор';
 const FORM_API_STATUS = 1;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
+$fwAccessToken = '';
+
+function checkMassDecodeGlobalConstant($raw)
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') return '';
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (is_array($decoded)) return trim((string)($decoded['value'] ?? $decoded[0] ?? ''));
+    if (is_string($decoded)) return trim($decoded);
+    $unescaped = stripcslashes($raw);
+    $decoded = @unserialize($unescaped, ['allowed_classes' => false]);
+    if (is_string($decoded)) return trim($decoded);
+    if (preg_match('/^s:\d+:"(.*)";$/s', $unescaped, $matches)) return trim($matches[1]);
+    return $raw;
+}
+
+function checkMassGetFriendWorkCredentials()
+{
+    try {
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $ids = [FW_USERNAME_CONST_ID, FW_PASSWORD_CONST_ID, FW_TOKEN_CONST_ID];
+        $escaped = array_map([$helper, 'forSql'], $ids);
+        $rows = [];
+        $result = $connection->query("SELECT ID, PROPERTY_VALUE FROM b_bp_global_const WHERE ID IN ('" . implode("','", $escaped) . "')");
+        while ($row = $result->fetch()) $rows[$row['ID']] = $row['PROPERTY_VALUE'];
+        return [
+            'username' => checkMassDecodeGlobalConstant($rows[FW_USERNAME_CONST_ID] ?? ''),
+            'password' => checkMassDecodeGlobalConstant($rows[FW_PASSWORD_CONST_ID] ?? ''),
+            'token' => checkMassDecodeGlobalConstant($rows[FW_TOKEN_CONST_ID] ?? ''),
+            'error' => '',
+        ];
+    } catch (\Throwable $e) {
+        return ['username' => '', 'password' => '', 'token' => '', 'error' => $e->getMessage()];
+    }
+}
 
 function checkMassLog($message, array $context = [])
 {
@@ -344,17 +381,16 @@ if ($checkMassRetryRequest) {
    ===================================================================== */
 function fwExternal($method, $url, $payload = null)
 {
+    global $fwAccessToken;
     $ch = curl_init();
     $headers = [
-        "Authorization: Bearer " . FW_TOKEN_EXTERNAL,
+        "Authorization: Bearer " . $fwAccessToken,
         "Content-Type: application/json",
         "Accept: application/json"
     ];
     $opts = [
         CURLOPT_URL            => FW_API_EXTERNAL . $url,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
         CURLOPT_TIMEOUT        => FW_REQUEST_TIMEOUT,
@@ -383,13 +419,13 @@ function fwExternal($method, $url, $payload = null)
 /* =====================================================================
     INTERNAL API AUTHENTICATION
    ===================================================================== */
-function fwInternalAuth()
+function fwInternalAuth($username, $password)
 {
     global $tmpCookie;
     $loginUrl =
         FW_API_INTERNAL . "/Accounts/LogIn?username=" .
-        urlencode(FW_USER_INTERNAL) .
-        "&password=" . urlencode(FW_PASS_INTERNAL);
+        urlencode($username) .
+        "&password=" . urlencode($password);
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $loginUrl,
@@ -542,6 +578,25 @@ if (!$loadState || (int)($loadState['job_id'] ?? 0) !== $jobId) {
     ]);
 }
 
+$fwCredentials = checkMassGetFriendWorkCredentials();
+$fwAccessToken = trim((string)$fwCredentials['token']);
+if ($fwCredentials['error'] !== '') {
+    checkMassLog('FriendWork global constants read failed', ['error' => $fwCredentials['error']]);
+}
+
+// В openapi.yaml нет метода получения кандидатов по вакансии. Пока FriendWork
+// не предоставит его в Public API, незагруженные страницы требуют legacy-доступы.
+if (empty($loadState['completed']) && ($fwCredentials['username'] === '' || $fwCredentials['password'] === '')) {
+    checkMassLog('Legacy FriendWork credentials required for candidate loading', [
+        'username_present' => $fwCredentials['username'] !== '',
+        'password_present' => $fwCredentials['password'] !== '',
+        'token_present' => $fwAccessToken !== '',
+    ]);
+    echo '<h2>Не удалось загрузить кандидатов: FriendWork Public API не содержит метода выборки кандидатов по вакансии, а legacy-логин или пароль отсутствует.</h2>';
+    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
+}
+
 /* =====================================================================
     2) GET CANDIDATES IN SHORT WEB REQUESTS
    ===================================================================== */
@@ -562,7 +617,7 @@ if (empty($loadState['completed'])) {
         );
     }
 
-    fwInternalAuth();
+    fwInternalAuth($fwCredentials['username'], $fwCredentials['password']);
     $pagesThisRequest = min(
         FW_PAGES_PER_REQUEST,
         FW_REQUESTS_PER_MINUTE - (int)$loadState['window_requests']
@@ -640,15 +695,32 @@ if (!$candidates) {
 /* =====================================================================
     3) GET EXTERNAL ACCOUNTS (с email рекрутёров)
    ===================================================================== */
-$fwAccounts = fwExternal("GET", "/accounts");
-if ($fwAccounts['http'] != 200) {
-    echo "<h2>Ошибка получения аккаунтов (внешний API)</h2>";
-    echo "<pre>".htmlspecialchars($fwAccounts['raw'])."</pre>";
-    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
-    exit;
+$fwAccounts = $fwAccessToken !== ''
+    ? fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500")
+    : ['http' => 0, 'data' => null, 'raw' => '', 'err' => 'API-токен не задан'];
+$accountItems = $fwAccounts['data']['items'] ?? null;
+if ($fwAccessToken !== '' && ($fwAccounts['http'] === 404 || !is_array($accountItems))) {
+    // Метод v2 может быть недоступен для токена без административного доступа.
+    // Старый read-only метод аккаунтов всё ещё нужен для сопоставления responsibleId.
+    $publicApiError = $fwAccounts;
+    $fwAccounts = fwExternal("GET", "/accounts");
+    $accountItems = is_array($fwAccounts['data'] ?? null) ? $fwAccounts['data'] : null;
+    checkMassLog('Public API accounts v2 fallback used', [
+        'v2_http' => $publicApiError['http'],
+        'fallback_http' => $fwAccounts['http'],
+    ]);
 }
 $externalAcc = [];
-foreach ($fwAccounts['data'] as $acc) {
+if ($fwAccounts['http'] !== 200 || !is_array($accountItems)) {
+    checkMassLog('FriendWork accounts are unavailable; recruiter mapping will use fallback rules', [
+        'http' => $fwAccounts['http'],
+        'error' => $fwAccounts['err'],
+        'response' => mb_substr((string)$fwAccounts['raw'], 0, 500),
+    ]);
+    echo "<div style='color:#a66'>Предупреждение: аккаунты FriendWork недоступны; рекрутер будет определён по резервным правилам.</div>";
+    $accountItems = [];
+}
+foreach ($accountItems as $acc) {
     $id = $acc['accountId'];
     $email = strtolower($acc['userName'] ?? '');
     $fio   = trim(($acc['firstName'] ?? '') . " " . ($acc['lastName'] ?? ''));
@@ -922,14 +994,20 @@ if ($doProcess) {
                 "DateCreated" => $dateNow,
                 "Description" => "Status updated by Bitrix24"
             ];
-            $fwUpd = fwExternal("POST",
-                "/Candidate/{$candidateId}/CandidateHistories/set",
-                $payloadStatus
-            );
-            if ($fwUpd['http'] == 200 || $fwUpd['http'] == 201) {
-                echo "<span style='color:green'>Статус кандидата обновлён</span><br>";
+            if ($fwAccessToken === '') {
+                echo "<span style='color:#a66'>Статус FriendWork не обновлён: API-токен не задан.</span><br>";
             } else {
-                echo "<span style='color:red'>Ошибка обновления статуса (FW external)</span><br>";
+                // В openapi.yaml этот legacy-метод отсутствует; вызов сохранён
+                // только для обратной совместимости существующего процесса.
+                $fwUpd = fwExternal("POST",
+                    "/Candidate/{$candidateId}/CandidateHistories/set",
+                    $payloadStatus
+                );
+                if ($fwUpd['http'] == 200 || $fwUpd['http'] == 201) {
+                    echo "<span style='color:green'>Статус кандидата обновлён</span><br>";
+                } else {
+                    echo "<span style='color:red'>Ошибка обновления статуса (legacy FW API)</span><br>";
+                }
             }
         } else {
             checkMassLog('Candidate element creation failed', [
