@@ -94,6 +94,36 @@ $tmpCookie = __DIR__ . '/fw_cookie_prof.txt';
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 
+function showFriendWorkProgress(string $message, string $state = 'loading'): void
+{
+    static $shown = false;
+    $colors = [
+        'loading' => ['#fff8e1', '#9a6200'],
+        'success' => ['#edf9f0', '#19733b'],
+        'error' => ['#fff1f0', '#b42318'],
+    ];
+    [$background, $color] = $colors[$state] ?? $colors['loading'];
+
+    if (!$shown) {
+        echo '<div id="fw-connection-progress" style="margin:14px 0;padding:12px;border:1px solid '
+            . h($color) . ';background:' . h($background) . ';color:' . h($color) . '">'
+            . '<b id="fw-connection-progress-text">' . h($message) . '</b></div>';
+        // Некоторые браузеры не отображают слишком маленький первый фрагмент ответа.
+        echo '<span style="display:none">' . str_repeat(' ', 4096) . '</span>';
+        $shown = true;
+    } else {
+        $messageJson = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+        $backgroundJson = json_encode($background);
+        $colorJson = json_encode($color);
+        echo '<script>(function(){var box=document.getElementById("fw-connection-progress"),text=document.getElementById("fw-connection-progress-text");'
+            . 'if(box&&text){text.textContent=' . $messageJson . ';box.style.background=' . $backgroundJson
+            . ';box.style.color=' . $colorJson . ';box.style.borderColor=' . $colorJson . ';}})();</script>';
+    }
+
+    if (ob_get_level() > 0) @ob_flush();
+    flush();
+}
+
 function valueOr($array, $key, $default = '')
 {
     return (is_array($array) && isset($array[$key])) ? $array[$key] : $default;
@@ -724,6 +754,7 @@ if ($fwVacancyId <= 0) {
 /* ================================================================
    2) Accounts FriendWork Public API (не критично)
    ================================================================ */
+showFriendWorkProgress('Подключение к FriendWork. Получаем список аккаунтов, пожалуйста, подождите…');
 $fwAccounts = fwGetPublicAccounts();
 $externalAcc = [];
 
@@ -742,13 +773,16 @@ if ($fwAccounts['http'] === 200 && is_array($fwAccounts['accounts'] ?? null)) {
 /* ================================================================
    3) Кандидаты FW internal
    ================================================================ */
+showFriendWorkProgress('Авторизация во FriendWork. Пожалуйста, подождите…');
 $fwAuth = fwInternalAuth();
 if (!empty($fwAuth['error'])) {
+    showFriendWorkProgress('Не удалось подключиться к FriendWork.', 'error');
     echo "<div style='color:red'>" . h($fwAuth['error']) . "</div>";
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
     exit;
 }
 
+showFriendWorkProgress('Подключение выполнено. Получаем кандидатов по вакансии…');
 echo "<h3>Загрузка кандидатов из Friendwork…</h3>";
 
 $allCandidates = [];
@@ -783,6 +817,7 @@ while (true) {
     $requests++;
 
     if ($fwPage['http'] != 200) {
+        showFriendWorkProgress("Ошибка получения кандидатов на странице $page.", 'error');
         echo "<div style='color:red'><b>Ошибка получения кандидатов (страница $page)</b></div>";
         echo "<pre style='white-space:pre-wrap'>".h($fwPage['raw'])."</pre>";
         require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
@@ -792,6 +827,7 @@ while (true) {
     $chunk = $fwPage['data']['candidates'] ?? [];
     $count = count($chunk);
 
+    showFriendWorkProgress("Получаем кандидатов из FriendWork: обработана страница $page, получено $count…");
     echo "Страница $page: получено $count<br>";
     flush();
 
@@ -803,6 +839,7 @@ while (true) {
     $page++;
 }
 
+showFriendWorkProgress('Загрузка из FriendWork завершена. Найдено кандидатов: ' . count($allCandidates) . '.', 'success');
 echo "<b>Всего кандидатов в статусе 127730: ".count($allCandidates)."</b><hr>";
 
 /* ================================================================
