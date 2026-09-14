@@ -13,6 +13,7 @@ if (!$checkMassRetryRequest) {
 }
 
 use Bitrix\Main\Loader;
+use Bitrix\Main\Application;
 if (
     !Loader::includeModule("iblock") ||
     !Loader::includeModule("lists") ||
@@ -28,13 +29,13 @@ if (!$checkMassRetryRequest) {
 /* ================================================================
     CONFIG
    ================================================================ */
-// INTERNAL FRIENDWORK API (OLD — to get candidates)
-const FW_USER_INTERNAL = 'user';
-const FW_PASS_INTERNAL = 'pass';
+// Учётные данные хранятся в глобальных константах бизнес-процессов.
+const FW_USERNAME_CONST_ID = 'Constant1698403240866';
+const FW_PASSWORD_CONST_ID = 'Constant1698403290839';
+const FW_TOKEN_CONST_ID = 'Constant1775635795058';
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
 
-// EXTERNAL FRIENDWORK API (NEW — to get recruiters, update statuses)
-const FW_TOKEN_EXTERNAL = 'token';
+// FriendWork Public API (аккаунты и доступные публичные операции).
 const FW_API_EXTERNAL   = 'https://api.friend.work';
 
 // ↓↓↓ БЕЛЫЙ СПИСОК ID РЕКРУТЕРОВ ↓↓↓
@@ -68,6 +69,42 @@ const FORM_API_TYPE = 'Массовый подбор';
 const FORM_API_STATUS = 1;
 
 $tmpCookie = __DIR__ . '/fw_cookie.txt';
+$fwAccessToken = '';
+
+function checkMassDecodeGlobalConstant($raw)
+{
+    $raw = trim((string)$raw);
+    if ($raw === '') return '';
+    $decoded = @unserialize($raw, ['allowed_classes' => false]);
+    if (is_array($decoded)) return trim((string)($decoded['value'] ?? $decoded[0] ?? ''));
+    if (is_string($decoded)) return trim($decoded);
+    $unescaped = stripcslashes($raw);
+    $decoded = @unserialize($unescaped, ['allowed_classes' => false]);
+    if (is_string($decoded)) return trim($decoded);
+    if (preg_match('/^s:\d+:"(.*)";$/s', $unescaped, $matches)) return trim($matches[1]);
+    return $raw;
+}
+
+function checkMassGetFriendWorkCredentials()
+{
+    try {
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $ids = [FW_USERNAME_CONST_ID, FW_PASSWORD_CONST_ID, FW_TOKEN_CONST_ID];
+        $escaped = array_map([$helper, 'forSql'], $ids);
+        $rows = [];
+        $result = $connection->query("SELECT ID, PROPERTY_VALUE FROM b_bp_global_const WHERE ID IN ('" . implode("','", $escaped) . "')");
+        while ($row = $result->fetch()) $rows[$row['ID']] = $row['PROPERTY_VALUE'];
+        return [
+            'username' => checkMassDecodeGlobalConstant($rows[FW_USERNAME_CONST_ID] ?? ''),
+            'password' => checkMassDecodeGlobalConstant($rows[FW_PASSWORD_CONST_ID] ?? ''),
+            'token' => checkMassDecodeGlobalConstant($rows[FW_TOKEN_CONST_ID] ?? ''),
+            'error' => '',
+        ];
+    } catch (\Throwable $e) {
+        return ['username' => '', 'password' => '', 'token' => '', 'error' => $e->getMessage()];
+    }
+}
 
 function checkMassLog($message, array $context = [])
 {
@@ -344,17 +381,16 @@ if ($checkMassRetryRequest) {
    ===================================================================== */
 function fwExternal($method, $url, $payload = null)
 {
+    global $fwAccessToken;
     $ch = curl_init();
     $headers = [
-        "Authorization: Bearer " . FW_TOKEN_EXTERNAL,
+        "Authorization: Bearer " . $fwAccessToken,
         "Content-Type: application/json",
         "Accept: application/json"
     ];
     $opts = [
         CURLOPT_URL            => FW_API_EXTERNAL . $url,
         CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_HTTPHEADER     => $headers,
         CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
         CURLOPT_TIMEOUT        => FW_REQUEST_TIMEOUT,
@@ -383,13 +419,13 @@ function fwExternal($method, $url, $payload = null)
 /* =====================================================================
     INTERNAL API AUTHENTICATION
    ===================================================================== */
-function fwInternalAuth()
+function fwInternalAuth($username, $password)
 {
     global $tmpCookie;
     $loginUrl =
         FW_API_INTERNAL . "/Accounts/LogIn?username=" .
-        urlencode(FW_USER_INTERNAL) .
-        "&password=" . urlencode(FW_PASS_INTERNAL);
+        urlencode($username) .
+        "&password=" . urlencode($password);
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $loginUrl,
@@ -518,6 +554,15 @@ document.addEventListener("DOMContentLoaded", function() {
     exit;
 }
 
+$fwCredentials = checkMassGetFriendWorkCredentials();
+$fwAccessToken = trim((string)$fwCredentials['token']);
+if ($fwCredentials['error'] !== '' || $fwCredentials['username'] === '' || $fwCredentials['password'] === '' || $fwAccessToken === '') {
+    checkMassLog('FriendWork credentials are unavailable', ['error' => $fwCredentials['error']]);
+    echo '<h2>Не удалось получить доступы FriendWork из глобальных констант БП.</h2>';
+    require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
+    exit;
+}
+
 /* =====================================================================
     1) AUTH INTERNAL API
    ===================================================================== */
@@ -562,7 +607,7 @@ if (empty($loadState['completed'])) {
         );
     }
 
-    fwInternalAuth();
+    fwInternalAuth($fwCredentials['username'], $fwCredentials['password']);
     $pagesThisRequest = min(
         FW_PAGES_PER_REQUEST,
         FW_REQUESTS_PER_MINUTE - (int)$loadState['window_requests']
@@ -640,7 +685,7 @@ if (!$candidates) {
 /* =====================================================================
     3) GET EXTERNAL ACCOUNTS (с email рекрутёров)
    ===================================================================== */
-$fwAccounts = fwExternal("GET", "/accounts");
+$fwAccounts = fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500");
 if ($fwAccounts['http'] != 200) {
     echo "<h2>Ошибка получения аккаунтов (внешний API)</h2>";
     echo "<pre>".htmlspecialchars($fwAccounts['raw'])."</pre>";
@@ -648,7 +693,7 @@ if ($fwAccounts['http'] != 200) {
     exit;
 }
 $externalAcc = [];
-foreach ($fwAccounts['data'] as $acc) {
+foreach (($fwAccounts['data']['items'] ?? []) as $acc) {
     $id = $acc['accountId'];
     $email = strtolower($acc['userName'] ?? '');
     $fio   = trim(($acc['firstName'] ?? '') . " " . ($acc['lastName'] ?? ''));

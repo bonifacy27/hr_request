@@ -23,7 +23,7 @@ if (!$USER || !$USER->IsAuthorized()) {
     die("Требуется авторизация.");
 }
 
-echo "<div style='font-size:11px;color:#777'>check_prof.php v1.5</div>";
+echo "<div style='font-size:11px;color:#777'>check_prof.php v1.6 (FriendWork Public API accounts)</div>";
 
 /* ================================================================
    CONFIG
@@ -32,6 +32,9 @@ echo "<div style='font-size:11px;color:#777'>check_prof.php v1.5</div>";
 // FRIENDWORK API
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
 const FW_API_EXTERNAL  = 'https://api.friend.work';
+const FW_CONNECT_TIMEOUT = 10;
+const FW_REQUEST_TIMEOUT = 30;
+const FW_ACCOUNTS_PER_PAGE = 500;
 
 // Глобальные константы БП (b_bp_global_const)
 const FW_LOGIN_CONST_ID = 'Constant1698403240866';
@@ -280,15 +283,16 @@ function fwExternal($method, $url, $payload = null)
     $ch = curl_init();
     $headers = [
         "Authorization: Bearer " . $cfg['token'],
-        "Content-Type: application/json"
+        "Content-Type: application/json",
+        "Accept: application/json",
     ];
 
     curl_setopt($ch, CURLOPT_URL, FW_API_EXTERNAL . $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, FW_CONNECT_TIMEOUT);
+    curl_setopt($ch, CURLOPT_TIMEOUT, FW_REQUEST_TIMEOUT);
 
     if ($payload !== null) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
@@ -305,6 +309,44 @@ function fwExternal($method, $url, $payload = null)
         'raw'  => $resp,
         'err'  => $err
     ];
+}
+
+/** Получает все страницы документированного GET /api/v2/accounts. */
+function fwGetPublicAccounts(): array
+{
+    $accounts = [];
+    $page = 1;
+
+    do {
+        $query = http_build_query([
+            'paging.page' => $page,
+            'paging.perPage' => FW_ACCOUNTS_PER_PAGE,
+        ]);
+        $response = fwExternal('GET', '/api/v2/accounts?' . $query);
+        if ($response['http'] !== 200 || !is_array($response['data'])) {
+            $response['accounts'] = [];
+            return $response;
+        }
+
+        $items = $response['data']['items'] ?? null;
+        if (!is_array($items)) {
+            $response['http'] = 0;
+            $response['err'] = 'FriendWork Public API вернул ответ без массива items.';
+            $response['accounts'] = [];
+            return $response;
+        }
+
+        $accounts = array_merge($accounts, $items);
+        $total = max(0, (int)($response['data']['total'] ?? count($accounts)));
+        $page++;
+        if (count($accounts) < $total && !empty($items)) {
+            // Public API допускает не более двух запросов в секунду на токен.
+            usleep(500000);
+        }
+    } while (count($accounts) < $total && !empty($items));
+
+    $response['accounts'] = $accounts;
+    return $response;
 }
 
 function setOptionalPropsByCode(int $iblockId, array &$propValues, array $codeToValue): void
@@ -670,20 +712,21 @@ if ($fwVacancyId <= 0) {
 }
 
 /* ================================================================
-   2) Accounts FW external (не критично)
+   2) Accounts FriendWork Public API (не критично)
    ================================================================ */
-$fwAccounts = fwExternal("GET", "/Accounts");
+$fwAccounts = fwGetPublicAccounts();
 $externalAcc = [];
 
-if ($fwAccounts['http'] == 200 && is_array($fwAccounts['data'])) {
-    foreach ($fwAccounts['data'] as $acc) {
+if ($fwAccounts['http'] === 200 && is_array($fwAccounts['accounts'] ?? null)) {
+    foreach ($fwAccounts['accounts'] as $acc) {
         $id = (int)($acc['accountId'] ?? 0);
         if ($id <= 0) continue;
         $fio = trim(($acc['firstName'] ?? '') . " " . ($acc['lastName'] ?? ''));
         $externalAcc[$id] = $fio ?: ("Account #".$id);
     }
 } else {
-    echo "<div style='color:#a66'>Предупреждение: не удалось получить Accounts из FW external API (будет показываться ID ответственного)</div>";
+    echo "<div style='color:#a66'>Предупреждение: не удалось получить аккаунты из FriendWork Public API (будет показываться ID ответственного): "
+        . h($fwAccounts['err'] ?? ('HTTP ' . ($fwAccounts['http'] ?? 0))) . "</div>";
 }
 
 /* ================================================================
