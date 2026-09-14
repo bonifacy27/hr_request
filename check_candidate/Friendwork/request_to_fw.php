@@ -3,7 +3,7 @@
  * /forms/staff_recruitment/staffing/request_to_fw.php
  *
  * Интеграция заявки на подбор (ИБ 201) -> FriendWork.
- * Версия: v1.0.0 (2026-03-27)
+ * Версия: v2.0.0 (FriendWork Public API)
  *
  * Логика:
  * 1) GET id=ID_заявки: показываем данные, которые будут отправлены в FriendWork.
@@ -22,19 +22,17 @@ global $APPLICATION;
 $APPLICATION->SetTitle('Отправка заявки в FriendWork');
 
 const IBLOCK_RECRUITMENT = 201;
-const FW_CLIENT_ID = 5322;
-const FW_STATUS_DRAFT = 5;
 const FW_POSITION_COUNT = 1;
-const FW_LOGIN_ENDPOINT = 'https://app.friend.work/api/Accounts/LogIn';
-const FW_JOBS_ENDPOINT = 'https://app.friend.work/api/Jobs';
-const FW_ACCOUNTS_ENDPOINT = 'https://app.friend.work/api/Accounts';
+const FW_PUBLIC_API_URL = 'https://api.friend.work';
+const FW_JOBS_ENDPOINT = FW_PUBLIC_API_URL . '/jobs';
+const FW_ACCOUNTS_ENDPOINT = FW_PUBLIC_API_URL . '/api/v2/accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
-const FW_TOKEN_CONST_ID = 'Constant1775635795058';
+const FW_TOKEN_CONST_ID = 'Constant1789370789700';
 
 /**
  * Достаём учётные данные FW из глобальных констант БП (b_bp_global_const).
- * Логин  - Constant1698403240866
- * Пароль - Constant1698403290839
+ * Public API использует токен Constant1789370789700; логин и пароль читаются
+ * только для совместимости с другими сценариями интеграции.
  */
 function fwGetCredentials()
 {
@@ -119,8 +117,8 @@ function fwGetCredentials()
         $result['password'] = $decodeValue($passwordRaw);
         $result['token'] = $decodeValue($tokenRaw);
 
-        if ($result['username'] === '' || $result['password'] === '') {
-            $result['error'] = 'Не удалось получить логин/пароль FriendWork из b_bp_global_const (Constant1698403240866 / Constant1698403290839).';
+        if ($result['token'] === '') {
+            $result['error'] = 'Не удалось получить API-токен FriendWork из b_bp_global_const (' . FW_TOKEN_CONST_ID . ').';
         }
     } catch (\Throwable $e) {
         $result['error'] = 'Ошибка получения констант FriendWork из b_bp_global_const: ' . $e->getMessage();
@@ -273,44 +271,14 @@ function buildDescription($fields)
     return $header . $subheader . implode('', $blocks);
 }
 
-/**
- * Авторизация в FW. Возвращает путь к cookie-файлу и отладочные данные.
- */
-function fwLoginAndGetCookieFile($username, $password)
-{
-    if ($username === '' || $password === '') {
-        return [false, 'Не заданы логин/пароль FriendWork.', '', ['username' => $username, 'password' => $password]];
-    }
-
-    $cookieFile = sys_get_temp_dir() . '/fw_cookie_' . md5($username . microtime(true)) . '.txt';
-    $loginUrl = FW_LOGIN_ENDPOINT . '?username=' . rawurlencode($username) . '&password=' . rawurlencode($password);
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $loginUrl);
-    curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_FAILONERROR, false);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-
-    $response = curl_exec($ch);
-    $curlErr = curl_error($ch);
-    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    if ($response === false || $httpCode >= 400) {
-        @unlink($cookieFile);
-        fwLog('Ошибка авторизации FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]);
-        return [false, 'Ошибка авторизации FriendWork. HTTP: ' . $httpCode . '; CURL: ' . $curlErr, '', ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
-    }
-
-    return [true, '', $cookieFile, ['username' => $username, 'password' => $password, 'loginUrl' => $loginUrl, 'httpCode' => $httpCode, 'curlError' => $curlErr, 'response' => $response]];
-}
-
-function fwCreateJob($payload, $cookieFile)
+function fwCreateJob($payload, $accessToken)
 {
     $ch = curl_init(FW_JOBS_ENDPOINT);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $accessToken,
+        'Content-Type: application/json',
+        'Accept: application/json',
+    ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     curl_setopt($ch, CURLOPT_POST, true);
@@ -336,19 +304,26 @@ function fwCreateJob($payload, $cookieFile)
         return [false, 'FriendWork вернул HTTP ' . $httpCode . ': ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
-    if (empty($response['jobId'])) {
-        fwLog('FriendWork Jobs missing jobId', ['httpCode' => $httpCode, 'response' => $responseRaw]);
-        return [false, 'FriendWork не вернул jobId. Ответ: ' . $responseRaw, $response, $httpCode, $responseRaw];
+    if (empty($response['id'])) {
+        fwLog('FriendWork Jobs missing id', ['httpCode' => $httpCode, 'response' => $responseRaw]);
+        return [false, 'FriendWork не вернул id. Ответ: ' . $responseRaw, $response, $httpCode, $responseRaw];
     }
 
     return [true, '', $response, $httpCode, $responseRaw];
 }
 
-function fwGetAccounts($cookieFile)
+function fwGetAccounts($accessToken, $search = '')
 {
-    $ch = curl_init(FW_ACCOUNTS_ENDPOINT);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
+    $query = ['paging.page' => 1, 'paging.perPage' => 500];
+    if (trim((string)$search) !== '') {
+        $query['search'] = trim((string)$search);
+    }
+    $url = FW_ACCOUNTS_ENDPOINT . '?' . http_build_query($query);
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Authorization: Bearer ' . $accessToken,
+        'Accept: application/json',
+    ]);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
@@ -356,6 +331,22 @@ function fwGetAccounts($cookieFile)
     $curlErr = curl_error($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    // На части инсталляций endpoint v2 скрыт (404), хотя read-only /accounts
+    // доступен тому же Public API-токену.
+    if ($httpCode === 404) {
+        $ch = curl_init(FW_PUBLIC_API_URL . '/accounts');
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $accessToken,
+            'Accept: application/json',
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        $responseRaw = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    }
 
     if ($responseRaw === false) {
         fwLog('Ошибка CURL при получении аккаунтов FriendWork', ['httpCode' => $httpCode, 'curlError' => $curlErr]);
@@ -727,14 +718,11 @@ $description = buildDescription($fields);
 $comment = 'Создано из заявки на подбор ' . $requestId;
 
 $payload = [
-    'ClientId' => FW_CLIENT_ID,
-    'Status' => FW_STATUS_DRAFT,
-    'IsDraft' => 1,
-    'PositionCount' => FW_POSITION_COUNT,
-    'Name' => $fields['name'],
-    'Description' => $description,
-    'Comment' => $comment,
-    'ResponsibleId' => 0,
+    'status' => 'draft',
+    'positionCount' => FW_POSITION_COUNT,
+    'name' => $fields['name'],
+    'description' => $description,
+    'comment' => $comment,
 ];
 
 $existingFwId = trim((string)valueOr($element, 'PROPERTY_ID_FW_VAKANSII_VALUE', ''));
@@ -758,7 +746,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
         $errors[] = 'По этой заявке уже создана вакансия в FriendWork (ID: ' . h($existingFwId) . '). Повторное создание недоступно.';
     }
 
-    if ($payload['Name'] === '') {
+    if ($payload['name'] === '') {
         $errors[] = 'Не заполнено поле DOLZHNOST (название должности) — невозможно сформировать Name.';
     }
 
@@ -772,29 +760,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
             $errors[] = $fwCredentials['error'];
             $debugInfo['credentials'] = $fwCredentials;
         } else {
-            list($loginOk, $loginError, $cookieFile, $loginDebug) = fwLoginAndGetCookieFile(
-                $fwCredentials['username'],
-                $fwCredentials['password']
-            );
-            $debugInfo['login'] = $loginDebug;
-            $jwtToken = '';
-            $loginResponseDecoded = json_decode((string)valueOr($loginDebug, 'response', ''), true);
-            if (is_array($loginResponseDecoded)) {
-                $jwtToken = trim((string)valueOr($loginResponseDecoded, 'jwtToken', ''));
-            }
             $accessToken = trim((string)valueOr($fwCredentials, 'token', ''));
-            if ($accessToken === '') {
-                $accessToken = $jwtToken;
-            }
             $debugInfo['auth'] = [
-                'accessTokenSource' => (trim((string)valueOr($fwCredentials, 'token', '')) !== '') ? 'b_bp_global_const' : 'login.jwtToken',
+                'accessTokenSource' => 'b_bp_global_const',
                 'accessTokenPresent' => ($accessToken !== ''),
             ];
 
-            if (!$loginOk) {
-                $errors[] = $loginError;
+            if ($accessToken === '') {
+                $errors[] = 'Не задан API-токен FriendWork в глобальной константе ' . FW_TOKEN_CONST_ID . '.';
             } else {
-                list($accountsOk, $accountsError, $accountsResponse, $accountsHttpCode, $accountsRaw) = fwGetAccounts($cookieFile);
+                list($accountsOk, $accountsError, $accountsResponse, $accountsHttpCode, $accountsRaw) = fwGetAccounts($accessToken, $recruiterEmail);
                 $debugInfo['accounts'] = [
                     'httpCode' => $accountsHttpCode,
                     'rawResponse' => $accountsRaw,
@@ -802,7 +777,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                 ];
 
                 if (!$accountsOk) {
-                    @unlink($cookieFile);
                     $errors[] = $accountsError;
                 } else {
                     $emailLower = normalizeEmail($recruiterEmail);
@@ -872,15 +846,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     $debugInfo['responsibleLookup']['resolvedBy'] = $resolvedBy;
 
                     if ($resolvedResponsibleId <= 0) {
-                        @unlink($cookieFile);
                         $errors[] = 'Не найден аккаунт FriendWork для e-mail рекрутера: ' . h($recruiterEmail);
                     } else {
-                        // FriendWork принимает ответственного при создании вакансии. Передаём его
-                        // сразу, чтобы не выполнять отдельный PATCH/PUT к устаревшему api.friend.work.
-                        $payload['ResponsibleId'] = $resolvedResponsibleId;
+                        $payload['responsibleAccount'] = ['id' => $resolvedResponsibleId];
 
-                        list($createOk, $createError, $fwResponse, $createHttpCode, $createRaw) = fwCreateJob($payload, $cookieFile);
-                        @unlink($cookieFile);
+                        list($createOk, $createError, $fwResponse, $createHttpCode, $createRaw) = fwCreateJob($payload, $accessToken);
                         $debugInfo['create'] = [
                             'httpCode' => $createHttpCode,
                             'rawResponse' => $createRaw,
@@ -891,7 +861,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                         if (!$createOk) {
                             $errors[] = $createError;
                         } else {
-                            $jobId = (int)$fwResponse['jobId'];
+                            $jobId = (int)$fwResponse['id'];
                             $jobUrl = FW_JOB_EDIT_URL . $jobId;
 
                             CIBlockElement::SetPropertyValuesEx(
@@ -978,24 +948,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
 
     <div class="fw-row">
         <div class="fw-label">Название вакансии (Name)</div>
-        <div class="fw-value"><?= h($payload['Name']) ?></div>
+        <div class="fw-value"><?= h($payload['name']) ?></div>
     </div>
 
     <div class="fw-row">
         <div class="fw-label">Ответственный рекрутер</div>
-        <div class="fw-value">FW ResponsibleId: <?= h($payload['ResponsibleId']) ?></div>
+        <div class="fw-value">FW account ID: <?= h($payload['responsibleAccount']['id'] ?? '') ?></div>
         <div class="fw-muted">E-mail рекрутера (из REKRUTER): <?= h($recruiterEmail) ?></div>
         <div class="fw-muted">Пользователь: <?= h($recruiterName !== '' ? $recruiterName : ('ID ' . $recruiterId)) ?></div>
     </div>
 
     <div class="fw-row">
         <div class="fw-label">Комментарий (Comment)</div>
-        <div class="fw-value"><?= h($payload['Comment']) ?></div>
+        <div class="fw-value"><?= h($payload['comment']) ?></div>
     </div>
 
     <div class="fw-row">
         <div class="fw-label">Описание вакансии (Description) — HTML preview</div>
-        <div class="fw-html-box"><?= $payload['Description'] ?></div>
+        <div class="fw-html-box"><?= $payload['description'] ?></div>
     </div>
 
     <?php if ($isDebugMode): ?>
@@ -1008,14 +978,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
 
     <?php if ($isDebugMode && $_SERVER['REQUEST_METHOD'] === 'POST'): ?>
         <div class="fw-row">
-            <div class="fw-label">Диагностика FriendWork (логин/пароль и ответы API)</div>
+            <div class="fw-label">Диагностика FriendWork Public API</div>
             <div class="fw-value"><?php
                 $diagnostic = [
-                    'credentials' => [
-                        'username' => valueOr($fwCredentials, 'username', ''),
-                        'password' => valueOr($fwCredentials, 'password', ''),
-                    ],
-                    'login' => valueOr($debugInfo, 'login', null),
                     'auth' => valueOr($debugInfo, 'auth', null),
                     'accounts' => valueOr($debugInfo, 'accounts', null),
                     'create' => valueOr($debugInfo, 'create', null),
@@ -1023,7 +988,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && valueOr($_
                     'fullUpdate' => valueOr($debugInfo, 'fullUpdate', null),
                     'jobGet' => valueOr($debugInfo, 'jobGet', null),
                     'jobUpdatePreview' => valueOr($debugInfo, 'jobUpdatePreview', null),
-                    'responsible' => ['email' => $recruiterEmail, 'fwResponsibleId' => $payload['ResponsibleId']],
+                    'responsible' => ['email' => $recruiterEmail, 'fwAccountId' => $payload['responsibleAccount']['id'] ?? null],
                     'responsibleLookup' => valueOr($debugInfo, 'responsibleLookup', null),
                 ];
                 echo h(json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
