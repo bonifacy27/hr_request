@@ -1,10 +1,12 @@
 <?php
+// Этот заголовок должен быть отправлен до Bitrix header: иначе nginx может
+// буферизовать страницу до окончания всех медленных запросов к FriendWork.
+header('X-Accel-Buffering: no');
 require($_SERVER['DOCUMENT_ROOT'].'/bitrix/header.php');
 
 while (ob_get_level()) { ob_end_flush(); }
 ini_set('output_buffering', 'off');
 ini_set('zlib.output_compression', 0);
-header('X-Accel-Buffering: no');
 flush();
 
 use Bitrix\Main\Loader;
@@ -23,7 +25,7 @@ if (!$USER || !$USER->IsAuthorized()) {
     die("Требуется авторизация.");
 }
 
-echo "<div style='font-size:11px;color:#777'>check_prof.php v1.6 (FriendWork Public API accounts)</div>";
+echo "<div style='font-size:11px;color:#777'>check_prof.php v1.7 (FriendWork Public API accounts)</div>";
 
 /* ================================================================
    CONFIG
@@ -107,17 +109,22 @@ function showFriendWorkProgress(string $message, string $state = 'loading'): voi
     if (!$shown) {
         echo '<div id="fw-connection-progress" style="margin:14px 0;padding:12px;border:1px solid '
             . h($color) . ';background:' . h($background) . ';color:' . h($color) . '">'
-            . '<b id="fw-connection-progress-text">' . h($message) . '</b></div>';
-        // Некоторые браузеры не отображают слишком маленький первый фрагмент ответа.
-        echo '<span style="display:none">' . str_repeat(' ', 4096) . '</span>';
+            . '<span id="fw-connection-progress-spinner" style="display:inline-block;margin-right:8px">&#8987;</span>'
+            . '<b id="fw-connection-progress-text">' . h($message) . '</b>'
+            . '<div style="margin-top:5px;font-size:12px">Не закрывайте страницу до завершения работы скрипта.</div></div>';
+        // Прокси и браузеры могут удерживать маленький первый фрагмент. Комментарий
+        // доводит его до 8 КБ, не добавляя пробелы в отображаемую страницу.
+        echo '<!--' . str_repeat(' ', 8192) . '-->';
         $shown = true;
     } else {
         $messageJson = json_encode($message, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
         $backgroundJson = json_encode($background);
         $colorJson = json_encode($color);
-        echo '<script>(function(){var box=document.getElementById("fw-connection-progress"),text=document.getElementById("fw-connection-progress-text");'
+        $isLoading = $state === 'loading' ? 'true' : 'false';
+        echo '<script>(function(){var box=document.getElementById("fw-connection-progress"),text=document.getElementById("fw-connection-progress-text"),spinner=document.getElementById("fw-connection-progress-spinner");'
             . 'if(box&&text){text.textContent=' . $messageJson . ';box.style.background=' . $backgroundJson
-            . ';box.style.color=' . $colorJson . ';box.style.borderColor=' . $colorJson . ';}})();</script>';
+            . ';box.style.color=' . $colorJson . ';box.style.borderColor=' . $colorJson
+            . ';if(spinner){spinner.style.display=' . $isLoading . '?"inline-block":"none";}}})();</script>';
     }
 
     if (ob_get_level() > 0) @ob_flush();
@@ -749,6 +756,13 @@ if ($fwVacancyId <= 0) {
     echo "<div style='color:red'>В заявке не заполнен ID_FW_VAKANSII (PROPERTY_1593) или он не читается</div>";
     require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
     exit;
+}
+
+// Долгие HTTP-запросы не должны удерживать блокировку PHP-сессии: иначе все
+// остальные страницы портала, открытые этим пользователем, ждут завершения
+// данного скрипта. Все необходимые данные пользователя к этому моменту прочитаны.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
 }
 
 /* ================================================================
