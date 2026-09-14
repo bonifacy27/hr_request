@@ -82,81 +82,64 @@ function maskEmail(string $email): string
     return (string)preg_replace('/[^@.]/u', 'X', $email);
 }
 
-function existingFileRecords(array $property): array
+function propertyRows(int $candidateId, int $propertyId): array
 {
-    $values = is_array($property['VALUE'] ?? null) ? $property['VALUE'] : [$property['VALUE'] ?? ''];
-    $valueIds = is_array($property['PROPERTY_VALUE_ID'] ?? null)
-        ? $property['PROPERTY_VALUE_ID']
-        : [$property['PROPERTY_VALUE_ID'] ?? 0];
-    $valueIdsByPosition = array_values($valueIds);
-    $records = [];
-    $position = 0;
-    foreach ($values as $key => $fileId) {
-        $fileId = (int)$fileId;
-        if ($fileId > 0) {
-            $records[] = [
-                'FILE_ID' => $fileId,
-                'PROPERTY_VALUE_ID' => (int)($valueIds[$key] ?? $valueIdsByPosition[$position] ?? 0),
-            ];
-        }
-        $position++;
+    $rows = [];
+    $result = CIBlockElement::GetProperty(
+        CANDIDATE_IBLOCK_ID,
+        $candidateId,
+        ['sort' => 'asc', 'id' => 'asc'],
+        ['ID' => $propertyId]
+    );
+    while ($row = $result->Fetch()) {
+        $rows[] = $row;
     }
-    return $records;
+    return $rows;
 }
 
-function deleteFilesFromProperty(int $candidateId, int $propertyId, array $property): void
+function deleteFilesFromProperty(int $candidateId, int $propertyId): void
 {
-    $records = existingFileRecords($property);
-    if (!$records) {
-        return;
+    $fileIds = [];
+    foreach (propertyRows($candidateId, $propertyId) as $row) {
+        $fileId = (int)($row['VALUE'] ?? 0);
+        if ($fileId > 0) {
+            $fileIds[$fileId] = $fileId;
+        }
     }
 
-    if (($property['MULTIPLE'] ?? 'N') === 'Y') {
-        $deletions = [];
-        foreach ($records as $record) {
-            if ($record['PROPERTY_VALUE_ID'] > 0) {
-                $deletions[$record['PROPERTY_VALUE_ID']] = ['VALUE' => ['del' => 'Y']];
-            }
-        }
-        if ($deletions) {
-            CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [$propertyId => $deletions]);
-        }
-    } else {
-        CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
-            $propertyId => ['VALUE' => ['del' => 'Y']],
-        ]);
-    }
-
-    // Полностью очищаем значение свойства штатным методом. Маркеры выше нужны,
-    // чтобы Bitrix обработал файловые значения, а SetPropertyValues гарантирует,
-    // что в самом свойстве не останутся ссылки на удалённые файлы.
-    $propertyCode = trim((string)($property['CODE'] ?? ''));
+    // GetProperty возвращает отдельную строку для каждого значения и не зависит
+    // от формата агрегированного VALUE в GetProperties().
     CIBlockElement::SetPropertyValues(
         $candidateId,
         CANDIDATE_IBLOCK_ID,
-        ($property['MULTIPLE'] ?? 'N') === 'Y' ? [] : false,
-        $propertyCode !== '' ? $propertyCode : (string)$propertyId
+        false,
+        (string)$propertyId
     );
 
-    // При обезличивании файл должен быть удалён не только из свойства, но и из хранилища Bitrix.
-    foreach ($records as $record) {
-        CFile::Delete($record['FILE_ID']);
+    foreach ($fileIds as $fileId) {
+        CFile::Delete($fileId);
     }
 }
 
-function appendCandidateHistory(int $candidateId, array $historyProperty, string $historyLine): void
+function appendCandidateHistory(int $candidateId, string $historyLine): void
 {
-    if (($historyProperty['MULTIPLE'] ?? 'N') === 'Y') {
-        CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
-            PROP_HISTORY => ['n' . str_replace('.', '', uniqid('', true)) => $historyLine],
-        ]);
-        return;
+    $historyParts = [];
+    foreach (propertyRows($candidateId, PROP_HISTORY) as $row) {
+        $value = trim((string)($row['VALUE'] ?? ''));
+        if ($value !== '') {
+            $historyParts[] = $value;
+        }
     }
+    $historyParts[] = $historyLine;
 
-    $history = $historyProperty ? propertyString([$historyProperty], PROP_HISTORY) : '';
-    CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, [
-        PROP_HISTORY => ($history !== '' ? $history . "\n" : '') . $historyLine,
-    ]);
+    // ISTORIYA (PROPERTY_1276) — одиночное строковое свойство. Перед записью
+    // явно читаем актуальное значение из БД, чтобы не затереть старую историю.
+    CIBlockElement::SetPropertyValues(
+        $candidateId,
+        CANDIDATE_IBLOCK_ID,
+        implode("\n", $historyParts),
+        (string)PROP_HISTORY
+    );
 }
 
 $currentUserId = (int)$USER->GetID();
@@ -202,17 +185,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             PROP_EMAIL => maskEmail(propertyString($properties, PROP_EMAIL)),
         ];
         foreach (FILE_PROPERTIES_TO_CLEAR as $propertyId) {
-            $property = propertyById($properties, $propertyId);
-            if ($property) {
-                deleteFilesFromProperty($candidateId, $propertyId, $property);
-            }
+            deleteFilesFromProperty($candidateId, $propertyId);
         }
 
         $historyLine = date('d.m.Y H:i') . ': ' . formatUserNameById($currentUserId)
             . ' удалил персональные данные из анкеты.';
 
+        $candidateElement = new CIBlockElement();
+        $candidateElement->Update($candidateId, [
+            'NAME' => 'Анкета кандидата ' . $candidateId . ' (обезличена)',
+        ]);
         CIBlockElement::SetPropertyValuesEx($candidateId, CANDIDATE_IBLOCK_ID, $updates);
-        appendCandidateHistory($candidateId, propertyById($properties, PROP_HISTORY) ?? [], $historyLine);
+        appendCandidateHistory($candidateId, $historyLine);
         LocalRedirect('list.php?msg=success&text=' . rawurlencode('Персональные данные анкеты обезличены.'));
     }
 }
