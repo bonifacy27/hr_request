@@ -27,11 +27,11 @@ const FW_PUBLIC_API_URL = 'https://api.friend.work';
 const FW_JOBS_ENDPOINT = FW_PUBLIC_API_URL . '/jobs';
 const FW_ACCOUNTS_ENDPOINT = FW_PUBLIC_API_URL . '/api/v2/accounts';
 const FW_JOB_EDIT_URL = 'https://app.friend.work/Job/Edit/';
-const FW_TOKEN_CONST_ID = 'Constant1775635795058';
+const FW_TOKEN_CONST_ID = 'Constant178937078970';
 
 /**
  * Достаём учётные данные FW из глобальных констант БП (b_bp_global_const).
- * Public API использует токен Constant1775635795058; логин и пароль читаются
+ * Public API использует токен Constant178937078970; логин и пароль читаются
  * только для совместимости с другими сценариями интеграции.
  */
 function fwGetCredentials()
