@@ -16,7 +16,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 }
 
 const FW_DIAG_API_URL = 'https://api.friend.work';
-const FW_DIAG_TOKEN_CONST_ID = 'Constant178937078970';
+const FW_DIAG_TOKEN_CONST_ID = 'Constant1789370789700';
 const FW_DIAG_DEFAULT_JOB_ID = 294031;
 const FW_DIAG_CONNECT_TIMEOUT = 10;
 const FW_DIAG_REQUEST_TIMEOUT = 30;

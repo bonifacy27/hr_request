@@ -32,7 +32,7 @@ if (!$checkMassRetryRequest) {
 // Учётные данные хранятся в глобальных константах бизнес-процессов.
 const FW_USERNAME_CONST_ID = 'Constant1698403240866';
 const FW_PASSWORD_CONST_ID = 'Constant1698403290839';
-const FW_TOKEN_CONST_ID = 'Constant178937078970';
+const FW_TOKEN_CONST_ID = 'Constant1789370789700';
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
 
 // FriendWork Public API (аккаунты и доступные публичные операции).

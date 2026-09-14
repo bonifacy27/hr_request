@@ -39,7 +39,7 @@ const FW_ACCOUNTS_PER_PAGE = 500;
 // Глобальные константы БП (b_bp_global_const)
 const FW_LOGIN_CONST_ID = 'Constant1698403240866';
 const FW_PASS_CONST_ID  = 'Constant1698403290839';
-const FW_TOKEN_CONST_ID = 'Constant178937078970';
+const FW_TOKEN_CONST_ID = 'Constant1789370789700';
 
 // Bitrix
 const IBLOCK_REQUESTS = 201; // список/ИБ "Заявки на подбор"
