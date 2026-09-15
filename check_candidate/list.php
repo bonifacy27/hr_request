@@ -476,11 +476,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $line = $now . ': ' . $actorName . ' сменил рекрутера ' . $oldName . ' на ' . $newName . '. Комментарий: ' . $comment;
         $newHistory = appendHistoryLine($history, $line);
 
-        $taskId = findActiveTaskIdForUser($elementId, $oldRecruiterId);
-        if ($taskId > 0 && $oldRecruiterId !== $newRecruiterId) {
+        $taskOwnerId = $oldRecruiterId;
+        $taskId = findActiveTaskIdForUser($elementId, $taskOwnerId);
+        if ($taskId <= 0) {
+            $taskId = $currentUserTaskId;
+            $taskOwnerId = $currentUserId;
+        }
+        if ($taskId > 0 && $taskOwnerId !== $newRecruiterId) {
+            $taskOwnerName = formatUserNameById($taskOwnerId);
             try {
-                CBPTaskService::DelegateTask($taskId, $oldRecruiterId, $newRecruiterId);
-                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $oldName . ' на ' . $newName . '.');
+                CBPTaskService::DelegateTask($taskId, $taskOwnerId, $newRecruiterId);
+                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $taskOwnerName . ' на ' . $newName . '.');
             } catch (\Throwable $e) {
                 $newHistory = appendHistoryLine($newHistory, $now . ': Не удалось делегировать задание БП #' . $taskId . ' — ' . $e->getMessage());
             }

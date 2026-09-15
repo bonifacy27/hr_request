@@ -699,17 +699,6 @@ $fwAccounts = $fwAccessToken !== ''
     ? fwExternal("GET", "/api/v2/accounts?paging.page=1&paging.perPage=500")
     : ['http' => 0, 'data' => null, 'raw' => '', 'err' => 'API-токен не задан'];
 $accountItems = $fwAccounts['data']['items'] ?? null;
-if ($fwAccessToken !== '' && ($fwAccounts['http'] === 404 || !is_array($accountItems))) {
-    // Метод v2 может быть недоступен для токена без административного доступа.
-    // Старый read-only метод аккаунтов всё ещё нужен для сопоставления responsibleId.
-    $publicApiError = $fwAccounts;
-    $fwAccounts = fwExternal("GET", "/accounts");
-    $accountItems = is_array($fwAccounts['data'] ?? null) ? $fwAccounts['data'] : null;
-    checkMassLog('Public API accounts v2 fallback used', [
-        'v2_http' => $publicApiError['http'],
-        'fallback_http' => $fwAccounts['http'],
-    ]);
-}
 $externalAcc = [];
 if ($fwAccounts['http'] !== 200 || !is_array($accountItems)) {
     checkMassLog('FriendWork accounts are unavailable; recruiter mapping will use fallback rules', [
@@ -982,33 +971,14 @@ if ($doProcess) {
             ];
             echo "Пароль: <b>" . htmlspecialchars($candidatePassword) . "</b><br>";
 
-            $dateNow = date("Y-m-d\TH:i:s");
-            $payloadStatus = [
-                "AccountId"   => $fwRespId ?: 0,
-                "JobId"       => $jobId,
-                "StatusId"    => 113626,
-                "Rating"      => 3,
-                "IsAllDay"    => 1,
-                "IsClosed"    => 0,
-                "FromDate"    => $dateNow,
-                "DateCreated" => $dateNow,
-                "Description" => "Status updated by Bitrix24"
-            ];
-            if ($fwAccessToken === '') {
-                echo "<span style='color:#a66'>Статус FriendWork не обновлён: API-токен не задан.</span><br>";
-            } else {
-                // В openapi.yaml этот legacy-метод отсутствует; вызов сохранён
-                // только для обратной совместимости существующего процесса.
-                $fwUpd = fwExternal("POST",
-                    "/Candidate/{$candidateId}/CandidateHistories/set",
-                    $payloadStatus
-                );
-                if ($fwUpd['http'] == 200 || $fwUpd['http'] == 201) {
-                    echo "<span style='color:green'>Статус кандидата обновлён</span><br>";
-                } else {
-                    echo "<span style='color:red'>Ошибка обновления статуса (legacy FW API)</span><br>";
-                }
-            }
+            // Public API из openapi.yaml не содержит операции смены статуса
+            // кандидата. Старый /Candidate/.../CandidateHistories/set больше не
+            // вызываем: новый токен нельзя применить к отсутствующему контракту.
+            checkMassLog('FriendWork candidate status was not updated: operation is absent from Public API', [
+                'job_id' => $jobId,
+                'candidate_id' => $candidateId,
+            ]);
+            echo "<span style='color:#a66'>Анкета импортирована; статус FriendWork не изменён (метод отсутствует в Public API).</span><br>";
         } else {
             checkMassLog('Candidate element creation failed', [
                 'job_id' => $jobId, 'candidate_id' => $candidateId, 'error' => $el->LAST_ERROR,

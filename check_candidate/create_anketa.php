@@ -27,9 +27,13 @@ const BP_TEMPLATE_2 = 328;
 const BP_TEMPLATE_3 = 844;
 const TIP_ANKETY_PROF_VALUE = 814;
 const FW_API_INTERNAL  = 'https://app.friend.work/api';
+const FW_API_PUBLIC = 'https://api.friend.work';
 const FW_LOGIN_CONST_ID = 'Constant1698403240866';
 const FW_PASS_CONST_ID  = 'Constant1698403290839';
+const FW_TOKEN_CONST_ID = 'Constant1789370789700';
 const FW_STATUS_APPROVED_INTERVIEW_DONE = 127730;
+const FW_CONNECT_TIMEOUT = 10;
+const FW_REQUEST_TIMEOUT = 30;
 const REDIRECT_AFTER_CREATE_URL = '/forms/staffing/check_candidate/list.php';
 
 function h($s): string
@@ -103,17 +107,61 @@ function decodeGlobalConstValue(string $raw): string
 
 function fwGetCredentials(): array
 {
+    static $credentials = null;
+    if ($credentials !== null) return $credentials;
+
     global $DB;
-    $ids = [FW_LOGIN_CONST_ID, FW_PASS_CONST_ID];
+    $ids = [FW_LOGIN_CONST_ID, FW_PASS_CONST_ID, FW_TOKEN_CONST_ID];
     $map = [];
     $rs = $DB->Query("SELECT ID, PROPERTY_VALUE FROM b_bp_global_const WHERE ID IN ('" . implode("','", $ids) . "')");
     while ($row = $rs->Fetch()) {
         $map[$row['ID']] = (string)$row['PROPERTY_VALUE'];
     }
-    return [
+    $credentials = [
         'username' => decodeGlobalConstValue((string)($map[FW_LOGIN_CONST_ID] ?? '')),
         'password' => decodeGlobalConstValue((string)($map[FW_PASS_CONST_ID] ?? '')),
+        'token' => decodeGlobalConstValue((string)($map[FW_TOKEN_CONST_ID] ?? '')),
     ];
+    return $credentials;
+}
+
+/** Проверяет вакансию через документированный Public API. */
+function fwPublicJob(int $vacancyId): array
+{
+    $cfg = fwGetCredentials();
+    if ($cfg['token'] === '') {
+        return ['error' => 'Не задан API-токен FriendWork в ' . FW_TOKEN_CONST_ID . '.', 'data' => null];
+    }
+
+    $ch = curl_init(FW_API_PUBLIC . '/jobs/' . $vacancyId);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bearer ' . $cfg['token'],
+            'Accept: application/json',
+        ],
+        CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
+        CURLOPT_TIMEOUT => FW_REQUEST_TIMEOUT,
+    ]);
+    $raw = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($raw === false || $httpCode !== 200) {
+        return [
+            'error' => 'Не удалось проверить вакансию через FriendWork Public API: HTTP '
+                . $httpCode . ($curlError !== '' ? ' (' . $curlError . ')' : ''),
+            'data' => null,
+        ];
+    }
+
+    $data = json_decode((string)$raw, true);
+    if (!is_array($data)) {
+        return ['error' => 'FriendWork Public API вернул некорректный ответ по вакансии.', 'data' => null];
+    }
+
+    return ['error' => '', 'data' => $data];
 }
 
 function fwInternalAuth(string $cookieFile): string
@@ -218,6 +266,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST' && $mode === 'request' && $selectedReq
         if ($fwVacancyId <= 0) {
             $warnings[] = 'В заявке не указана вакансия Friendwork (PROPERTY_1593).';
         } else {
+            // Public API умеет проверить доступность вакансии по новому токену,
+            // но пока не предоставляет выборку кандидатов по вакансии.
+            $publicJob = fwPublicJob($fwVacancyId);
+            if ($publicJob['error'] !== '') {
+                $warnings[] = $publicJob['error'];
+            }
+
             $cookieFile = __DIR__ . '/fw_cookie_create_anketa.txt';
             $authErr = fwInternalAuth($cookieFile);
             if ($authErr !== '') {

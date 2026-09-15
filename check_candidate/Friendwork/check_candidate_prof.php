@@ -196,8 +196,8 @@ function fwGetIntegrationConfig(): array
         $cached['password'] = decodeGlobalConstValue((string)valueOr($rows, FW_PASS_CONST_ID, ''));
         $cached['token']    = decodeGlobalConstValue((string)valueOr($rows, FW_TOKEN_CONST_ID, ''));
 
-        if ($cached['username'] === '' || $cached['password'] === '' || $cached['token'] === '') {
-            $cached['error'] = 'Не удалось получить логин/пароль/токен FriendWork из b_bp_global_const.';
+        if ($cached['token'] === '') {
+            $cached['error'] = 'Не удалось получить токен FriendWork из b_bp_global_const (' . FW_TOKEN_CONST_ID . ').';
         }
     } catch (\Throwable $e) {
         $cached['error'] = 'Ошибка получения констант FriendWork из b_bp_global_const: ' . $e->getMessage();
@@ -245,6 +245,9 @@ function fwInternalAuth()
     $cfg = fwGetIntegrationConfig();
     if ($cfg['error'] !== '') {
         return $cfg;
+    }
+    if ($cfg['username'] === '' || $cfg['password'] === '') {
+        return ['error' => 'Не удалось получить логин/пароль FriendWork для internal API.'];
     }
 
     $loginUrl = FW_API_INTERNAL . "/Accounts/LogIn?username=" .
@@ -360,16 +363,6 @@ function fwGetPublicAccounts(): array
             'paging.perPage' => FW_ACCOUNTS_PER_PAGE,
         ]);
         $response = fwExternal('GET', '/api/v2/accounts?' . $query);
-        if ($response['http'] === 404 && $page === 1) {
-            // Совместимый read-only endpoint для инсталляций, где accounts v2
-            // не опубликован или скрыт для текущего токена.
-            $legacyResponse = fwExternal('GET', '/accounts');
-            if ($legacyResponse['http'] === 200 && is_array($legacyResponse['data'])) {
-                $legacyResponse['accounts'] = $legacyResponse['data'];
-                return $legacyResponse;
-            }
-            $response = $legacyResponse;
-        }
         if ($response['http'] !== 200 || !is_array($response['data'])) {
             $response['accounts'] = [];
             return $response;
