@@ -34,7 +34,7 @@ const RECRUIT_REQUEST_STATUS_PROPERTY_ID = 1042;
 const RECRUIT_REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
 const RECRUIT_REQUEST_REPEAT_WORKFLOW_TEMPLATE_ID = 1269;
 const PERSONAL_DATA_GROUP_ID = 82;
-const RECRUITER_CHANGE_DIAGNOSTIC_VERSION = '2026-09-15-1';
+const RECRUITER_CHANGE_DIAGNOSTIC_VERSION = '2026-09-15-2';
 
 const PROP_LASTNAME = 1083;
 const PROP_FIRSTNAME = 1084;
@@ -146,19 +146,6 @@ function findActiveTaskIdForUser(int $elementId, int $userId): int
     }
 
     return 0;
-}
-
-function currentUserCanEditCandidate(int $elementId): bool
-{
-    if ($elementId <= 0 || !class_exists('CIBlockElementRights')) {
-        return false;
-    }
-
-    return CIBlockElementRights::UserHasRightTo(
-        CANDIDATE_IBLOCK_ID,
-        $elementId,
-        'element_edit'
-    );
 }
 
 function fullName($last, $first, $middle)
@@ -434,7 +421,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $newRecruiterId = (int)($_POST['new_recruiter_id'] ?? 0);
         $comment = trim((string)($_POST['change_comment'] ?? ''));
 
-        $el = CIBlockElement::GetList([], ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId], false, false, ['ID'])->GetNextElement();
+        // GetProperties() requires IBLOCK_ID in the selected fields.
+        $el = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID']
+        )->GetNextElement();
         if (!$el) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
@@ -442,15 +436,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $rawRecruiterValue = propertyValueById($props, PROP_RECRUITER, 'VALUE');
         $oldRecruiterId = userIdFromPropertyValue($rawRecruiterValue);
         $currentUserTaskId = findActiveTaskIdForUser($elementId, $currentUserId);
-        $canEditElement = currentUserCanEditCandidate($elementId);
 
-        // Candidate access rights and the workflow task remain valid across
-        // statuses where the recruiter property can temporarily be out of sync.
         $canChange = $isAdmin
             || $isRecruitHead
-            || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId)
-            || $currentUserTaskId > 0
-            || $canEditElement;
+            || ($oldRecruiterId > 0 && $oldRecruiterId === $currentUserId);
 
         if ($elementId <= 0 || $newRecruiterId <= 0 || $comment === '') {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
@@ -468,8 +457,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                 'parsed_recruiter_id' => $oldRecruiterId,
                 'property_matches_current_user' => $oldRecruiterId > 0 && $oldRecruiterId === $currentUserId,
                 'current_user_active_task_id' => $currentUserTaskId,
-                'current_user_can_edit_element' => $canEditElement,
                 'requested_new_recruiter_id' => $newRecruiterId,
+                'loaded_properties_count' => count($props),
             ]);
             LocalRedirect(buildQueryUrl([
                 'msg' => 'danger',
@@ -487,17 +476,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $line = $now . ': ' . $actorName . ' сменил рекрутера ' . $oldName . ' на ' . $newName . '. Комментарий: ' . $comment;
         $newHistory = appendHistoryLine($history, $line);
 
-        $taskOwnerId = $oldRecruiterId;
-        $taskId = findActiveTaskIdForUser($elementId, $taskOwnerId);
-        if ($taskId <= 0) {
-            $taskId = $currentUserTaskId;
-            $taskOwnerId = $currentUserId;
-        }
-        if ($taskId > 0 && $taskOwnerId !== $newRecruiterId) {
-            $taskOwnerName = formatUserNameById($taskOwnerId);
+        $taskId = findActiveTaskIdForUser($elementId, $oldRecruiterId);
+        if ($taskId > 0 && $oldRecruiterId !== $newRecruiterId) {
             try {
-                CBPTaskService::DelegateTask($taskId, $taskOwnerId, $newRecruiterId);
-                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $taskOwnerName . ' на ' . $newName . '.');
+                CBPTaskService::DelegateTask($taskId, $oldRecruiterId, $newRecruiterId);
+                $newHistory = appendHistoryLine($newHistory, $now . ': Задание БП #' . $taskId . ' делегировано с ' . $oldName . ' на ' . $newName . '.');
             } catch (\Throwable $e) {
                 $newHistory = appendHistoryLine($newHistory, $now . ': Не удалось делегировать задание БП #' . $taskId . ' — ' . $e->getMessage());
             }
@@ -525,7 +508,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
         }
 
-        $el = CIBlockElement::GetList([], ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId], false, false, ['ID'])->GetNextElement();
+        // GetProperties() requires IBLOCK_ID in the selected fields.
+        $el = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => CANDIDATE_IBLOCK_ID, 'ID' => $elementId],
+            false,
+            false,
+            ['ID', 'IBLOCK_ID']
+        )->GetNextElement();
         if (!$el) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
@@ -875,9 +865,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                             <?php
                                 $canChangeRecruiter = $isAdmin
                                     || $isRecruitHead
-                                    || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId)
-                                    || $taskId > 0
-                                    || currentUserCanEditCandidate($id);
+                                    || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $canCancelCheck = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID || $isRecruitHead || ($row['RECRUITER_ID'] > 0 && (int)$row['RECRUITER_ID'] === $currentUserId);
                                 $canEditCandidate = $canCancelCheck;
                                 $actions = [];
