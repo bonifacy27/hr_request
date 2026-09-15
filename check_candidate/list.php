@@ -34,6 +34,7 @@ const RECRUIT_REQUEST_STATUS_PROPERTY_ID = 1042;
 const RECRUIT_REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
 const RECRUIT_REQUEST_REPEAT_WORKFLOW_TEMPLATE_ID = 1269;
 const PERSONAL_DATA_GROUP_ID = 82;
+const RECRUITER_CHANGE_DIAGNOSTIC_VERSION = '2026-09-15-1';
 
 const PROP_LASTNAME = 1083;
 const PROP_FIRSTNAME = 1084;
@@ -391,6 +392,9 @@ function startRecruitRequestRepeatWorkflow(int $requestId, int $recruiterId): bo
 function buildQueryUrl(array $override = [])
 {
     $params = $_GET;
+    if (!array_key_exists('recruiter_change_debug', $override)) {
+        unset($params['recruiter_change_debug']);
+    }
     foreach ($override as $key => $value) {
         if ($value === null || $value === '') {
             unset($params[$key]);
@@ -400,6 +404,17 @@ function buildQueryUrl(array $override = [])
     }
 
     return 'list.php' . ($params ? ('?' . http_build_query($params)) : '');
+}
+
+function buildRecruiterChangeDiagnostic(array $data): string
+{
+    $diagnostic = array_merge([
+        'version' => RECRUITER_CHANGE_DIAGNOSTIC_VERSION,
+        'generated_at' => date('c'),
+    ], $data);
+
+    $json = json_encode($diagnostic, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    return $json !== false ? $json : 'Не удалось сформировать диагностические данные.';
 }
 
 $currentUserId = (int)$USER->GetID();
@@ -424,7 +439,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Анкета кандидата не найдена.']));
         }
         $props = $el ? $el->GetProperties() : [];
-        $oldRecruiterId = userIdFromPropertyValue(propertyValueById($props, PROP_RECRUITER, 'VALUE'));
+        $rawRecruiterValue = propertyValueById($props, PROP_RECRUITER, 'VALUE');
+        $oldRecruiterId = userIdFromPropertyValue($rawRecruiterValue);
         $currentUserTaskId = findActiveTaskIdForUser($elementId, $currentUserId);
         $canEditElement = currentUserCanEditCandidate($elementId);
 
@@ -440,7 +456,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Заполните все обязательные поля.']));
         }
         if (!$canChange) {
-            LocalRedirect(buildQueryUrl(['msg' => 'danger', 'text' => 'Недостаточно прав для смены рекрутера.']));
+            $diagnostic = buildRecruiterChangeDiagnostic([
+                'candidate_id' => $elementId,
+                'current_user_id' => $currentUserId,
+                'current_user_groups' => array_values(array_map('intval', (array)$currentUserGroups)),
+                'is_admin' => $isAdmin,
+                'is_recruit_head' => $isRecruitHead,
+                'recruit_heads_count' => count($recruitHeads),
+                'recruiter_property_value_type' => gettype($rawRecruiterValue),
+                'recruiter_property_value' => $rawRecruiterValue,
+                'parsed_recruiter_id' => $oldRecruiterId,
+                'property_matches_current_user' => $oldRecruiterId > 0 && $oldRecruiterId === $currentUserId,
+                'current_user_active_task_id' => $currentUserTaskId,
+                'current_user_can_edit_element' => $canEditElement,
+                'requested_new_recruiter_id' => $newRecruiterId,
+            ]);
+            LocalRedirect(buildQueryUrl([
+                'msg' => 'danger',
+                'text' => 'Недостаточно прав для смены рекрутера.',
+                'recruiter_change_debug' => $diagnostic,
+            ]));
         }
 
         $now = date('d.m.Y H:i');
@@ -543,6 +578,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !check_bitrix_sessid()) {
 
 $msgType = trim((string)($_GET['msg'] ?? ''));
 $msgText = trim((string)($_GET['text'] ?? ''));
+$recruiterChangeDebug = trim((string)($_GET['recruiter_change_debug'] ?? ''));
 
 $typeEnumMap = getEnumMap(PROP_TYPE);
 $statusEnumMap = getEnumMap(PROP_STATUS);
@@ -738,6 +774,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <?php if ($msgText !== ''): ?>
         <div class="alert alert-<?=h($msgType === 'success' ? 'success' : 'danger')?>">
             <?=h($msgText)?>
+            <?php if ($recruiterChangeDebug !== ''): ?>
+                <div class="mt-2"><b>Диагностика смены рекрутера (скопируйте весь блок):</b></div>
+                <pre class="mt-2 mb-0 p-2" style="white-space:pre-wrap; background:#fff; border:1px solid #e3aeb3; color:#212529;"><?=h($recruiterChangeDebug)?></pre>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
