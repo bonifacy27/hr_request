@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | `GET /api/v2/accounts` | `check_candidate_prof.php`, `check_mass.php`, `request_to_fw.php` | Сопоставление аккаунта FriendWork с рекрутером |
 | `POST /jobs` | `request_to_fw.php` | Создание вакансии из заявки на подбор |
-| `GET /jobs/{jobId}` | `diagnose_public_jobs.php` | Ручная read-only диагностика вакансии |
+| `GET /jobs/{jobId}` | `create_anketa.php`, `diagnose_public_jobs.php` | Проверка доступности вакансии и ручная read-only диагностика |
 
 Устаревший fallback `GET /accounts` удалён: этот маршрут отсутствует в
 `openapi.yaml`. При ошибке `GET /api/v2/accounts` интеграция продолжает работу с
@@ -33,5 +33,8 @@
 
 В `openapi.yaml` нет эквивалента выборки кандидатов вакансии, поэтому заменить
 эти два внутренних вызова токеном без изменения функциональности невозможно.
+В `create_anketa.php` сама вакансия дополнительно проверяется документированным
+`GET /jobs/{jobId}` с токеном из `Constant1789370789700`, а список кандидатов
+временно загружается через внутренний API.
 Их можно удалить после появления документированного Public API метода или
 перевода сценария на webhooks.
