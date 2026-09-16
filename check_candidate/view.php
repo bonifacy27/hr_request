@@ -18,6 +18,7 @@ if (!$USER || !$USER->IsAuthorized()) {
 }
 
 const CANDIDATE_IBLOCK_ID = 207;
+const CANDIDATE_FORM_LINK_STATUS_IDS = [1042, 810, 913, 1069, 6216, 6217];
 
 $fieldsByCode = [
     'CANDIDATE_FIO' => ['TYPE' => 'FULL_NAME', 'NAME' => 'ФИО кандидата'],
@@ -25,6 +26,9 @@ $fieldsByCode = [
     'E_MAIL' => ['TYPE' => 'S', 'NAME' => 'E-mail'],
     'TIP_ANKETY' => ['TYPE' => 'L', 'NAME' => 'Тип анкеты'],
     'STATUS_ANKETY' => ['TYPE' => 'L', 'NAME' => 'Статус анкеты'],
+    'SSYLKA_NA_ANKETU' => ['TYPE' => 'URL', 'NAME' => 'Ссылка на анкету', 'SOURCE_CODE' => 'PROPERTY_1090'],
+    'SSYLKA_NA_ANKETU_PERESYLKA_FAYLOV' => ['TYPE' => 'URL', 'NAME' => 'Ссылка на анкету (2 этап)', 'SOURCE_CODE' => 'PROPERTY_1322'],
+    'PAROL_ANKETY' => ['TYPE' => 'S', 'NAME' => 'Пароль', 'SOURCE_CODE' => 'PROPERTY_1223'],
 
     'ANKETA_KANDIDATA' => ['TYPE' => 'F', 'NAME' => 'Анкета кандидата'],
     'PASPORT' => ['TYPE' => 'F', 'NAME' => 'Паспорт'],
@@ -121,6 +125,21 @@ function renderInlineNote($label, $valueHtml)
 
 function renderValue(array $property, $type)
 {
+    if ($type === 'URL') {
+        $values = normalizeValues($property['VALUE'] ?? null);
+        $links = [];
+        foreach ($values as $value) {
+            $url = trim((string)$value);
+            if ($url !== '') {
+                $links[] = preg_match('~^https?://~i', $url)
+                    ? '<a href="' . h($url) . '" target="_blank" rel="noopener noreferrer">' . h($url) . '</a>'
+                    : h($url);
+            }
+        }
+
+        return $links ? implode('<br>', $links) : '';
+    }
+
     if ($type === 'F') {
         $fileIds = normalizeValues($property['VALUE'] ?? null);
         if (!$fileIds) {
@@ -241,6 +260,23 @@ $propertiesByCode['CANDIDATE_FIO'] = [
     'FIRST_NAME' => (string)(($propertiesByCode['IMYA']['VALUE'] ?? '')),
     'MIDDLE_NAME' => (string)(($propertiesByCode['OTCHESTVO']['VALUE'] ?? '')),
 ];
+
+$currentUserId = (int)$USER->GetID();
+$currentUserGroups = array_map('intval', (array)CUser::GetUserGroup($currentUserId));
+$isAdministrator = in_array(1, $currentUserGroups, true);
+$recruiterIds = array_map('intval', normalizeValues($propertiesByCode['REKRUTER']['VALUE'] ?? null));
+$isCandidateRecruiter = in_array($currentUserId, $recruiterIds, true);
+$statusIds = array_map('intval', normalizeValues($propertiesByCode['STATUS_ANKETY']['VALUE_ENUM_ID'] ?? null));
+$canViewCandidateFormAccess = ($isAdministrator || $isCandidateRecruiter)
+    && (bool)array_intersect(CANDIDATE_FORM_LINK_STATUS_IDS, $statusIds);
+
+if ($canViewCandidateFormAccess) {
+    $blocks['Доступ к анкете'] = [
+        'SSYLKA_NA_ANKETU',
+        'SSYLKA_NA_ANKETU_PERESYLKA_FAYLOV',
+        'PAROL_ANKETY',
+    ];
+}
 ?>
 <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
