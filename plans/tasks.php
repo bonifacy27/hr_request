@@ -39,7 +39,7 @@ const TASKS_PROP_KPI_STATUS = 2805;
 const TASKS_PROP_STATUS_COLOR = 3168;
 const TASKS_PROP_PVD_RESPONSIBLE = 2827;
 const TASKS_PROP_KPI_RESPONSIBLE = 2828;
-const TASKS_ALLOWED_REASSIGN_STATUS_IDS = [3396791, 3507933, 3347533, 3365494];
+const TASKS_ALLOWED_REASSIGN_STATUS_IDS = [3396791, 3507933, 3347533, 3365494, 3414131];
 
 function tasksH($value)
 {
@@ -64,6 +64,12 @@ function tasksUserName($userId)
     return $name !== '' ? $name : (string)$user['LOGIN'];
 }
 
+function tasksUserShortName(array $user)
+{
+    $name = trim((string)($user['LAST_NAME'] ?? '') . ' ' . (string)($user['NAME'] ?? ''));
+    return $name !== '' ? $name : (string)($user['LOGIN'] ?? '');
+}
+
 function tasksSubordinateUsers(array $headIds)
 {
     $users = [];
@@ -75,8 +81,29 @@ function tasksSubordinateUsers(array $headIds)
         while ($employee = $employees->Fetch()) {
             $userId = (int)($employee['ID'] ?? 0);
             if ($userId > 0 && (string)($employee['ACTIVE'] ?? 'Y') !== 'N') {
-                $users[$userId] = tasksUserName($userId);
+                $users[$userId] = tasksUserShortName($employee);
             }
+        }
+    }
+    asort($users, SORT_NATURAL | SORT_FLAG_CASE);
+    return $users;
+}
+
+function tasksAllActiveUsers()
+{
+    static $users;
+    if (is_array($users)) {
+        return $users;
+    }
+    $users = [];
+    $result = Bitrix\Main\UserTable::getList([
+        'filter' => ['=ACTIVE' => 'Y', '!UF_DEPARTMENT' => false],
+        'select' => ['ID', 'NAME', 'LAST_NAME', 'LOGIN'],
+    ]);
+    while ($user = $result->fetch()) {
+        $userId = (int)$user['ID'];
+        if ($userId > 0) {
+            $users[$userId] = tasksUserShortName($user);
         }
     }
     asort($users, SORT_NATURAL | SORT_FLAG_CASE);
@@ -94,6 +121,14 @@ function tasksCanReassign($userId, $managerId, $recruiterId, $responsibleId)
         || (int)$userId === (int)$managerId
         || (int)$userId === (int)$recruiterId
         || (int)$userId === (int)$responsibleId;
+}
+
+function tasksReassignUsers($userId, $recruiterId)
+{
+    if (tasksIsAdministrator($userId) || (int)$userId === (int)$recruiterId) {
+        return tasksAllActiveUsers();
+    }
+    return tasksSubordinateUsers([$userId]);
 }
 
 function tasksDelegateRunningAssignments($elementId, $iblockId, $fromUserId, $toUserId)
@@ -236,6 +271,8 @@ function tasksLoadRows(array $ids, $iblockId, $statusPropertyId, $responsiblePro
         $responsibleId = tasksUserId($element['PROPERTY_' . (int)$responsiblePropertyId . '_VALUE'] ?? '');
         $canReassign = in_array($statusId, TASKS_ALLOWED_REASSIGN_STATUS_IDS, true)
             && tasksCanReassign($currentUserId, $managerId, $recruiterId, $responsibleId);
+        $hasFullEmployeeSelection = tasksIsAdministrator($currentUserId)
+            || (int)$currentUserId === (int)$recruiterId;
         $result[] = [
             'ID' => (int)$element['ID'],
             'NAME' => (string)$element['NAME'],
@@ -248,7 +285,10 @@ function tasksLoadRows(array $ids, $iblockId, $statusPropertyId, $responsiblePro
             'RESPONSIBLE_ID' => $responsibleId,
             'RESPONSIBLE' => tasksUserName($responsibleId),
             'CAN_REASSIGN' => $canReassign,
-            'REASSIGN_USERS' => $canReassign ? tasksSubordinateUsers([$managerId, $responsibleId]) : [],
+            'REASSIGN_SCOPE' => $hasFullEmployeeSelection ? 'all' : 'subordinates',
+            'REASSIGN_USERS' => $canReassign
+                ? tasksReassignUsers($currentUserId, $recruiterId)
+                : [],
             'IBLOCK_ID' => (int)$iblockId,
         ];
     }
@@ -285,7 +325,7 @@ function tasksRenderTable(array $rows, array $fields, $title, $currentUserId)
         }
         if (!empty($row['CAN_REASSIGN'])) {
             $usersJson = base64_encode(json_encode($row['REASSIGN_USERS'], JSON_UNESCAPED_UNICODE));
-            echo '<button type="button" class="btn btn-outline-primary btn-sm js-reassign-task" data-task-id="' . (int)$row['ID'] . '" data-iblock-id="' . (int)$row['IBLOCK_ID'] . '" data-task-name="' . tasksH($row['NAME']) . '" data-users="' . tasksH($usersJson) . '">Сменить ответственного</button>';
+            echo '<button type="button" class="btn btn-outline-primary btn-sm js-reassign-task" data-task-id="' . (int)$row['ID'] . '" data-iblock-id="' . (int)$row['IBLOCK_ID'] . '" data-task-name="' . tasksH($row['NAME']) . '" data-scope="' . tasksH($row['REASSIGN_SCOPE']) . '" data-users="' . tasksH($usersJson) . '">Сменить ответственного</button>';
         }
         if (!$needsUserAction && empty($row['CAN_REASSIGN'])) {
             echo '<span class="text-muted">Нет доступных действий</span>';
@@ -342,7 +382,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'reassign_task
         if ($task) {
             $statusId = (int)($task['PROPERTY_' . $statusPropertyId . '_VALUE'] ?? 0);
             $oldResponsibleId = tasksUserId($task['PROPERTY_' . $responsiblePropertyId . '_VALUE'] ?? '');
-            $allowedUsers = tasksSubordinateUsers([$managerId, $oldResponsibleId]);
+            $allowedUsers = tasksReassignUsers($currentUserId, $recruiterId);
             if (in_array($statusId, TASKS_ALLOWED_REASSIGN_STATUS_IDS, true)
                 && tasksCanReassign($currentUserId, $managerId, $recruiterId, $oldResponsibleId)
                 && isset($allowedUsers[$newResponsibleId])
@@ -424,7 +464,7 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
         <div class="form-group">
             <label for="reassign-user">Новый ответственный</label>
             <select class="form-control" name="new_responsible_id" id="reassign-user" required></select>
-            <small class="form-text text-muted">Доступны подчиненные руководителя плана и текущего ответственного.</small>
+            <small class="form-text text-muted" id="reassign-scope-hint"></small>
         </div>
         <div class="reassign-modal-actions">
             <button type="submit" class="btn btn-primary">Передать задачу</button>
@@ -457,6 +497,9 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
             document.getElementById('reassign-task-id').value = button.getAttribute('data-task-id');
             document.getElementById('reassign-iblock-id').value = button.getAttribute('data-iblock-id');
             document.getElementById('reassign-task-name').textContent = button.getAttribute('data-task-name');
+            document.getElementById('reassign-scope-hint').textContent = button.getAttribute('data-scope') === 'all'
+                ? 'Доступны все активные сотрудники.'
+                : 'Доступны ваши подчиненные.';
             modal.style.display = 'block';
             backdrop.style.display = 'block';
         }
