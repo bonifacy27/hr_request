@@ -162,6 +162,40 @@ function getEmployeeValueFromElement(int $iblockId, int $elementId, ?string $cod
 }
 
 /**
+ * Запускает бизнес-процесс установки прав для нового элемента списка.
+ */
+function startAccessRightsWorkflow(int $templateId, int $elementId): void
+{
+    $errors = [];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $elementId];
+
+    try {
+        $workflowId = CBPDocument::StartWorkflow($templateId, $documentId, [], $errors);
+    } catch (\Throwable $e) {
+        throw new Exception('Не удалось запустить бизнес-процесс установки прав: ' . $e->getMessage(), 0, $e);
+    }
+
+    if ($workflowId !== false && empty($errors)) {
+        return;
+    }
+
+    $messages = [];
+    foreach ($errors as $error) {
+        if (is_array($error)) {
+            $messages[] = (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE));
+        } else {
+            $messages[] = (string)$error;
+        }
+    }
+
+    $details = implode('; ', array_filter($messages));
+    throw new Exception(
+        'Не удалось запустить бизнес-процесс установки прав'
+        . ($details !== '' ? ': ' . $details : '.')
+    );
+}
+
+/**
  * Парсинг полей 4.1/4.2/4.3 из текста результата задачи №4.
  */
 function parseTask4Contacts(string $text): array
@@ -193,6 +227,9 @@ function parseTask4Contacts(string $text): array
 $planIblockId      = 359; // ПВД
 $baseTasksIblockId = 360; // Основные задачи ПВД
 $kpiTasksIblockId  = 363; // Задачи KPI
+
+$baseTaskAccessWorkflowTemplateId = 1363;
+$kpiTaskAccessWorkflowTemplateId  = 1364;
 
 $propCodeBaseTasksLink = 'ZADACHI_PO_PLANU_VVODA_V_DOLZHNOST'; // PROPERTY_2761
 $propCodeKpiTasksLink  = 'ZADACHI_KPI';                        // PROPERTY_2769
@@ -520,6 +557,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payload'])) {
                     'PROPERTY_VALUES' => $properties,
                 ]);
                 if ($taskId <= 0) throw new Exception('Ошибка создания основной задачи: ' . $el->LAST_ERROR);
+                try {
+                    startAccessRightsWorkflow($baseTaskAccessWorkflowTemplateId, $taskId);
+                } catch (\Throwable $e) {
+                    CIBlockElement::Delete($taskId);
+                    throw new Exception('Основная задача создана, но запуск установки прав завершился ошибкой: ' . $e->getMessage(), 0, $e);
+                }
                 $resp['base_created'][] = $taskId;
                 $newBaseIds[] = $taskId;
             }
@@ -598,6 +641,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payload'])) {
                     'PROPERTY_VALUES' => $properties
                 ]);
                 if ($newId <= 0) throw new Exception('Ошибка создания KPI-задачи: ' . $el->LAST_ERROR);
+                try {
+                    startAccessRightsWorkflow($kpiTaskAccessWorkflowTemplateId, $newId);
+                } catch (\Throwable $e) {
+                    CIBlockElement::Delete($newId);
+                    throw new Exception('KPI-задача создана, но запуск установки прав завершился ошибкой: ' . $e->getMessage(), 0, $e);
+                }
                 $resp['kpi_created'][] = $newId;
                 $allKpiIds[] = $newId;
                 $submittedKpiIds[] = $newId;
