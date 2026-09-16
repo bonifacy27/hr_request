@@ -61,10 +61,11 @@ const LINK_WORKFLOW_TEMPLATE_ID = 328;
 const CANDIDATE_PASSWORD_PROPERTY_ID = 1223;
 const CANDIDATE_LINK_PROPERTY_ID = 1090;
 
-// API for creating the public candidate form link.
-const FORM_API_URL = 'https://www.test.ru/local/tools/api/';
-const FORM_API_USERNAME = 'test';
-const FORM_API_PASSWORD = 'test';
+// API for creating the public candidate form link. Its credentials are stored
+// in global business-process constants rather than in the source code.
+const FORM_API_URL_CONST_ID = 'Constant1789563409300';
+const FORM_API_USERNAME_CONST_ID = 'Constant1789563454960';
+const FORM_API_PASSWORD_CONST_ID = 'Constant1789563472900';
 const FORM_API_TYPE = 'Массовый подбор';
 const FORM_API_STATUS = 1;
 
@@ -103,6 +104,27 @@ function checkMassGetFriendWorkCredentials()
         ];
     } catch (\Throwable $e) {
         return ['username' => '', 'password' => '', 'token' => '', 'error' => $e->getMessage()];
+    }
+}
+
+function checkMassGetFormApiConfig()
+{
+    try {
+        $connection = Application::getConnection();
+        $helper = $connection->getSqlHelper();
+        $ids = [FORM_API_URL_CONST_ID, FORM_API_USERNAME_CONST_ID, FORM_API_PASSWORD_CONST_ID];
+        $escaped = array_map([$helper, 'forSql'], $ids);
+        $rows = [];
+        $result = $connection->query("SELECT ID, PROPERTY_VALUE FROM b_bp_global_const WHERE ID IN ('" . implode("','", $escaped) . "')");
+        while ($row = $result->fetch()) $rows[$row['ID']] = $row['PROPERTY_VALUE'];
+        return [
+            'url' => checkMassDecodeGlobalConstant($rows[FORM_API_URL_CONST_ID] ?? ''),
+            'username' => checkMassDecodeGlobalConstant($rows[FORM_API_USERNAME_CONST_ID] ?? ''),
+            'password' => checkMassDecodeGlobalConstant($rows[FORM_API_PASSWORD_CONST_ID] ?? ''),
+            'error' => '',
+        ];
+    } catch (\Throwable $e) {
+        return ['url' => '', 'username' => '', 'password' => '', 'error' => $e->getMessage()];
     }
 }
 
@@ -200,6 +222,23 @@ function checkMassStartListWorkflow($templateId, $elementId, array &$errors)
 
 function checkMassRequestCandidateLink($elementId, $password)
 {
+    $apiConfig = checkMassGetFormApiConfig();
+    if (
+        $apiConfig['error'] !== '' ||
+        $apiConfig['url'] === '' ||
+        $apiConfig['username'] === '' ||
+        $apiConfig['password'] === ''
+    ) {
+        checkMassLog('Candidate link API configuration is unavailable', [
+            'element_id' => (int)$elementId,
+            'url_present' => $apiConfig['url'] !== '',
+            'username_present' => $apiConfig['username'] !== '',
+            'password_present' => $apiConfig['password'] !== '',
+            'error' => $apiConfig['error'],
+        ]);
+        return ['success' => false, 'link' => '', 'http' => 0, 'error' => $apiConfig['error']];
+    }
+
     $payload = [
         'form_id' => (string)(int)$elementId,
         'form_password' => (string)$password,
@@ -209,14 +248,14 @@ function checkMassRequestCandidateLink($elementId, $password)
     $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     $ch = curl_init();
     curl_setopt_array($ch, [
-        CURLOPT_URL => FORM_API_URL,
+        CURLOPT_URL => $apiConfig['url'],
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $json,
         CURLOPT_HTTPHEADER => [
             'Content-Type: application/json',
             'Accept: application/json',
-            'Authorization: Basic ' . base64_encode(FORM_API_USERNAME . ':' . FORM_API_PASSWORD),
+            'Authorization: Basic ' . base64_encode($apiConfig['username'] . ':' . $apiConfig['password']),
         ],
         CURLOPT_CONNECTTIMEOUT => FW_CONNECT_TIMEOUT,
         CURLOPT_TIMEOUT => FW_REQUEST_TIMEOUT,
