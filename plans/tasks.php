@@ -12,8 +12,8 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Задачи плана ввода в должность');
 CJSCore::Init(['popup', 'ui.entity-selector']);
 
-if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc') || !Loader::includeModule('intranet')) {
-    ShowError('Не удалось подключить модули iblock/bizproc.');
+if (!Loader::includeModule('iblock') || !Loader::includeModule('lists') || !Loader::includeModule('bizproc') || !Loader::includeModule('intranet')) {
+    ShowError('Не удалось подключить модули iblock/lists/bizproc/intranet.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
@@ -40,6 +40,9 @@ const TASKS_PROP_KPI_STATUS = 2805;
 const TASKS_PROP_STATUS_COLOR = 3168;
 const TASKS_PROP_PVD_RESPONSIBLE = 2827;
 const TASKS_PROP_KPI_RESPONSIBLE = 2828;
+const TASKS_PLAN_ACCESS_WORKFLOW_TEMPLATE_ID = 1362;
+const TASKS_PVD_ACCESS_WORKFLOW_TEMPLATE_ID = 1363;
+const TASKS_KPI_ACCESS_WORKFLOW_TEMPLATE_ID = 1364;
 const TASKS_ALLOWED_REASSIGN_STATUS_IDS = [3396791, 3507933, 3347533, 3365494, 3414131];
 
 function tasksH($value)
@@ -153,6 +156,17 @@ function tasksDelegateRunningAssignments($elementId, $iblockId, $fromUserId, $to
                 $handled[$taskId] = true;
             }
         }
+    }
+}
+
+function tasksStartAccessRightsWorkflow($templateId, $elementId, array $parameters = [])
+{
+    $errors = [];
+    $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (int)$elementId];
+    $workflowId = CBPDocument::StartWorkflow((int)$templateId, $documentId, $parameters, $errors);
+
+    if ($workflowId === false || !empty($errors)) {
+        throw new RuntimeException('Не удалось запустить бизнес-процесс установки прав.');
     }
 }
 
@@ -389,8 +403,20 @@ if ($request->isPost() && (string)$request->getPost('action') === 'reassign_task
                 && isset($allowedUsers[$newResponsibleId])
             ) {
                 try {
-                    CIBlockElement::SetPropertyValuesEx($taskId, $iblockId, [$responsiblePropertyId => $newResponsibleId]);
-                    tasksDelegateRunningAssignments($taskId, $iblockId, $oldResponsibleId, $newResponsibleId);
+                    if ($oldResponsibleId !== $newResponsibleId) {
+                        CIBlockElement::SetPropertyValuesEx($taskId, $iblockId, [$responsiblePropertyId => $newResponsibleId]);
+                        tasksDelegateRunningAssignments($taskId, $iblockId, $oldResponsibleId, $newResponsibleId);
+
+                        $accessWorkflowTemplateId = $iblockId === TASKS_PVD_IBLOCK_ID
+                            ? TASKS_PVD_ACCESS_WORKFLOW_TEMPLATE_ID
+                            : TASKS_KPI_ACCESS_WORKFLOW_TEMPLATE_ID;
+                        tasksStartAccessRightsWorkflow($accessWorkflowTemplateId, $taskId);
+                        tasksStartAccessRightsWorkflow(
+                            TASKS_PLAN_ACCESS_WORKFLOW_TEMPLATE_ID,
+                            $planId,
+                            ['par_Users_Read' => ['user_' . $newResponsibleId]]
+                        );
+                    }
                     $result = 'success';
                 } catch (Throwable $exception) {
                     $result = 'error';
