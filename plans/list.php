@@ -581,6 +581,12 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                 <?php
                 $planId = (int)$plan['ID'];
                 $taskId = (int)$plan['BP_TASK_ID'];
+                $activeTasksCount = count(array_filter(
+                    array_merge($plan['PVD_TASKS'], $plan['KPI_TASKS']),
+                    function ($task) {
+                        return !empty($task['REQUIRES_ACTION']);
+                    }
+                ));
                 $reportUrl = '/forms/staff_recruitment/onboarding_plan_report.php?PLAN_ID=' . $planId;
                 $rowClass = $plan['PVD_IS_MISSING'] ? 'plan-critical' : ($plan['PVD_REVIEW_IS_PENDING'] ? 'plan-attention' : '');
                 ?>
@@ -602,7 +608,7 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                     <td><?= h(($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?: '—') . '–' . ($plan['PROPERTY_' . PROP_TRIAL_END_DATE . '_VALUE'] ?: '—')) ?></td>
                     <td><?= h($userNames[(int)$plan['RECRUITER_ID']] ?? '—') ?></td>
                     <td>
-                        <a class="btn btn-outline-primary btn-sm mb-2" href="/plans/tasks.php?PLAN_ID=<?= $planId ?>">Открыть задачи</a>
+                        <a class="btn btn-outline-primary btn-sm mb-2" href="/forms/staff_recruitment/plans/tasks.php?PLAN_ID=<?= $planId ?>">Открыть задачи<?php if ($activeTasksCount > 0): ?> <span class="badge badge-warning"><?= $activeTasksCount ?></span><?php endif; ?></a>
                         <?= renderTaskTable($plan['PVD_TASKS'], 'pvd', 'Задачи ПВД') ?>
                         <?= renderTaskTable($plan['KPI_TASKS'], 'kpi', 'Задачи KPI') ?>
                     </td>

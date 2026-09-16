@@ -92,7 +92,8 @@ function tasksDocumentIds($elementId, $iblockId)
 function tasksWorkflowInfo($elementId, $iblockId, $currentUserId)
 {
     $userIds = [];
-    $currentTaskId = 0;
+    $taskId = 0;
+    $currentUserTaskId = 0;
     foreach (tasksDocumentIds($elementId, $iblockId) as $documentId) {
         $tasks = CBPTaskService::GetList(
             ['ID' => 'DESC'],
@@ -102,12 +103,15 @@ function tasksWorkflowInfo($elementId, $iblockId, $currentUserId)
             ['ID', 'USER_ID']
         );
         while ($task = $tasks->Fetch()) {
+            if ($taskId === 0) {
+                $taskId = (int)$task['ID'];
+            }
             $userId = (int)($task['USER_ID'] ?? 0);
             if ($userId > 0) {
                 $userIds[$userId] = $userId;
             }
-            if ($userId === (int)$currentUserId && $currentTaskId === 0) {
-                $currentTaskId = (int)$task['ID'];
+            if ($userId === (int)$currentUserId && $currentUserTaskId === 0) {
+                $currentUserTaskId = (int)$task['ID'];
             }
         }
     }
@@ -115,7 +119,11 @@ function tasksWorkflowInfo($elementId, $iblockId, $currentUserId)
     foreach ($userIds as $userId) {
         $names[] = tasksUserName($userId);
     }
-    return ['EXECUTORS' => array_values(array_unique($names)), 'TASK_ID' => $currentTaskId];
+    return [
+        'EXECUTORS' => array_values(array_unique($names)),
+        'TASK_ID' => $taskId,
+        'CURRENT_USER_TASK_ID' => $currentUserTaskId,
+    ];
 }
 
 function tasksBizprocUrl($taskId, $userId)
@@ -134,7 +142,7 @@ function tasksLoadRows(array $ids, $iblockId, $statusPropertyId, array $fields, 
     if (!$ids) {
         return [];
     }
-    $select = ['ID', 'NAME', 'PROPERTY_' . (int)$statusPropertyId];
+    $select = ['ID', 'NAME', 'PROPERTY_' . (int)$statusPropertyId, 'PROPERTY_OTVETSTVENNYY'];
     foreach ($fields as $propertyId => $label) {
         $select[] = 'PROPERTY_' . (int)$propertyId;
     }
@@ -173,6 +181,8 @@ function tasksLoadRows(array $ids, $iblockId, $statusPropertyId, array $fields, 
             'VALUES' => $values,
             'EXECUTORS' => $workflow['EXECUTORS'],
             'TASK_ID' => (int)$workflow['TASK_ID'],
+            'CURRENT_USER_TASK_ID' => (int)$workflow['CURRENT_USER_TASK_ID'],
+            'RESPONSIBLE' => tasksUserName(tasksUserId($element['PROPERTY_OTVETSTVENNYY_VALUE'] ?? '')),
             'IBLOCK_ID' => (int)$iblockId,
         ];
     }
@@ -187,25 +197,26 @@ function tasksRenderTable(array $rows, array $fields, $title, $currentUserId)
         return;
     }
     echo '<div class="table-responsive"><table class="table table-sm table-bordered task-table"><thead class="thead-light"><tr>';
-    echo '<th>ID</th><th>Название</th><th>Статус</th>';
+    echo '<th>ID</th><th>Название</th><th>Статус</th><th>Ответственный</th>';
     foreach ($fields as $label) {
         echo '<th>' . tasksH($label) . '</th>';
     }
     echo '<th>Текущий исполнитель</th><th>Действия</th></tr></thead><tbody>';
     foreach ($rows as $row) {
-        $hasRunningTask = !empty($row['EXECUTORS']);
-        $needsUserAction = (int)$row['TASK_ID'] > 0;
+        $hasRunningTask = (int)$row['TASK_ID'] > 0;
+        $needsUserAction = (int)$row['CURRENT_USER_TASK_ID'] > 0;
         echo '<tr' . ($hasRunningTask ? ' class="task-needs-action"' : '') . '>';
         echo '<td><a href="/workgroups/group/206/lists/' . (int)$row['IBLOCK_ID'] . '/element/0/' . (int)$row['ID'] . '/" target="_blank" rel="noopener">' . (int)$row['ID'] . '</a></td>';
         echo '<td><strong>' . tasksH($row['NAME']) . '</strong>' . ($hasRunningTask ? '<span class="action-note">' . ($needsUserAction ? 'Требуется ваше действие' : 'Требуется действие') . '</span>' : '') . '</td>';
         echo '<td><span class="status-pill" style="background-color:' . tasksH($row['STATUS_COLOR']) . '">' . tasksH($row['STATUS']) . '</span></td>';
+        echo '<td>' . tasksH($row['RESPONSIBLE']) . '</td>';
         foreach (array_keys($fields) as $propertyId) {
             $value = trim((string)$row['VALUES'][$fields[$propertyId]]);
             echo '<td>' . tasksH($value !== '' ? $value : '—') . '</td>';
         }
         echo '<td>' . tasksH($row['EXECUTORS'] ? implode(', ', $row['EXECUTORS']) : '—') . '</td><td class="task-actions">';
-        if ($needsUserAction) {
-            echo '<a class="btn btn-info btn-sm" href="' . tasksH(tasksBizprocUrl($row['TASK_ID'], $currentUserId)) . '" target="_blank" rel="noopener">Выполнить задание</a>';
+        if ($hasRunningTask) {
+            echo '<a class="btn btn-info btn-sm" href="' . tasksH(tasksBizprocUrl($row['TASK_ID'], $currentUserId)) . '" target="_blank" rel="noopener">Перейти в задание</a>';
         } else {
             echo '<span class="text-muted">Нет доступных действий</span>';
         }
@@ -225,7 +236,7 @@ $plan = $planId > 0 ? CIBlockElement::GetList(
 
 if (!$plan) {
     ShowError($planId > 0 ? 'План не найден или недоступен.' : 'Не указан план ввода в должность.');
-    echo '<p><a class="ui-btn ui-btn-light-border" href="/plans/list.php">Вернуться к списку планов</a></p>';
+    echo '<p><a class="ui-btn ui-btn-light-border" href="/forms/staff_recruitment/plans/list.php">Вернуться к списку планов</a></p>';
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
@@ -264,7 +275,7 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
 .plan-tasks-page .task-actions { min-width:170px !important; }
 </style>
 <div class="container-fluid plan-tasks-page">
-    <p><a href="/plans/list.php">&larr; Вернуться к списку планов</a></p>
+    <p><a href="/forms/staff_recruitment/plans/list.php">&larr; Вернуться к списку планов</a></p>
     <h2><?= tasksH($plan['NAME']) ?></h2>
     <table class="table table-sm table-bordered plan-summary">
         <tr><th>Руководитель</th><td><?= tasksH(tasksUserName(tasksUserId($plan['PROPERTY_' . TASKS_PROP_MANAGER . '_VALUE'] ?? ''))) ?></td></tr>
