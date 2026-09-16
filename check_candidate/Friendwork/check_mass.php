@@ -305,13 +305,41 @@ function checkMassWorkflowErrorsText(array $errors)
 
 function checkMassReadGeneratedLink($elementId)
 {
-    $result = ['link' => '', 'password' => ''];
+    $result = ['link' => '', 'password' => '', 'recruiter' => 0];
     $props = CIBlockElement::GetProperty(CANDIDATE_IBLOCK_ID, (int)$elementId);
     while ($property = $props->Fetch()) {
-        if ($property['CODE'] === 'SSYLKA_NA_ANKETU') $result['link'] = (string)$property['VALUE'];
-        if ($property['CODE'] === 'PAROL_ANKETY') $result['password'] = (string)$property['VALUE'];
+        $propertyId = (int)($property['ID'] ?? 0);
+        if ($propertyId === CANDIDATE_LINK_PROPERTY_ID || $property['CODE'] === 'SSYLKA_NA_ANKETU') {
+            $result['link'] = trim((string)$property['VALUE']);
+        }
+        if ($propertyId === CANDIDATE_PASSWORD_PROPERTY_ID || $property['CODE'] === 'PAROL_ANKETY') {
+            $result['password'] = trim((string)$property['VALUE']);
+        }
+        if ($propertyId === 1323) $result['recruiter'] = (int)$property['VALUE'];
     }
     return $result;
+}
+
+function checkMassPrepareExistingCandidateResult($elementId, array $candidate, $fallbackRecruiter = 0)
+{
+    $generated = checkMassReadGeneratedLink($elementId);
+    if ($generated['link'] === '' && !preg_match('/^\d{4}$/', $generated['password'])) {
+        $generated['password'] = (string)random_int(1000, 9999);
+        CIBlockElement::SetPropertyValuesEx($elementId, CANDIDATE_IBLOCK_ID, [
+            CANDIDATE_PASSWORD_PROPERTY_ID => $generated['password'],
+        ]);
+    }
+
+    return [
+        'ID' => (string)($candidate['candidateId'] ?? ''),
+        'FIO' => trim(($candidate['lastName'] ?? '') . ' ' . ($candidate['firstName'] ?? '') . ' ' . ($candidate['middleName'] ?? '')),
+        'EMAIL' => (string)($candidate['communicationChannels']['email'][0] ?? ''),
+        'PHONE' => (string)($candidate['communicationChannels']['phone'][0] ?? ''),
+        'RECRUITER' => $generated['recruiter'] ?: (int)$fallbackRecruiter,
+        'LINK' => $generated['link'],
+        'PASSWORD' => $generated['password'],
+        'DUPLICATE' => true,
+    ];
 }
 
 function checkMassFindCandidateByFriendWorkId($candidateId)
@@ -820,6 +848,7 @@ if ($doProcess) {
     $currentUserId = (int)$USER->GetID();
     $diagnostic = [];
     $createdElements = [];
+    $linkElements = [];
     $skippedDuplicates = [];
     $elementData = [];
 
@@ -844,6 +873,10 @@ if ($doProcess) {
         $existingElementId = checkMassFindCandidateByFriendWorkId($candidateId);
         if ($existingElementId) {
             $skippedDuplicates[$candidateId] = $existingElementId;
+            $elementData[$existingElementId] = checkMassPrepareExistingCandidateResult($existingElementId, $c);
+            if ($elementData[$existingElementId]['LINK'] === '') {
+                $linkElements[$existingElementId] = $existingElementId;
+            }
             checkMassLog('Duplicate candidate skipped', [
                 'job_id' => $jobId,
                 'candidate_id' => $candidateId,
@@ -973,6 +1006,14 @@ if ($doProcess) {
         if ($existingElementId) {
             checkMassReleaseCandidateCreationLock($creationLock);
             $skippedDuplicates[$candidateId] = $existingElementId;
+            $elementData[$existingElementId] = checkMassPrepareExistingCandidateResult(
+                $existingElementId,
+                $c,
+                $assignedRecruiter
+            );
+            if ($elementData[$existingElementId]['LINK'] === '') {
+                $linkElements[$existingElementId] = $existingElementId;
+            }
             checkMassLog('Duplicate candidate skipped before insert', [
                 'job_id' => $jobId,
                 'candidate_id' => $candidateId,
@@ -999,6 +1040,7 @@ if ($doProcess) {
         if ($elementId) {
             echo "<span style='color:green'>Создан элемент: $elementId</span><br>";
             $createdElements[] = $elementId;
+            $linkElements[$elementId] = $elementId;
             $elementData[$elementId] = [
                 'ID'        => $candidateId,
                 'FIO'       => $fio,
@@ -1027,7 +1069,7 @@ if ($doProcess) {
     }
 
     echo "<h2>Получение ссылок и запуск процесса ID 328</h2>";
-    foreach ($createdElements as $elementId) {
+    foreach ($linkElements as $elementId) {
         echo "<hr>Анкета $elementId — ";
         $password = $elementData[$elementId]['PASSWORD'];
         $apiResult = checkMassRequestCandidateLink($elementId, $password);
