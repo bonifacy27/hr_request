@@ -83,43 +83,67 @@ function dashboardListUrl(string $url, string $statusParam, int $statusId, strin
     return $url . '?' . http_build_query($query);
 }
 
-function dashboardCurrentUserTaskCounts(int $userId, array $iblockIds): array
+function dashboardTaskUserIds($rawUserId): array
 {
-    $counts = array_fill_keys(array_map('intval', $iblockIds), 0);
-    $elementIds = array_fill_keys(array_map('intval', $iblockIds), []);
-    if ($userId <= 0 || !class_exists('CBPTaskService')) {
-        return $counts;
+    $ids = [];
+    if (!is_array($rawUserId) && preg_match_all('/\[(\d+)\]/', (string)$rawUserId, $matches)) {
+        foreach ($matches[1] as $id) {
+            $ids[(int)$id] = true;
+        }
     }
+    $parts = is_array($rawUserId) ? $rawUserId : preg_split('/[;,\s]+/', (string)$rawUserId);
+    foreach ((array)$parts as $part) {
+        $part = trim((string)$part);
+        if (preg_match('/^user_(\d+)$/i', $part, $matches)) {
+            $ids[(int)$matches[1]] = true;
+        } elseif (ctype_digit($part)) {
+            $ids[(int)$part] = true;
+        }
+    }
+    return array_keys($ids);
+}
 
-    try {
-        $tasks = CBPTaskService::GetList(
-            ['ID' => 'ASC'],
-            ['USER_ID' => $userId, 'STATUS' => CBPTaskStatus::Running],
-            false,
-            false,
-            ['ID', 'DOCUMENT_ID']
-        );
-        while ($task = $tasks->GetNext()) {
-            $documentId = $task['DOCUMENT_ID'] ?? '';
-            $rawDocumentId = is_array($documentId)
-                ? implode(':', array_map('strval', $documentId))
-                : (string)$documentId;
-            if (!preg_match('/(?:lists|iblock)_(\d+)_(\d+)/', $rawDocumentId, $matches)) {
+function dashboardCurrentUserTaskCount(int $userId, int $iblockId, array $elementIds): int
+{
+    if ($userId <= 0 || $iblockId <= 0 || !class_exists('CBPTaskService')) {
+        return 0;
+    }
+    $count = 0;
+    foreach (array_unique(array_map('intval', $elementIds)) as $elementId) {
+        if ($elementId <= 0) {
+            continue;
+        }
+        $documentIds = [
+            ['lists', 'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
+            ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
+            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
+        ];
+        foreach ($documentIds as $documentId) {
+            try {
+                $tasks = CBPTaskService::GetList(
+                    ['ID' => 'DESC'],
+                    ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
+                    false,
+                    false,
+                    ['ID', 'USER_ID']
+                );
+            } catch (Throwable $exception) {
                 continue;
             }
-            $iblockId = (int)$matches[1];
-            if (array_key_exists($iblockId, $elementIds)) {
-                $elementIds[$iblockId][(int)$matches[2]] = true;
+            $found = false;
+            while ($task = $tasks->GetNext()) {
+                if (in_array($userId, dashboardTaskUserIds($task['USER_ID'] ?? ''), true)) {
+                    $found = true;
+                    break;
+                }
+            }
+            if ($found) {
+                ++$count;
+                break;
             }
         }
-    } catch (Throwable $exception) {
-        return $counts;
     }
-
-    foreach ($elementIds as $iblockId => $ids) {
-        $counts[$iblockId] = count($ids);
-    }
-    return $counts;
+    return $count;
 }
 
 $today = new DateTimeImmutable('today');
@@ -188,14 +212,11 @@ if (!array_intersect([1, 9, 81, 82], $currentUserGroups)) {
 if (!array_intersect([1, 9, 13, 81, 82], $currentUserGroups)) {
     unset($sections['employees']);
 }
-$currentUserTaskCounts = dashboardCurrentUserTaskCounts($currentUserId, array_column($sections, 'iblock'));
-
 foreach ($sections as $key => &$section) {
     $section['items'] = [];
     $section['metrics'] = [];
     $section['statuses'] = [];
     $section['status_ids'] = [];
-    $section['my_work_count'] = (int)($currentUserTaskCounts[(int)$section['iblock']] ?? 0);
     $statusMap = $section['status_type'] === 'enum' ? dashboardEnumMap($section['status']) : [];
     $linkedIds = [];
     $elementFilter = ['IBLOCK_ID' => $section['iblock'], 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y', '>=DATE_CREATE' => $bitrixFrom, '<=DATE_CREATE' => $bitrixTo];
@@ -218,6 +239,11 @@ foreach ($sections as $key => &$section) {
         }
         $section['items'][] = ['id' => (int)$element['ID'], 'status_id' => $statusId];
     }
+    $section['my_work_count'] = dashboardCurrentUserTaskCount(
+        $currentUserId,
+        (int)$section['iblock'],
+        array_column($section['items'], 'id')
+    );
     if ($section['status_type'] === 'linked') {
         $statusMap = dashboardLinkedNames($linkedIds, (int)$section['status_iblock']);
     }
