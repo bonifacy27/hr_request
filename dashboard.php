@@ -103,47 +103,77 @@ function dashboardTaskUserIds($rawUserId): array
     return array_keys($ids);
 }
 
-function dashboardCurrentUserTaskCount(int $userId, int $iblockId, array $elementIds): int
+function dashboardElementHasCurrentUserTask(int $userId, int $iblockId, int $elementId): bool
 {
-    if ($userId <= 0 || $iblockId <= 0 || !class_exists('CBPTaskService')) {
-        return 0;
+    if ($userId <= 0 || $iblockId <= 0 || $elementId <= 0 || !class_exists('CBPTaskService')) {
+        return false;
     }
-    $count = 0;
-    foreach (array_unique(array_map('intval', $elementIds)) as $elementId) {
-        if ($elementId <= 0) {
+    $documentIds = [
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
+        ['lists', 'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
+        ['lists', 'lists_' . $iblockId . '_group_206', $elementId],
+        ['lists', 'lists_' . $iblockId, $elementId],
+        ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
+    ];
+    foreach ($documentIds as $documentId) {
+        try {
+            $tasks = CBPTaskService::GetList(
+                ['ID' => 'DESC'],
+                ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
+                false,
+                false,
+                ['ID', 'USER_ID']
+            );
+        } catch (Throwable $exception) {
             continue;
         }
-        $documentIds = [
-            ['lists', 'BizprocDocument', "lists_{$iblockId}_{$elementId}"],
-            ['iblock', 'CIBlockDocument', "iblock_{$iblockId}_{$elementId}"],
-            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $elementId],
-        ];
-        foreach ($documentIds as $documentId) {
-            try {
-                $tasks = CBPTaskService::GetList(
-                    ['ID' => 'DESC'],
-                    ['DOCUMENT_ID' => $documentId, 'STATUS' => CBPTaskStatus::Running],
-                    false,
-                    false,
-                    ['ID', 'USER_ID']
-                );
-            } catch (Throwable $exception) {
-                continue;
+        while ($task = $tasks->GetNext()) {
+            if (in_array($userId, dashboardTaskUserIds($task['USER_ID'] ?? ''), true)) {
+                return true;
             }
-            $found = false;
-            while ($task = $tasks->GetNext()) {
-                if (in_array($userId, dashboardTaskUserIds($task['USER_ID'] ?? ''), true)) {
-                    $found = true;
-                    break;
-                }
-            }
-            if ($found) {
-                ++$count;
-                break;
-            }
+        }
+    }
+    return false;
+}
+
+function dashboardCurrentUserTaskCount(int $userId, int $iblockId, array $elementIds): int
+{
+    $count = 0;
+    foreach (array_unique(array_map('intval', $elementIds)) as $elementId) {
+        if (dashboardElementHasCurrentUserTask($userId, $iblockId, $elementId)) {
+            ++$count;
         }
     }
     return $count;
+}
+
+function dashboardTaskStatusCounts(array $ids, int $iblockId, int $statusPropertyId): array
+{
+    $counts = [];
+    $statusIds = [];
+    $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+    if (!$ids) {
+        return $counts;
+    }
+    $tasks = CIBlockElement::GetList(
+        [],
+        ['IBLOCK_ID' => $iblockId, '@ID' => $ids, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+        false,
+        false,
+        ['ID', 'PROPERTY_' . $statusPropertyId]
+    );
+    while ($task = $tasks->Fetch()) {
+        $statusId = (int)($task['PROPERTY_' . $statusPropertyId . '_VALUE'] ?? 0);
+        $statusIds[] = $statusId;
+        $counts[$statusId] = ($counts[$statusId] ?? 0) + 1;
+    }
+    $statusNames = dashboardLinkedNames($statusIds, 361);
+    $result = [];
+    foreach ($counts as $statusId => $count) {
+        $name = $statusNames[$statusId] ?? 'Без статуса';
+        $result[$name] = ($result[$name] ?? 0) + $count;
+    }
+    return $result;
 }
 
 $today = new DateTimeImmutable('today');
@@ -239,7 +269,7 @@ foreach ($sections as $key => &$section) {
         }
         $section['items'][] = ['id' => (int)$element['ID'], 'status_id' => $statusId];
     }
-    $section['my_work_count'] = dashboardCurrentUserTaskCount(
+    $section['my_work_count'] = $section['status_type'] === 'tasks' ? 0 : dashboardCurrentUserTaskCount(
         $currentUserId,
         (int)$section['iblock'],
         array_column($section['items'], 'id')
@@ -250,10 +280,31 @@ foreach ($sections as $key => &$section) {
     $section['total'] = count($section['items']);
     if ($section['status_type'] === 'tasks') {
         $pvdTaskIds = $kpiTaskIds = [];
+        $plansInWork = 0;
         foreach ($section['items'] as $item) {
-            $pvdTaskIds += dashboardLinkedPropertyIds((int)$section['iblock'], $item['id'], (int)$section['pvd_tasks_property']);
-            $kpiTaskIds += dashboardLinkedPropertyIds((int)$section['iblock'], $item['id'], (int)$section['kpi_tasks_property']);
+            $planPvdTaskIds = dashboardLinkedPropertyIds((int)$section['iblock'], $item['id'], (int)$section['pvd_tasks_property']);
+            $planKpiTaskIds = dashboardLinkedPropertyIds((int)$section['iblock'], $item['id'], (int)$section['kpi_tasks_property']);
+            $pvdTaskIds += $planPvdTaskIds;
+            $kpiTaskIds += $planKpiTaskIds;
+            $hasCurrentUserWork = dashboardElementHasCurrentUserTask($currentUserId, (int)$section['iblock'], $item['id']);
+            foreach ([360 => $planPvdTaskIds, 363 => $planKpiTaskIds] as $taskIblockId => $taskIds) {
+                foreach ($taskIds as $taskId) {
+                    if (dashboardElementHasCurrentUserTask($currentUserId, $taskIblockId, $taskId)) {
+                        $hasCurrentUserWork = true;
+                        break 2;
+                    }
+                }
+            }
+            if ($hasCurrentUserWork) {
+                ++$plansInWork;
+            }
         }
+        $section['my_work_count'] = $plansInWork;
+        $section['statuses'] = dashboardTaskStatusCounts($pvdTaskIds, 360, 2767);
+        foreach (dashboardTaskStatusCounts($kpiTaskIds, 363, 2805) as $statusName => $count) {
+            $section['statuses'][$statusName] = ($section['statuses'][$statusName] ?? 0) + $count;
+        }
+        arsort($section['statuses']);
         $completedCount = static function (array $ids, int $iblockId, int $statusProperty): int {
             if (!$ids) return 0;
             return (int)CIBlockElement::GetList([], ['IBLOCK_ID' => $iblockId, '@ID' => array_values($ids), 'PROPERTY_' . $statusProperty => 3347534, 'CHECK_PERMISSIONS' => 'Y'], []);
@@ -320,22 +371,24 @@ unset($section);
                     </div>
                     <div class="hr-card-metrics">
                         <div class="hr-mini total"><span>Всего</span><strong><?=$section['total']?></strong></div>
-                        <?php if ($section['my_work_count'] > 0): ?>
+                        <?php if ($section['my_work_count'] > 0 || $section['status_type'] === 'tasks'): ?>
                             <div class="hr-mini my-work"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></div>
                         <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>
                             <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
                         <?php endforeach; ?>
                     </div>
-                    <?php if ($section['status_type'] !== 'tasks'): ?>
-                        <div class="hr-status-title">По статусам</div>
-                        <div class="hr-statuses">
-                            <?php if (!$section['statuses']): ?><span class="hr-empty">Нет данных за период</span><?php endif; ?>
-                            <?php foreach ($section['statuses'] as $status => $count): ?>
+                    <div class="hr-status-title"><?=$section['status_type'] === 'tasks' ? 'По статусам задач' : 'По статусам'?></div>
+                    <div class="hr-statuses">
+                        <?php if (!$section['statuses']): ?><span class="hr-empty">Нет данных за период</span><?php endif; ?>
+                        <?php foreach ($section['statuses'] as $status => $count): ?>
+                            <?php if ($section['status_param'] !== ''): ?>
                                 <a class="hr-status" href="<?=dashboardH(dashboardListUrl($section['url'], $section['status_param'], (int)($section['status_ids'][$status] ?? 0), $from, $to))?>"><span><?=dashboardH($status)?></span><b><?=$count?></b></a>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
+                            <?php else: ?>
+                                <span class="hr-status"><span><?=dashboardH($status)?></span><b><?=$count?></b></span>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
             </article>
         <?php endforeach; ?>
