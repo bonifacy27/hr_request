@@ -142,7 +142,7 @@ function currentTaskExecutors($elementId, $iblockId)
     return array_values(array_filter(array_unique($names)));
 }
 
-function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields, $typePropertyId = 0)
+function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields, $typePropertyId = 0, $currentUserId = 0)
 {
     $result = [];
     if (!$ids) {
@@ -189,6 +189,10 @@ function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields
             $details[$label] = (string)($task['PROPERTY_' . (int)$propertyId . '_VALUE'] ?? '');
         }
         $details['Статус задачи'] = $status;
+        $currentTaskId = $currentUserId > 0
+            ? currentElementTaskId((int)$task['ID'], (int)$iblockId, (int)$currentUserId)
+            : 0;
+        $executors = currentTaskExecutors((int)$task['ID'], (int)$iblockId);
         $result[] = [
             'ID' => (int)$task['ID'],
             'NAME' => (string)$task['NAME'],
@@ -198,7 +202,9 @@ function loadTasks(array $ids, $iblockId, $statusPropertyId, array $detailFields
                 ? (int)($task['PROPERTY_' . (int)$typePropertyId . '_VALUE'] ?? 0)
                 : 0,
             'STATUS_COLOR' => $statusColor,
-            'EXECUTORS' => currentTaskExecutors((int)$task['ID'], (int)$iblockId),
+            'EXECUTORS' => $executors,
+            'REQUIRES_ACTION' => !empty($executors),
+            'BP_TASK_ID' => $currentTaskId,
             'DETAILS' => $details,
         ];
     }
@@ -231,14 +237,14 @@ function isLessThanDayBeforeEmployment($dateValue)
     }
     return $timestamp !== false && ($timestamp - time()) < 86400;
 }
-function currentPlanTaskId($planId, $userId)
+function currentElementTaskId($elementId, $iblockId, $userId)
 {
     $documents = [
-        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$planId],
-        ['lists', 'BizprocDocument', 'lists_' . PLAN_IBLOCK_ID . '_' . (int)$planId],
-        ['lists', 'lists_' . PLAN_IBLOCK_ID . '_group_206', (int)$planId],
-        ['lists', 'lists_' . PLAN_IBLOCK_ID, (int)$planId],
-        ['iblock', 'CIBlockDocument', 'iblock_' . PLAN_IBLOCK_ID . '_' . (int)$planId],
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
+        ['lists', 'BizprocDocument', 'lists_' . (int)$iblockId . '_' . (int)$elementId],
+        ['lists', 'lists_' . (int)$iblockId . '_group_206', (int)$elementId],
+        ['lists', 'lists_' . (int)$iblockId, (int)$elementId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . (int)$iblockId . '_' . (int)$elementId],
     ];
     foreach ($documents as $documentId) {
         $tasks = CBPTaskService::GetList(
@@ -253,6 +259,26 @@ function currentPlanTaskId($planId, $userId)
         }
     }
     return 0;
+}
+
+function currentPlanTaskId($planId, $userId)
+{
+    return currentElementTaskId((int)$planId, PLAN_IBLOCK_ID, (int)$userId);
+}
+
+function planHasCurrentUserWork($planId, $userId)
+{
+    if (currentPlanTaskId($planId, $userId) > 0) {
+        return true;
+    }
+    foreach ([PROP_PVD_TASKS => PVD_TASK_IBLOCK_ID, PROP_KPI_TASKS => KPI_TASK_IBLOCK_ID] as $propertyId => $iblockId) {
+        foreach (loadLinkedIds($planId, $propertyId) as $taskId) {
+            if (currentElementTaskId($taskId, $iblockId, $userId) > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 function bizprocTaskUrl($taskId, $userId)
@@ -295,7 +321,12 @@ function renderTaskTable(array $tasks, $type, $title)
     $html .= '<table class="plan-task-table"><tbody>';
     foreach ($tasks as $task) {
         $templateId = 'task-details-' . $safeType . '-' . $sectionSequence . '-' . (int)$task['ID'];
-        $html .= '<tr><td><button type="button" class="task-name js-task-details" data-template="' . h($templateId) . '">' . h($task['NAME']) . '</button></td>';
+        $rowClass = !empty($task['REQUIRES_ACTION']) ? ' class="task-action-required"' : '';
+        $html .= '<tr' . $rowClass . '><td><button type="button" class="task-name js-task-details" data-template="' . h($templateId) . '">' . h($task['NAME']) . '</button>';
+        if (!empty($task['REQUIRES_ACTION'])) {
+            $html .= '<span class="task-action-label">' . ((int)$task['BP_TASK_ID'] > 0 ? 'Требуется ваше действие' : 'Требуется действие') . '</span>';
+        }
+        $html .= '</td>';
         $html .= '<td><span class="task-status" style="background-color:' . h($task['STATUS_COLOR']) . '">' . h($task['STATUS'] !== '' ? $task['STATUS'] : '—') . '</span></td></tr>';
         $html .= '<tr class="task-details-template"><td colspan="2"><div id="' . h($templateId) . '">';
         $html .= '<div class="task-card-head"><strong>' . h($task['NAME']) . '</strong>';
@@ -309,6 +340,9 @@ function renderTaskTable(array $tasks, $type, $title)
         }
         $html .= '</dl></div><div class="task-card-section"><h5>Бизнес-процесс</h5><dl class="task-details-list">';
         $html .= '<dt>Текущий исполнитель</dt><dd>' . h($task['EXECUTORS'] ? implode(', ', $task['EXECUTORS']) : '—') . '</dd>';
+        if ((int)$task['BP_TASK_ID'] > 0) {
+            $html .= '<dt>Действие</dt><dd><a class="btn btn-info btn-sm" href="' . h(bizprocTaskUrl($task['BP_TASK_ID'], $GLOBALS['USER']->GetID())) . '" target="_blank" rel="noopener">Перейти в задание</a></dd>';
+        }
         $html .= '</dl></div></div></td></tr>';
     }
     return $html . '</tbody></table></div></section>';
@@ -318,6 +352,7 @@ $search = trim((string)$request->get('q'));
 $managerFilter = max(0, (int)$request->get('manager'));
 $recruiterFilter = max(0, (int)$request->get('recruiter'));
 $missingPvdFilter = (string)$request->get('pvd_missing') === 'Y';
+$inWorkFilter = (string)$request->get('in_work') === 'Y';
 $sortField = (string)$request->get('sort') === 'name' ? 'name' : 'employment';
 $sortDirection = strtoupper((string)$request->get('order')) === 'ASC' ? 'ASC' : 'DESC';
 $sort = $sortField === 'name'
@@ -327,6 +362,7 @@ $sort = $sortField === 'name'
 $managerIds = [];
 $recruiterIds = [];
 $filteredPlanIds = [];
+$currentUserId = (int)$USER->GetID();
 $filterCandidates = CIBlockElement::GetList(
     ['ID' => 'DESC'],
     ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
@@ -357,6 +393,9 @@ while ($candidate = $filterCandidates->Fetch()) {
     )) {
         continue;
     }
+    if ($inWorkFilter && !planHasCurrentUserWork((int)$candidate['ID'], $currentUserId)) {
+        continue;
+    }
     $filteredPlanIds[] = (int)$candidate['ID'];
 }
 
@@ -364,7 +403,7 @@ $filter = ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' =
 if ($search !== '') {
     $filter['%NAME'] = $search;
 }
-if ($managerFilter > 0 || $recruiterFilter > 0 || $missingPvdFilter) {
+if ($managerFilter > 0 || $recruiterFilter > 0 || $missingPvdFilter || $inWorkFilter) {
     $filter['ID'] = $filteredPlanIds ?: [-1];
 }
 
@@ -380,7 +419,6 @@ $plansResult = CIBlockElement::GetList(
 
 $plans = [];
 $userIds = array_merge(array_values($managerIds), array_values($recruiterIds));
-$currentUserId = (int)$USER->GetID();
 while ($plan = $plansResult->Fetch()) {
     $managerId = userIdFromPlanValue($plan['PROPERTY_' . PROP_MANAGER . '_VALUE'] ?? '');
     $recruiterId = userIdFromPlanValue($plan['PROPERTY_' . PROP_RECRUITER . '_VALUE'] ?? '');
@@ -396,7 +434,7 @@ while ($plan = $plansResult->Fetch()) {
         2762 => 'Фактический результат',
         2807 => 'Планируемый срок исполнения',
         2806 => 'Фактический срок исполнения',
-    ], PROP_PVD_TASK_TYPE);
+    ], PROP_PVD_TASK_TYPE, $currentUserId);
     $plan['KPI_TASKS'] = loadTasks($kpiIds, KPI_TASK_IBLOCK_ID, PROP_KPI_STATUS, [
         2785 => 'Планируемый результат',
         2791 => 'Фактический результат',
@@ -404,7 +442,7 @@ while ($plan = $plansResult->Fetch()) {
         2789 => 'Фактический срок',
         2803 => 'Вес (%)',
         2804 => 'Процент выполнения (%)',
-    ]);
+    ], 0, $currentUserId);
     $plan['BP_TASK_ID'] = currentPlanTaskId((int)$plan['ID'], $currentUserId);
     $employeeCardId = (int)($plan['PROPERTY_' . PROP_EMPLOYEE_CARD . '_VALUE'] ?? 0);
     $plan['EMPLOYEE_CARD_ID'] = $employeeCardId;
@@ -452,6 +490,8 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
 .plans-list-page .task-name { padding:0; border:0; background:none; color:#007bff; text-align:left; cursor:pointer; }
 .plans-list-page .task-name:hover { text-decoration:underline; }
 .plans-list-page .task-status { display:inline-block; padding:3px 7px; border:1px solid rgba(0,0,0,.12); border-radius:10px; color:#111; }
+.plans-list-page .task-action-required > td { background:#fff3cd; }
+.plans-list-page .task-action-label { display:block; margin-top:3px; color:#856404; font-size:11px; font-weight:700; }
 .plans-list-page .task-details-template { display:none; }
 .plans-list-page .task-modal-backdrop { position:fixed; inset:0; z-index:9998; display:none; background:rgba(0,0,0,.45); }
 .plans-list-page .task-modal { position:fixed; top:50%; left:50%; z-index:9999; display:none; width:min(700px,92vw); max-height:85vh; transform:translate(-50%,-50%); overflow:hidden; background:#fff; border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.3); }
@@ -515,8 +555,12 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                 <input id="plans-pvd-missing" type="checkbox" name="pvd_missing" value="Y" class="form-check-input"<?= $missingPvdFilter ? ' checked' : '' ?>>
                 <label class="form-check-label" for="plans-pvd-missing">ПВД не заполнен</label>
             </div>
+            <div class="form-check mb-1">
+                <input id="plans-in-work" type="checkbox" name="in_work" value="Y" class="form-check-input"<?= $inWorkFilter ? ' checked' : '' ?>>
+                <label class="form-check-label" for="plans-in-work">В работе</label>
+            </div>
             <button type="submit" class="btn btn-primary btn-sm">Применить</button>
-            <a href="<?= h(buildUrl([], ['q', 'manager', 'recruiter', 'pvd_missing', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
+            <a href="<?= h(buildUrl([], ['q', 'manager', 'recruiter', 'pvd_missing', 'in_work', 'PAGEN_1'])) ?>" class="btn btn-secondary btn-sm">Сбросить</a>
         </div>
     </form>
 
@@ -537,6 +581,12 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                 <?php
                 $planId = (int)$plan['ID'];
                 $taskId = (int)$plan['BP_TASK_ID'];
+                $activeTasksCount = count(array_filter(
+                    array_merge($plan['PVD_TASKS'], $plan['KPI_TASKS']),
+                    function ($task) {
+                        return !empty($task['REQUIRES_ACTION']);
+                    }
+                ));
                 $reportUrl = '/forms/staff_recruitment/onboarding_plan_report.php?PLAN_ID=' . $planId;
                 $rowClass = $plan['PVD_IS_MISSING'] ? 'plan-critical' : ($plan['PVD_REVIEW_IS_PENDING'] ? 'plan-attention' : '');
                 ?>
@@ -558,6 +608,7 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                     <td><?= h(($plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?: '—') . '–' . ($plan['PROPERTY_' . PROP_TRIAL_END_DATE . '_VALUE'] ?: '—')) ?></td>
                     <td><?= h($userNames[(int)$plan['RECRUITER_ID']] ?? '—') ?></td>
                     <td>
+                        <a class="btn btn-outline-primary btn-sm mb-2" href="/forms/staff_recruitment/plans/tasks.php?PLAN_ID=<?= $planId ?>">Открыть задачи<?php if ($activeTasksCount > 0): ?> <span class="badge badge-warning"><?= $activeTasksCount ?></span><?php endif; ?></a>
                         <?= renderTaskTable($plan['PVD_TASKS'], 'pvd', 'Задачи ПВД') ?>
                         <?= renderTaskTable($plan['KPI_TASKS'], 'kpi', 'Задачи KPI') ?>
                     </td>
