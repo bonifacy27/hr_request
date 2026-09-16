@@ -10,6 +10,7 @@ use Bitrix\Main\Loader;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Задачи плана ввода в должность');
+CJSCore::Init(['popup', 'ui.entity-selector']);
 
 if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc') || !Loader::includeModule('intranet')) {
     ShowError('Не удалось подключить модули iblock/bizproc.');
@@ -286,7 +287,7 @@ function tasksLoadRows(array $ids, $iblockId, $statusPropertyId, $responsiblePro
             'RESPONSIBLE' => tasksUserName($responsibleId),
             'CAN_REASSIGN' => $canReassign,
             'REASSIGN_SCOPE' => $hasFullEmployeeSelection ? 'all' : 'subordinates',
-            'REASSIGN_USERS' => $canReassign
+            'REASSIGN_USERS' => $canReassign && !$hasFullEmployeeSelection
                 ? tasksReassignUsers($currentUserId, $recruiterId)
                 : [],
             'IBLOCK_ID' => (int)$iblockId,
@@ -437,6 +438,9 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
 .reassign-backdrop { position:fixed; inset:0; z-index:10000; display:none; background:rgba(0,0,0,.45); }
 .reassign-modal { position:fixed; top:50%; left:50%; z-index:10001; display:none; width:min(520px,92vw); transform:translate(-50%,-50%); padding:20px; border-radius:8px; background:#fff; box-shadow:0 12px 35px rgba(0,0,0,.3); }
 .reassign-modal-actions { display:flex; gap:8px; margin-top:18px; }
+.reassign-user-picker { display:none; align-items:center; gap:10px; }
+.popup-window.reassign-user-selector-popup,
+.popup-window.ui-entity-selector-dialog { z-index:21000 !important; }
 </style>
 <div class="container-fluid plan-tasks-page">
     <p><a href="/forms/staff_recruitment/plans/list.php">&larr; Вернуться к списку планов</a></p>
@@ -461,9 +465,14 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
         <input type="hidden" name="action" value="reassign_task">
         <input type="hidden" name="task_id" id="reassign-task-id" value="">
         <input type="hidden" name="iblock_id" id="reassign-iblock-id" value="">
+        <input type="hidden" name="new_responsible_id" id="reassign-user-id" value="">
         <div class="form-group">
-            <label for="reassign-user">Новый ответственный</label>
-            <select class="form-control" name="new_responsible_id" id="reassign-user" required></select>
+            <label>Новый ответственный</label>
+            <select class="form-control" id="reassign-user-select"></select>
+            <div class="reassign-user-picker" id="reassign-user-picker">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="reassign-pick-user">Выбрать сотрудника</button>
+                <span class="text-muted" id="reassign-selected-user">Сотрудник не выбран</span>
+            </div>
             <small class="form-text text-muted" id="reassign-scope-hint"></small>
         </div>
         <div class="reassign-modal-actions">
@@ -476,17 +485,55 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
 (function () {
     var modal = document.querySelector('.reassign-modal');
     var backdrop = document.querySelector('.reassign-backdrop');
-    var userSelect = document.getElementById('reassign-user');
+    var userSelect = document.getElementById('reassign-user-select');
+    var userInput = document.getElementById('reassign-user-id');
+    var userPicker = document.getElementById('reassign-user-picker');
+    var pickButton = document.getElementById('reassign-pick-user');
+    var selectedUser = document.getElementById('reassign-selected-user');
+    var selector = null;
     function closeModal() {
+        try { if (selector && selector.isOpen()) selector.hide(); } catch (error) {}
         modal.style.display = 'none';
         backdrop.style.display = 'none';
     }
+    pickButton.addEventListener('click', function () {
+        try { if (selector) selector.destroy(); } catch (error) {}
+        selector = new BX.UI.EntitySelector.Dialog({
+            targetNode: pickButton,
+            context: 'reassign-onboarding-task',
+            multiple: false,
+            dropdownMode: true,
+            enableSearch: true,
+            zIndex: 21000,
+            popupOptions: { zIndex: 21000, className: 'reassign-user-selector-popup' },
+            entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
+            events: {
+                'Item:onSelect': function (selectorEvent) {
+                    var item = selectorEvent.getData().item;
+                    var userId = parseInt(String(item ? item.getId() : '').replace(/[^\d]/g, ''), 10) || 0;
+                    if (!userId) {
+                        return;
+                    }
+                    userInput.value = String(userId);
+                    selectedUser.textContent = item.getTitle() || ('ID ' + userId);
+                    selectedUser.classList.remove('text-muted');
+                    selector.hide();
+                }
+            }
+        });
+        selector.show();
+    });
+    userSelect.addEventListener('change', function () {
+        userInput.value = userSelect.value;
+    });
     document.addEventListener('click', function (event) {
         var button = event.target.closest('.js-reassign-task');
         if (button) {
             var binary = window.atob(button.getAttribute('data-users') || 'e30=');
             var bytes = Uint8Array.from(binary, function (character) { return character.charCodeAt(0); });
             var users = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            var fullSelection = button.getAttribute('data-scope') === 'all';
+            userInput.value = '';
             userSelect.innerHTML = '<option value="">Выберите сотрудника</option>';
             Object.keys(users).forEach(function (userId) {
                 var option = document.createElement('option');
@@ -494,11 +541,15 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
                 option.textContent = users[userId];
                 userSelect.appendChild(option);
             });
+            userSelect.style.display = fullSelection ? 'none' : 'block';
+            userPicker.style.display = fullSelection ? 'flex' : 'none';
+            selectedUser.textContent = 'Сотрудник не выбран';
+            selectedUser.classList.add('text-muted');
             document.getElementById('reassign-task-id').value = button.getAttribute('data-task-id');
             document.getElementById('reassign-iblock-id').value = button.getAttribute('data-iblock-id');
             document.getElementById('reassign-task-name').textContent = button.getAttribute('data-task-name');
-            document.getElementById('reassign-scope-hint').textContent = button.getAttribute('data-scope') === 'all'
-                ? 'Доступны все активные сотрудники.'
+            document.getElementById('reassign-scope-hint').textContent = fullSelection
+                ? 'Используйте поиск по всем активным сотрудникам.'
                 : 'Доступны ваши подчиненные.';
             modal.style.display = 'block';
             backdrop.style.display = 'block';
@@ -510,6 +561,12 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
     document.addEventListener('keydown', function (event) {
         if (event.key === 'Escape') {
             closeModal();
+        }
+    });
+    document.getElementById('reassign-form').addEventListener('submit', function (event) {
+        if (!userInput.value) {
+            event.preventDefault();
+            alert('Выберите сотрудника для передачи задачи.');
         }
     });
 }());
