@@ -522,6 +522,24 @@ $kpiRows = tasksLoadRows(tasksLinkedIds($planId, TASKS_PROP_KPI), TASKS_KPI_IBLO
             }
         });
         selector.show();
+        var selectorPopup = selector.getPopup();
+        if (selectorPopup) {
+            if (typeof selectorPopup.setZindex === 'function') {
+                selectorPopup.setZindex(21000);
+            } else if (typeof selectorPopup.setZIndex === 'function') {
+                selectorPopup.setZIndex(21000);
+            }
+            var popupContainer = selectorPopup.getPopupContainer
+                ? selectorPopup.getPopupContainer()
+                : null;
+            if (popupContainer) {
+                popupContainer.classList.add('reassign-user-selector-popup');
+                popupContainer.style.setProperty('z-index', '21000', 'important');
+            }
+            setTimeout(function () {
+                try { selectorPopup.adjustPosition(); } catch (error) {}
+            }, 0);
+        }
     });
     userSelect.addEventListener('change', function () {
         userInput.value = userSelect.value;
