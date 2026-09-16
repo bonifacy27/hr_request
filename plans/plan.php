@@ -153,6 +153,35 @@ $counter=1;
 
 //Перебираем основные задачи
 
+if (!function_exists('format_position_relationship_result')) {
+    function format_position_relationship_result($result) {
+        $lines = preg_split('/\r\n|\r|\n/', (string)$result);
+        $html = '<table cellpadding="2" border="0" width="100%">';
+        foreach ($lines as $line) {
+            $parts = explode(':', $line, 2);
+            if (count($parts) === 2) {
+                $tokens = preg_split('/\s*,\s*/u', trim($parts[1]), -1, PREG_SPLIT_NO_EMPTY);
+                $values = array();
+                foreach ($tokens as $token) {
+                    $token = trim($token);
+                    if ($token === '') { continue; }
+                    if (preg_match('/^user_(\d+)$/i', $token, $matches)) { $values[] = get_user_fio_by_id_fast($matches[1]); continue; }
+                    if (preg_match('/^\(([^)]+)\)\s*(.+)$/u', $token, $matches)) {
+                        $name = trim($matches[2]);
+                        if ($name !== '') { $values[] = $name; }
+                        continue;
+                    }
+                    $values[] = $token;
+                }
+                $html .= '<tr><td width="45%"><b>' . htmlspecialchars(trim($parts[0])) . '</b></td><td width="55%">' . htmlspecialchars(implode(', ', $values)) . '</td></tr>';
+            } elseif (trim($line) !== '') {
+                $html .= '<tr><td colspan="2">' . htmlspecialchars(trim($line)) . '</td></tr>';
+            }
+        }
+        return $html . '</table>';
+    }
+}
+
 // --- batch fetch tasks1
 $arSelect1 = array("ID", "NAME", "PROPERTY_PLANIRUEMYY_REZULTAT", "PROPERTY_FAKTICHESKIY_REZULTAT", "PROPERTY_PLANIRUEMYY_SROK_ISPOLNENIYA", "PROPERTY_FAKTICHESKIY_SROK", "PROPERTY_OTVETSTVENNYY", "PROPERTY_TIP_ZADACHI");
 $arFilter1 = array("ID" => $tasks1);
@@ -163,7 +192,9 @@ while ($ob = $res1->GetNext()) {
     $byId1[$ob['ID']] = $ob;
     if (!empty($ob['PROPERTY_OTVETSTVENNYY_VALUE'])) { $userIdsToPrefill[] = intval($ob['PROPERTY_OTVETSTVENNYY_VALUE']); }
     $planRawTmp = (string)$ob['PROPERTY_PLANIRUEMYY_REZULTAT_VALUE'];
+    $factRawTmp = (string)$ob['PROPERTY_FAKTICHESKIY_REZULTAT_VALUE'];
     if (preg_match_all('/user_(\d+)/i', $planRawTmp, $mm)) { foreach ($mm[1] as $uidx) { $userIdsToPrefill[] = intval($uidx); } }
+    if (preg_match_all('/user_(\d+)/i', $factRawTmp, $mm)) { foreach ($mm[1] as $uidx) { $userIdsToPrefill[] = intval($uidx); } }
 }
 if (!empty($userIdsToPrefill)) { prefill_user_fio_cache($userIdsToPrefill); }
 $tasks_array = array();
@@ -172,38 +203,20 @@ foreach ($tasks1 as $id) {
     if (empty($byId1[$id])) { continue; }
     $ob = $byId1[$id];
     $planRaw = $ob['PROPERTY_PLANIRUEMYY_REZULTAT_VALUE'];
+    $factRaw = $ob['PROPERTY_FAKTICHESKIY_REZULTAT_VALUE'];
     if ((int)$ob['PROPERTY_TIP_ZADACHI_VALUE'] === 3347541) {
-        $linesPR = preg_split('/\r\n|\r|\n/', (string)$planRaw);
-        $planHtml = '<table cellpadding="2" border="0" width="100%">';
-        foreach ($linesPR as $ln) {
-            $parts = explode(':', $ln, 2);
-            if (count($parts) === 2) {
-                $val = trim($parts[1]);
-                $tokens = preg_split('/\s*,\s*/u', $val, -1, PREG_SPLIT_NO_EMPTY);
-                $out = array();
-                foreach ($tokens as $t) {
-                    $t = trim($t);
-                    if ($t === '') { continue; }
-                    if (preg_match('/^user_(\d+)$/i', $t, $m)) { $out[] = get_user_fio_by_id_fast($m[1]); continue; }
-                    if (preg_match('/^\(([^)]+)\)\s*(.+)$/u', $t, $m)) { $name = trim($m[2]); if ($name !== '') { $out[] = $name; } continue; }
-                    $out[] = $t;
-                }
-                $valNorm = implode(', ', $out);
-                $planHtml .= '<tr><td width="45%"><b>' . htmlspecialchars(trim($parts[0])) . '</b></td><td width="55%">' . htmlspecialchars($valNorm) . '</td></tr>';
-            } else {
-                if (trim($ln) !== '') { $planHtml .= '<tr><td colspan="2">' . htmlspecialchars(trim($ln)) . '</td></tr>'; }
-            }
-        }
-        $planHtml .= '</table>';
+        $planHtml = format_position_relationship_result($planRaw);
+        $factHtml = format_position_relationship_result($factRaw);
     } else {
         $planHtml = preg_replace('/(\r\n|\r|\n)+/', '<br/>', (string)$planRaw);
+        $factHtml = preg_replace('/(\r\n|\r|\n)+/', '<br/>', (string)$factRaw);
     }
     $tasks_array[] = array(
         'number' => $counter,
         'description' => $ob['NAME'],
         'executor' => get_user_fio_by_id_fast($ob['PROPERTY_OTVETSTVENNYY_VALUE']),
         'plan' => $planHtml,
-        'fact' => preg_replace('/(\r\n|\r|\n)+/', '<br/>', $ob['PROPERTY_FAKTICHESKIY_REZULTAT_VALUE']),
+        'fact' => $factHtml,
         'date1' => $ob['PROPERTY_PLANIRUEMYY_SROK_ISPOLNENIYA_VALUE'],
         'date2' => $ob['PROPERTY_FAKTICHESKIY_SROK_VALUE']
     );
