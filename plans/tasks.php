@@ -203,11 +203,10 @@ function tasksRenderTable(array $rows, array $fields, $title, $currentUserId)
     }
     echo '<th>Текущий исполнитель</th><th>Действия</th></tr></thead><tbody>';
     foreach ($rows as $row) {
-        $hasRunningTask = (int)$row['TASK_ID'] > 0;
         $needsUserAction = (int)$row['CURRENT_USER_TASK_ID'] > 0;
-        echo '<tr' . ($hasRunningTask ? ' class="task-needs-action"' : '') . '>';
+        echo '<tr' . ($needsUserAction ? ' class="task-needs-action"' : '') . '>';
         echo '<td><a href="/workgroups/group/206/lists/' . (int)$row['IBLOCK_ID'] . '/element/0/' . (int)$row['ID'] . '/" target="_blank" rel="noopener">' . (int)$row['ID'] . '</a></td>';
-        echo '<td><strong>' . tasksH($row['NAME']) . '</strong>' . ($hasRunningTask ? '<span class="action-note">' . ($needsUserAction ? 'Требуется ваше действие' : 'Требуется действие') . '</span>' : '') . '</td>';
+        echo '<td><strong>' . tasksH($row['NAME']) . '</strong>' . ($needsUserAction ? '<span class="action-note">Требуется ваше действие</span>' : '') . '</td>';
         echo '<td><span class="status-pill" style="background-color:' . tasksH($row['STATUS_COLOR']) . '">' . tasksH($row['STATUS']) . '</span></td>';
         echo '<td>' . tasksH($row['RESPONSIBLE']) . '</td>';
         foreach (array_keys($fields) as $propertyId) {
@@ -215,8 +214,8 @@ function tasksRenderTable(array $rows, array $fields, $title, $currentUserId)
             echo '<td>' . tasksH($value !== '' ? $value : '—') . '</td>';
         }
         echo '<td>' . tasksH($row['EXECUTORS'] ? implode(', ', $row['EXECUTORS']) : '—') . '</td><td class="task-actions">';
-        if ($hasRunningTask) {
-            echo '<a class="btn btn-info btn-sm" href="' . tasksH(tasksBizprocUrl($row['TASK_ID'], $currentUserId)) . '" target="_blank" rel="noopener">Перейти в задание</a>';
+        if ($needsUserAction) {
+            echo '<a class="btn btn-info btn-sm" href="' . tasksH(tasksBizprocUrl($row['CURRENT_USER_TASK_ID'], $currentUserId)) . '" target="_blank" rel="noopener">Перейти в задание</a>';
         } else {
             echo '<span class="text-muted">Нет доступных действий</span>';
         }
