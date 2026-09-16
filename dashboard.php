@@ -10,8 +10,8 @@ use Bitrix\Main\Loader;
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Подбор и адаптация персонала');
 
-if (!Loader::includeModule('iblock')) {
-    ShowError('Модуль iblock не установлен.');
+if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
+    ShowError('Не удалось подключить модули iblock/bizproc.');
     require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
     return;
 }
@@ -83,6 +83,45 @@ function dashboardListUrl(string $url, string $statusParam, int $statusId, strin
     return $url . '?' . http_build_query($query);
 }
 
+function dashboardCurrentUserTaskCounts(int $userId, array $iblockIds): array
+{
+    $counts = array_fill_keys(array_map('intval', $iblockIds), 0);
+    $elementIds = array_fill_keys(array_map('intval', $iblockIds), []);
+    if ($userId <= 0 || !class_exists('CBPTaskService')) {
+        return $counts;
+    }
+
+    try {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['USER_ID' => $userId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID', 'DOCUMENT_ID']
+        );
+        while ($task = $tasks->GetNext()) {
+            $documentId = $task['DOCUMENT_ID'] ?? '';
+            $rawDocumentId = is_array($documentId)
+                ? implode(':', array_map('strval', $documentId))
+                : (string)$documentId;
+            if (!preg_match('/(?:lists|iblock)_(\d+)_(\d+)/', $rawDocumentId, $matches)) {
+                continue;
+            }
+            $iblockId = (int)$matches[1];
+            if (array_key_exists($iblockId, $elementIds)) {
+                $elementIds[$iblockId][(int)$matches[2]] = true;
+            }
+        }
+    } catch (Throwable $exception) {
+        return $counts;
+    }
+
+    foreach ($elementIds as $iblockId => $ids) {
+        $counts[$iblockId] = count($ids);
+    }
+    return $counts;
+}
+
 $today = new DateTimeImmutable('today');
 $defaultFrom = $today->modify('-1 year');
 $dateFrom = dashboardDate((string)($_GET['date_from'] ?? ''), $defaultFrom);
@@ -141,11 +180,22 @@ $sections = [
     ],
 ];
 
+$currentUserId = (int)$USER->GetID();
+$currentUserGroups = array_map('intval', (array)CUser::GetUserGroup($currentUserId));
+if (!array_intersect([1, 9, 81, 82], $currentUserGroups)) {
+    unset($sections['candidates']);
+}
+if (!array_intersect([1, 9, 13, 81, 82], $currentUserGroups)) {
+    unset($sections['employees']);
+}
+$currentUserTaskCounts = dashboardCurrentUserTaskCounts($currentUserId, array_column($sections, 'iblock'));
+
 foreach ($sections as $key => &$section) {
     $section['items'] = [];
     $section['metrics'] = [];
     $section['statuses'] = [];
     $section['status_ids'] = [];
+    $section['my_work_count'] = (int)($currentUserTaskCounts[(int)$section['iblock']] ?? 0);
     $statusMap = $section['status_type'] === 'enum' ? dashboardEnumMap($section['status']) : [];
     $linkedIds = [];
     $elementFilter = ['IBLOCK_ID' => $section['iblock'], 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y', '>=DATE_CREATE' => $bitrixFrom, '<=DATE_CREATE' => $bitrixTo];
@@ -214,7 +264,7 @@ unset($section);
 .hr-eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:11px;font-weight:700;opacity:.75}.hr-hero h1{margin:6px 0 8px;font-size:30px;color:#fff}.hr-hero p{margin:0;max-width:720px;line-height:1.55;opacity:.82}
 .hr-filter{position:relative;z-index:1;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:24px}.hr-field label{display:block;margin:0 0 6px;font-size:12px;font-weight:600;opacity:.82}.hr-field input{height:40px;padding:0 12px;border:1px solid rgba(255,255,255,.34);border-radius:10px;background:rgba(255,255,255,.14);color:#fff;color-scheme:dark}.hr-button{display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 18px;border:0;border-radius:10px;background:#fff;color:#1d4ed8;font-weight:700;text-decoration:none;cursor:pointer}.hr-button:hover{color:#1e40af;text-decoration:none}
 .hr-section-head{display:flex;align-items:end;justify-content:space-between;margin:30px 2px 13px}.hr-section-head h2{margin:0;font-size:21px}.hr-section-head span{color:var(--muted);font-size:13px}
-.hr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hr-card{border:1px solid rgba(16,24,40,.08);border-radius:18px;overflow:hidden;box-shadow:0 6px 22px rgba(16,24,40,.045)}.hr-card-top{height:4px}.hr-card-body{padding:20px}.hr-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.hr-card-title h3{margin:0;font-size:17px}.hr-open{color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}.hr-open:hover{text-decoration:underline}.hr-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.hr-mini{padding:12px;border:1px solid rgba(255,255,255,.7);border-radius:11px;background:rgba(255,255,255,.68)}.hr-mini span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.hr-mini strong{display:block;margin-top:4px;font-size:21px}.hr-mini.total{grid-column:1/-1}.hr-mini.total strong{font-size:26px}
+.hr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hr-card{border:1px solid rgba(16,24,40,.08);border-radius:18px;overflow:hidden;box-shadow:0 6px 22px rgba(16,24,40,.045)}.hr-card-top{height:4px}.hr-card-body{padding:20px}.hr-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.hr-card-title h3{margin:0;font-size:17px}.hr-open{color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}.hr-open:hover{text-decoration:underline}.hr-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.hr-mini{padding:12px;border:1px solid rgba(255,255,255,.7);border-radius:11px;background:rgba(255,255,255,.68)}.hr-mini span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.hr-mini strong{display:block;margin-top:4px;font-size:21px}.hr-mini.total{grid-column:1/-1}.hr-mini.total strong{font-size:26px}.hr-mini.my-work{border:2px solid currentColor;background:#fff;box-shadow:0 4px 12px rgba(16,24,40,.08)}.hr-mini.my-work span{color:var(--ink);font-weight:700}.hr-mini.my-work strong{color:#dc2626}
 .hr-status-title{margin:18px 0 9px;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.hr-statuses{display:flex;flex-wrap:wrap;gap:7px}.hr-status{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(16,24,40,.06);border-radius:999px;background:rgba(255,255,255,.72);color:#344054;text-decoration:none;font-size:12px;line-height:1.2}.hr-status:hover{border-color:#93b4ff;background:#fff;color:#1d4ed8;text-decoration:none}.hr-status b{font-weight:700}.hr-empty{color:var(--muted);font-size:13px}
 @media(max-width:800px){.hr-grid{grid-template-columns:1fr}.hr-hero{padding:24px 20px}.hr-hero h1{font-size:25px}}@media(min-width:1200px){.hr-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
@@ -244,6 +294,9 @@ unset($section);
                     </div>
                     <div class="hr-card-metrics">
                         <div class="hr-mini total"><span>Всего</span><strong><?=$section['total']?></strong></div>
+                        <?php if ($section['my_work_count'] > 0): ?>
+                            <div class="hr-mini my-work"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></div>
+                        <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>
                             <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
                         <?php endforeach; ?>

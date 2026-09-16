@@ -407,6 +407,7 @@ function buildRecruiterChangeDiagnostic(array $data): string
 $currentUserId = (int)$USER->GetID();
 $currentUserGroups = CUser::GetUserGroup($currentUserId);
 $isAdmin = in_array(1, array_map('intval', (array)$currentUserGroups), true);
+$canCreateCandidate = (bool)array_intersect([1, 9], array_map('intval', (array)$currentUserGroups));
 $canDepersonalize = $currentUserId === CANCEL_CHECK_ADMIN_USER_ID
     || in_array(PERSONAL_DATA_GROUP_ID, array_map('intval', (array)$currentUserGroups), true);
 $currentUserTagLower = mb_strtolower('user_' . $currentUserId);
@@ -778,7 +779,9 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <?php endif; ?>
 
     <div class="d-flex flex-wrap align-items-center mb-3">
-        <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
+        <?php if ($canCreateCandidate): ?>
+            <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
+        <?php endif; ?>
         <?php if ($isAdmin): ?>
             <a href="<?=h(RIGHTS_WORKFLOW_TOOL_URL)?>" class="btn btn-outline-secondary mb-2">Запустить БП изменения прав</a>
         <?php endif; ?>

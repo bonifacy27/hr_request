@@ -610,6 +610,8 @@ if (!in_array($sort, $sortable, true)) $sort = 'ID';
 if (!in_array($dir, ['ASC', 'DESC'], true)) $dir = 'DESC';
 
 $currentUserId = (int)$USER->GetID();
+$currentUserGroups = array_map('intval', (array)CUser::GetUserGroup($currentUserId));
+$canCreateOffer = (bool)array_intersect([1, 9], $currentUserGroups);
 $currentUserTagLower = mb_strtolower('user_' . $currentUserId);
 $isAdmin = $USER->IsAdmin();
 $cbUsers = getGlobalVarUserList(CB_GLOBAL_VAR_ID);
@@ -1085,7 +1087,9 @@ function navPageUrl(int $pageNum): string
     <?php endif; ?>
 
     <div class="d-flex flex-wrap align-items-center mb-3">
-        <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn btn-success mr-3 mb-2">Создать оффер</a>
+        <?php if ($canCreateOffer): ?>
+            <a href="/forms/staff_recruitment/offer/create_offer.php" class="btn btn-success mr-3 mb-2">Создать оффер</a>
+        <?php endif; ?>
     </div>
 
     <form method="get" action="" class="card mb-3">

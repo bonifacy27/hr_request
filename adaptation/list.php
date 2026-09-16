@@ -516,7 +516,9 @@ function buildQueryUrl(array $override = [])
 
 $currentUserId = (int)$USER->GetID();
 $currentUserTag = mb_strtolower('user_' . $currentUserId);
-$isAdministrator = $USER->IsAdmin() || in_array(1, array_map('intval', CUser::GetUserGroup($currentUserId)), true);
+$currentUserGroups = array_map('intval', (array)CUser::GetUserGroup($currentUserId));
+$isAdministrator = $USER->IsAdmin() || in_array(1, $currentUserGroups, true);
+$canCreateEmployee = (bool)array_intersect([1, 9], $currentUserGroups);
 $isRecruitHead = in_array($currentUserTag, getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID), true);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -926,7 +928,9 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     <?php endif; ?>
 
     <div class="d-flex flex-wrap align-items-center mb-3">
-        <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
+        <?php if ($canCreateEmployee): ?>
+            <a href="<?=h(CREATE_URL)?>" class="btn btn-success mr-3 mb-2">Создать анкету</a>
+        <?php endif; ?>
     </div>
 
     <form method="get" class="card mb-3">
