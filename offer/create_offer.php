@@ -27,6 +27,7 @@ Extension::load([
 const IBL_CANDIDATES = 207;
 const IBL_REQUESTS = 201;
 const IBL_OFFERS = 218;
+const PROP_CANDIDATE_OFFER_ID = 1616;
 const PROP_REQ_OFFERS_MULTI = 3128;
 
 const OFFER_PROP_CANDIDATE_FIO = 1157;
@@ -481,6 +482,17 @@ function appendOfferToRequest(int $requestId, int $offerId): void
 
     CIBlockElement::SetPropertyValuesEx($requestId, IBL_REQUESTS, [
         PROP_REQ_OFFERS_MULTI => $values,
+    ]);
+}
+
+function linkOfferToCandidate(int $candidateId, int $offerId): void
+{
+    if ($candidateId <= 0 || $offerId <= 0) {
+        return;
+    }
+
+    CIBlockElement::SetPropertyValuesEx($candidateId, IBL_CANDIDATES, [
+        PROP_CANDIDATE_OFFER_ID => $offerId,
     ]);
 }
 
@@ -943,7 +955,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         ]);
 
         if ($offerId) {
-            appendOfferToRequest((int)$formData['request_id'], (int)$offerId);
+            if ($candidate) {
+                linkOfferToCandidate((int)$candidate['ID'], (int)$offerId);
+                appendOfferToRequest((int)$candidate['REQUEST_ID'], (int)$offerId);
+            } else {
+                appendOfferToRequest((int)$formData['request_id'], (int)$offerId);
+            }
 
             $bpErrors = [];
             startOfferListWorkflow(1324, (int)$offerId, [], $bpErrors);
