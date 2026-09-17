@@ -371,7 +371,7 @@ unset($section);
                     </div>
                     <div class="hr-card-metrics">
                         <div class="hr-mini total"><span>Всего</span><strong><?=$section['total']?></strong></div>
-                        <?php if ($section['my_work_count'] > 0 || $section['status_type'] === 'tasks'): ?>
+                        <?php if ($section['my_work_count'] > 0): ?>
                             <div class="hr-mini my-work"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></div>
                         <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>

@@ -1303,7 +1303,10 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
 </style>
 
 <div class="page-wrap">
-  <h1 class="mb-3">Заявки на подбор</h1>
+  <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+    <h1 class="mb-2 mb-md-0">Заявки на подбор</h1>
+    <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
+  </div>
   <p class="text-muted small mb-3">
     Источник: инфоблок <?= (int)$IBLOCK_ID ?>.
     Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>.
