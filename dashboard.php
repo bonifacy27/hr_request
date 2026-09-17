@@ -202,7 +202,8 @@ $sections = [
     'candidates' => [
         'title' => 'Анкеты кандидатов', 'iblock' => 207, 'url' => '/forms/staff_recruitment/check_candidate/list.php',
         'status' => 1092, 'status_type' => 'enum', 'status_param' => 'status', 'type_property' => 1093,
-        'type_value' => 'Профессиональный подбор', 'accent' => '#7c3aed', 'background' => '#f7f3ff',
+        'types' => [814 => 'Профессиональный подбор', 813 => 'Массовый подбор'],
+        'accent' => '#7c3aed', 'background' => '#f7f3ff',
         'groups' => [
             'В работе' => ['Первичная ссылка', 'Ожидание анкеты', 'Вторичная ссылка', 'Документы получены'],
             'Отклонены' => ['Отклонена'],
@@ -245,15 +246,14 @@ if (!array_intersect([1, 9, 13, 81, 82], $currentUserGroups)) {
 foreach ($sections as $key => &$section) {
     $section['items'] = [];
     $section['metrics'] = [];
+    $section['metric_groups'] = [];
     $section['statuses'] = [];
     $section['status_ids'] = [];
     $statusMap = $section['status_type'] === 'enum' ? dashboardEnumMap($section['status']) : [];
     $linkedIds = [];
     $elementFilter = ['IBLOCK_ID' => $section['iblock'], 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y', '>=DATE_CREATE' => $bitrixFrom, '<=DATE_CREATE' => $bitrixTo];
-    if (!empty($section['type_property'])) {
-        $typeMap = dashboardEnumMap((int)$section['type_property']);
-        $typeId = (int)array_search($section['type_value'], $typeMap, true);
-        $elementFilter['PROPERTY_' . (int)$section['type_property']] = $typeId > 0 ? $typeId : -1;
+    if (!empty($section['types'])) {
+        $elementFilter['PROPERTY_' . (int)$section['type_property']] = array_keys($section['types']);
     }
     $elements = CIBlockElement::GetList(
         ['DATE_CREATE' => 'DESC'],
@@ -264,10 +264,13 @@ foreach ($sections as $key => &$section) {
     );
     while ($element = $elements->Fetch()) {
         $statusId = $section['status'] ? (int)dashboardPropertyValue($section['iblock'], (int)$element['ID'], $section['status']) : 0;
+        $typeId = !empty($section['type_property'])
+            ? (int)dashboardPropertyValue($section['iblock'], (int)$element['ID'], (int)$section['type_property'])
+            : 0;
         if ($section['status_type'] === 'linked' && $statusId) {
             $linkedIds[] = $statusId;
         }
-        $section['items'][] = ['id' => (int)$element['ID'], 'status_id' => $statusId];
+        $section['items'][] = ['id' => (int)$element['ID'], 'status_id' => $statusId, 'type_id' => $typeId];
     }
     $section['my_work_count'] = $section['status_type'] === 'tasks' ? 0 : dashboardCurrentUserTaskCount(
         $currentUserId,
@@ -324,10 +327,24 @@ foreach ($sections as $key => &$section) {
             }
         }
         arsort($section['statuses']);
-        foreach ($section['groups'] as $label => $statuses) {
-            $section['metrics'][$label] = count(array_filter($section['items'], static function ($item) use ($statuses, $statusMap) {
-                return in_array($statusMap[$item['status_id']] ?? '', $statuses, true);
-            }));
+        if (!empty($section['types'])) {
+            foreach ($section['types'] as $typeId => $typeName) {
+                $typeItems = array_filter($section['items'], static function ($item) use ($typeId) {
+                    return $item['type_id'] === (int)$typeId;
+                });
+                $section['metric_groups'][$typeName] = ['Всего' => count($typeItems)];
+                foreach ($section['groups'] as $label => $statuses) {
+                    $section['metric_groups'][$typeName][$label] = count(array_filter($typeItems, static function ($item) use ($statuses, $statusMap) {
+                        return in_array($statusMap[$item['status_id']] ?? '', $statuses, true);
+                    }));
+                }
+            }
+        } else {
+            foreach ($section['groups'] as $label => $statuses) {
+                $section['metrics'][$label] = count(array_filter($section['items'], static function ($item) use ($statuses, $statusMap) {
+                    return in_array($statusMap[$item['status_id']] ?? '', $statuses, true);
+                }));
+            }
         }
     }
 }
@@ -342,6 +359,7 @@ unset($section);
 .hr-filter{position:relative;z-index:1;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:24px}.hr-field label{display:block;margin:0 0 6px;font-size:12px;font-weight:600;opacity:.82}.hr-field input{height:40px;padding:0 12px;border:1px solid rgba(255,255,255,.34);border-radius:10px;background:rgba(255,255,255,.14);color:#fff;color-scheme:dark}.hr-button{display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 18px;border:0;border-radius:10px;background:#fff;color:#1d4ed8;font-weight:700;text-decoration:none;cursor:pointer}.hr-button:hover{color:#1e40af;text-decoration:none}
 .hr-section-head{display:flex;align-items:end;justify-content:space-between;margin:30px 2px 13px}.hr-section-head h2{margin:0;font-size:21px}.hr-section-head span{color:var(--muted);font-size:13px}
 .hr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hr-card{border:1px solid rgba(16,24,40,.08);border-radius:18px;overflow:hidden;box-shadow:0 6px 22px rgba(16,24,40,.045)}.hr-card-top{height:4px}.hr-card-body{padding:20px}.hr-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.hr-card-title h3{margin:0;font-size:17px}.hr-open{color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}.hr-open:hover{text-decoration:underline}.hr-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.hr-mini{padding:12px;border:1px solid rgba(255,255,255,.7);border-radius:11px;background:rgba(255,255,255,.68)}.hr-mini span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.hr-mini strong{display:block;margin-top:4px;font-size:21px}.hr-mini.total{grid-column:1/-1}.hr-mini.total strong{font-size:26px}.hr-mini.my-work{border:2px solid currentColor;background:#fff;box-shadow:0 4px 12px rgba(16,24,40,.08)}.hr-mini.my-work span{color:var(--ink);font-weight:700}.hr-mini.my-work strong{color:#dc2626}
+.hr-metric-group-title{grid-column:1/-1;margin-top:5px;color:var(--ink);font-size:12px;font-weight:700}.hr-metric-group-title:not(:first-of-type){margin-top:10px}
 .hr-status-title{margin:18px 0 9px;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.hr-statuses{display:flex;flex-wrap:wrap;gap:7px}.hr-status{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(16,24,40,.06);border-radius:999px;background:rgba(255,255,255,.72);color:#344054;text-decoration:none;font-size:12px;line-height:1.2}.hr-status:hover{border-color:#93b4ff;background:#fff;color:#1d4ed8;text-decoration:none}.hr-status b{font-weight:700}.hr-empty{color:var(--muted);font-size:13px}
 @media(max-width:800px){.hr-grid{grid-template-columns:1fr}.hr-hero{padding:24px 20px}.hr-hero h1{font-size:25px}}@media(min-width:1200px){.hr-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
@@ -376,6 +394,12 @@ unset($section);
                         <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>
                             <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
+                        <?php endforeach; ?>
+                        <?php foreach ($section['metric_groups'] as $groupName => $groupMetrics): ?>
+                            <div class="hr-metric-group-title"><?=dashboardH($groupName)?></div>
+                            <?php foreach ($groupMetrics as $label => $count): ?>
+                                <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
+                            <?php endforeach; ?>
                         <?php endforeach; ?>
                     </div>
                     <div class="hr-status-title"><?=$section['status_type'] === 'tasks' ? 'По статусам задач' : 'По статусам'?></div>
