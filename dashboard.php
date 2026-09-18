@@ -34,6 +34,19 @@ function dashboardDate(string $value, DateTimeImmutable $fallback): DateTimeImmu
     return $date ?: $fallback;
 }
 
+function dashboardIsLessThanDayBeforeEmployment($dateValue): bool
+{
+    $dateValue = trim((string)$dateValue);
+    if ($dateValue === '') {
+        return false;
+    }
+    $timestamp = MakeTimeStamp($dateValue);
+    if (!$timestamp) {
+        $timestamp = strtotime($dateValue);
+    }
+    return $timestamp !== false && ($timestamp - time()) < 86400;
+}
+
 function dashboardPropertyValue(int $iblockId, int $elementId, int $propertyId)
 {
     $property = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId])->Fetch();
@@ -72,6 +85,27 @@ function dashboardLinkedPropertyIds(int $iblockId, int $elementId, int $property
         if ($id > 0) $ids[$id] = $id;
     }
     return $ids;
+}
+
+function dashboardMissingPvdCount(int $iblockId, int $pvdPropertyId, int $kpiPropertyId, int $employmentPropertyId): int
+{
+    $count = 0;
+    $plans = CIBlockElement::GetList(
+        [],
+        ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
+        false,
+        false,
+        ['ID', 'PROPERTY_' . $employmentPropertyId]
+    );
+    while ($plan = $plans->Fetch()) {
+        $planId = (int)$plan['ID'];
+        if (!dashboardLinkedPropertyIds($iblockId, $planId, $pvdPropertyId)
+            && !dashboardLinkedPropertyIds($iblockId, $planId, $kpiPropertyId)
+            && dashboardIsLessThanDayBeforeEmployment($plan['PROPERTY_' . $employmentPropertyId . '_VALUE'] ?? '')) {
+            ++$count;
+        }
+    }
+    return $count;
 }
 
 function dashboardListUrl(string $url, string $statusParam, int $statusId, string $from, string $to, array $extraQuery = []): string
@@ -231,7 +265,7 @@ $sections = [
     'plans' => [
         'title' => 'Планы ввода в должность', 'iblock' => 359, 'url' => '/forms/staff_recruitment/plans/list.php',
         'status' => 0, 'status_type' => 'tasks', 'status_param' => '', 'accent' => '#0891b2', 'background' => '#effaff',
-        'pvd_tasks_property' => 2761, 'kpi_tasks_property' => 2769,
+        'pvd_tasks_property' => 2761, 'kpi_tasks_property' => 2769, 'employment_property' => 2776,
     ],
 ];
 
@@ -303,6 +337,12 @@ foreach ($sections as $key => &$section) {
             }
         }
         $section['my_work_count'] = $plansInWork;
+        $section['missing_pvd_count'] = dashboardMissingPvdCount(
+            (int)$section['iblock'],
+            (int)$section['pvd_tasks_property'],
+            (int)$section['kpi_tasks_property'],
+            (int)$section['employment_property']
+        );
         $section['statuses'] = dashboardTaskStatusCounts($pvdTaskIds, 360, 2767);
         foreach (dashboardTaskStatusCounts($kpiTaskIds, 363, 2805) as $statusName => $count) {
             $section['statuses'][$statusName] = ($section['statuses'][$statusName] ?? 0) + $count;
@@ -391,6 +431,9 @@ unset($section);
                         <div class="hr-mini total"><span>Всего</span><strong><?=$section['total']?></strong></div>
                         <?php if ($section['my_work_count'] > 0): ?>
                             <a class="hr-mini my-work" href="<?=dashboardH(dashboardListUrl($section['url'], '', 0, $from, $to, ['in_work' => 'Y']))?>"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></a>
+                        <?php endif; ?>
+                        <?php if (!empty($section['missing_pvd_count'])): ?>
+                            <a class="hr-mini my-work" href="<?=dashboardH($section['url'] . '?sort=employment&order=DESC&q=&manager=&recruiter=&pvd_missing=Y')?>"><span>Не заполнено ПВД</span><strong><?=$section['missing_pvd_count']?></strong></a>
                         <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>
                             <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
