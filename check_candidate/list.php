@@ -750,7 +750,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 .status-open-btn { border:0; background:transparent; padding:0; }
 .actions-cell { display:flex; gap:6px; align-items:center; flex-wrap:wrap; position:relative; }
 .actions-menu { position:relative; }
-.actions-menu-list { display:none; position:absolute; right:0; top:calc(100% + 4px); min-width:180px; background:#fff; border:1px solid #d8dbe0; border-radius:6px; box-shadow:0 8px 18px rgba(0,0,0,.12); z-index:50; padding:4px 0; }
+.actions-menu-list { display:none; position:fixed; min-width:180px; max-height:calc(100vh - 16px); overflow-y:auto; background:#fff; border:1px solid #d8dbe0; border-radius:6px; box-shadow:0 8px 18px rgba(0,0,0,.12); z-index:1100; padding:4px 0; }
 .actions-menu.open .actions-menu-list { display:block; }
 .actions-menu-item { display:block; width:100%; text-align:left; padding:7px 12px; border:0; background:transparent; color:#212529; text-decoration:none; font-size:13px; cursor:pointer; }
 .actions-menu-item:hover { background:#f1f3f5; color:#212529; text-decoration:none; }
@@ -1033,6 +1033,48 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     var bodyEl = document.getElementById('history-modal-body');
     var titleEl = document.getElementById('history-modal-title');
 
+    function closeActionsMenus() {
+        var openedMenus = document.querySelectorAll('.actions-menu.open');
+        for (var i = 0; i < openedMenus.length; i++) {
+            openedMenus[i].classList.remove('open');
+            var toggle = openedMenus[i].querySelector('.js-actions-menu-toggle');
+            var list = openedMenus[i].querySelector('.actions-menu-list');
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            if (list) {
+                list.style.top = '';
+                list.style.left = '';
+            }
+        }
+    }
+
+    function positionActionsMenu(menu) {
+        if (!menu || !menu.classList.contains('open')) return;
+        var toggle = menu.querySelector('.js-actions-menu-toggle');
+        var list = menu.querySelector('.actions-menu-list');
+        if (!toggle || !list) return;
+
+        var gap = 4;
+        var edge = 8;
+        var toggleRect = toggle.getBoundingClientRect();
+        var listWidth = list.offsetWidth;
+        var listHeight = list.offsetHeight;
+        var viewportWidth = document.documentElement.clientWidth;
+        var viewportHeight = document.documentElement.clientHeight;
+        var left = Math.max(edge, Math.min(toggleRect.right - listWidth, viewportWidth - listWidth - edge));
+        var spaceBelow = viewportHeight - toggleRect.bottom - edge;
+        var spaceAbove = toggleRect.top - edge;
+        var top = toggleRect.bottom + gap;
+
+        if (listHeight > spaceBelow && spaceAbove > spaceBelow) {
+            top = Math.max(edge, toggleRect.top - listHeight - gap);
+        } else {
+            top = Math.min(top, viewportHeight - listHeight - edge);
+        }
+
+        list.style.left = Math.round(left) + 'px';
+        list.style.top = Math.round(Math.max(edge, top)) + 'px';
+    }
+
     function openModal(title, html) {
         titleEl.textContent = title;
         bodyEl.innerHTML = html;
@@ -1052,10 +1094,11 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
             var menu = menuToggle.closest('.actions-menu');
             if (!menu) return;
             var isOpen = menu.classList.contains('open');
-            var allMenus = document.querySelectorAll('.actions-menu.open');
-            for (var i = 0; i < allMenus.length; i++) allMenus[i].classList.remove('open');
+            closeActionsMenus();
             if (!isOpen) {
                 menu.classList.add('open');
+                menuToggle.setAttribute('aria-expanded', 'true');
+                positionActionsMenu(menu);
             }
             return;
         }
@@ -1074,8 +1117,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 
         var changeBtn = e.target.closest ? e.target.closest('.js-change-recruiter-btn') : null;
         if (changeBtn) {
-            var openMenu = changeBtn.closest ? changeBtn.closest('.actions-menu') : null;
-            if (openMenu) openMenu.classList.remove('open');
+            closeActionsMenus();
             var elementId = parseInt(changeBtn.getAttribute('data-id') || '0', 10);
             var currentRid = parseInt(changeBtn.getAttribute('data-current-recruiter-id') || '0', 10);
             if (!elementId) { notify('Не удалось определить ID анкеты.'); return; }
@@ -1084,8 +1126,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         }
         var cancelBtn = e.target.closest ? e.target.closest('.js-cancel-check-btn') : null;
         if (cancelBtn) {
-            var menuOpened = cancelBtn.closest ? cancelBtn.closest('.actions-menu') : null;
-            if (menuOpened) menuOpened.classList.remove('open');
+            closeActionsMenus();
             var cancelId = parseInt(cancelBtn.getAttribute('data-id') || '0', 10);
             if (!cancelId) { notify('Не удалось определить ID анкеты.'); return; }
             openCancelCheckPopup({
@@ -1100,14 +1141,22 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 
         var insideMenu = e.target.closest ? e.target.closest('.actions-menu') : null;
         if (!insideMenu) {
-            var openedMenus = document.querySelectorAll('.actions-menu.open');
-            for (var j = 0; j < openedMenus.length; j++) openedMenus[j].classList.remove('open');
+            closeActionsMenus();
         }
 
         if (e.target === backdrop || (e.target.closest && e.target.closest('.js-history-close'))) {
             closeModal();
         }
     });
+
+    window.addEventListener('resize', function() {
+        var openMenu = document.querySelector('.actions-menu.open');
+        if (openMenu) positionActionsMenu(openMenu);
+    });
+    document.addEventListener('scroll', function() {
+        var openMenu = document.querySelector('.actions-menu.open');
+        if (openMenu) positionActionsMenu(openMenu);
+    }, true);
 })();
 </script>
 
