@@ -74,9 +74,9 @@ function dashboardLinkedPropertyIds(int $iblockId, int $elementId, int $property
     return $ids;
 }
 
-function dashboardListUrl(string $url, string $statusParam, int $statusId, string $from, string $to): string
+function dashboardListUrl(string $url, string $statusParam, int $statusId, string $from, string $to, array $extraQuery = []): string
 {
-    $query = ['dashboard_from' => $from, 'dashboard_to' => $to];
+    $query = array_merge(['dashboard_from' => $from, 'dashboard_to' => $to], $extraQuery);
     if ($statusId > 0 && $statusParam !== '') {
         $query[$statusParam] = $statusId;
     }
@@ -358,7 +358,7 @@ unset($section);
 .hr-eyebrow{text-transform:uppercase;letter-spacing:.12em;font-size:11px;font-weight:700;opacity:.75}.hr-hero h1{margin:6px 0 8px;font-size:30px;color:#fff}.hr-hero p{margin:0;max-width:720px;line-height:1.55;opacity:.82}
 .hr-filter{position:relative;z-index:1;display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:24px}.hr-field label{display:block;margin:0 0 6px;font-size:12px;font-weight:600;opacity:.82}.hr-field input{height:40px;padding:0 12px;border:1px solid rgba(255,255,255,.34);border-radius:10px;background:rgba(255,255,255,.14);color:#fff;color-scheme:dark}.hr-button{display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 18px;border:0;border-radius:10px;background:#fff;color:#1d4ed8;font-weight:700;text-decoration:none;cursor:pointer}.hr-button:hover{color:#1e40af;text-decoration:none}
 .hr-section-head{display:flex;align-items:end;justify-content:space-between;margin:30px 2px 13px}.hr-section-head h2{margin:0;font-size:21px}.hr-section-head span{color:var(--muted);font-size:13px}
-.hr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hr-card{border:1px solid rgba(16,24,40,.08);border-radius:18px;overflow:hidden;box-shadow:0 6px 22px rgba(16,24,40,.045)}.hr-card-top{height:4px}.hr-card-body{padding:20px}.hr-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.hr-card-title h3{margin:0;font-size:17px}.hr-open{color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}.hr-open:hover{text-decoration:underline}.hr-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.hr-mini{padding:12px;border:1px solid rgba(255,255,255,.7);border-radius:11px;background:rgba(255,255,255,.68)}.hr-mini span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.hr-mini strong{display:block;margin-top:4px;font-size:21px}.hr-mini.total{grid-column:1/-1}.hr-mini.total strong{font-size:26px}.hr-mini.my-work{border:2px solid currentColor;background:#fff;box-shadow:0 4px 12px rgba(16,24,40,.08)}.hr-mini.my-work span{color:var(--ink);font-weight:700}.hr-mini.my-work strong{color:#dc2626}
+.hr-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.hr-card{border:1px solid rgba(16,24,40,.08);border-radius:18px;overflow:hidden;box-shadow:0 6px 22px rgba(16,24,40,.045)}.hr-card-top{height:4px}.hr-card-body{padding:20px}.hr-card-title{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.hr-card-title h3{margin:0;font-size:17px}.hr-open{color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}.hr-open:hover{text-decoration:underline}.hr-card-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.hr-mini{padding:12px;border:1px solid rgba(255,255,255,.7);border-radius:11px;background:rgba(255,255,255,.68)}.hr-mini span{display:block;color:var(--muted);font-size:11px;line-height:1.3}.hr-mini strong{display:block;margin-top:4px;font-size:21px}.hr-mini.total{grid-column:1/-1}.hr-mini.total strong{font-size:26px}.hr-mini.my-work{display:block;border:2px solid currentColor;background:#fff;box-shadow:0 4px 12px rgba(16,24,40,.08);color:inherit;text-decoration:none}.hr-mini.my-work:hover{border-color:#2563eb;text-decoration:none}.hr-mini.my-work span{color:var(--ink);font-weight:700}.hr-mini.my-work strong{color:#dc2626}
 .hr-metric-group-title{grid-column:1/-1;margin-top:5px;color:var(--ink);font-size:12px;font-weight:700}.hr-metric-group-title:not(:first-of-type){margin-top:10px}
 .hr-status-title{margin:18px 0 9px;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.hr-statuses{display:flex;flex-wrap:wrap;gap:7px}.hr-status{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(16,24,40,.06);border-radius:999px;background:rgba(255,255,255,.72);color:#344054;text-decoration:none;font-size:12px;line-height:1.2}.hr-status:hover{border-color:#93b4ff;background:#fff;color:#1d4ed8;text-decoration:none}.hr-status b{font-weight:700}.hr-empty{color:var(--muted);font-size:13px}
 @media(max-width:800px){.hr-grid{grid-template-columns:1fr}.hr-hero{padding:24px 20px}.hr-hero h1{font-size:25px}}@media(min-width:1200px){.hr-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -390,7 +390,7 @@ unset($section);
                     <div class="hr-card-metrics">
                         <div class="hr-mini total"><span>Всего</span><strong><?=$section['total']?></strong></div>
                         <?php if ($section['my_work_count'] > 0): ?>
-                            <div class="hr-mini my-work"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></div>
+                            <a class="hr-mini my-work" href="<?=dashboardH(dashboardListUrl($section['url'], '', 0, $from, $to, ['in_work' => 'Y']))?>"><span>У меня в работе</span><strong><?=$section['my_work_count']?></strong></a>
                         <?php endif; ?>
                         <?php foreach ($section['metrics'] as $label => $count): ?>
                             <div class="hr-mini"><span><?=dashboardH($label)?></span><strong><?=$count?></strong></div>
