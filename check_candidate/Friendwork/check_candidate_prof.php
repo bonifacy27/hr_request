@@ -73,9 +73,6 @@ const TIP_ANKETY_PROF_VALUE = 814;
 
 const PROP_RECRUITER_ID  = 1323; // пользователь
 
-const PROP_RESUME_ID     = 1689; // файл
-const PROP_SOGLAS_ID     = 1726; // файл
-
 // Новые обязательные поля (ИБ 207)
 const PROP_ID_KANDIDATA_FW_ID = 1594; // ID_KANDIDATA_FRIENDWORK
 const PROP_ID_VAKANSII_FW_ID  = 1595; // ID_VAKANSII_FRIENDWORK
@@ -420,18 +417,6 @@ function setOptionalPropsByCode(int $iblockId, array &$propValues, array $codeTo
             $propValues[$pid] = $codeToValue[$code];
         }
     }
-}
-
-function makeFileArrayFromUpload(string $fieldName): ?array
-{
-    if (empty($_FILES[$fieldName]) || empty($_FILES[$fieldName]['tmp_name'])) return null;
-    if (!is_uploaded_file($_FILES[$fieldName]['tmp_name'])) return null;
-
-    $arr = \CFile::MakeFileArray($_FILES[$fieldName]['tmp_name']);
-    if (!$arr) return null;
-
-    $arr['name'] = $_FILES[$fieldName]['name'] ?? $arr['name'];
-    return $arr;
 }
 
 function getFwVacancyIdFromRequest(int $requestElementId): int
@@ -881,22 +866,6 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $returnUrl = getReturnUrl();
     }
 
-    $resumeFile = makeFileArrayFromUpload('RESUME');
-    $soglasFile = makeFileArrayFromUpload('SOGLAS');
-
-    $errors = [];
-    if (!$resumeFile) $errors[] = "Не загружен файл Резюме (обязательное поле).";
-    if (!$soglasFile) $errors[] = "Не загружен файл Согласование кандидата руководителем (обязательное поле).";
-
-    if (!empty($errors)) {
-        echo "<div style='color:red'><b>Ошибки:</b><ul>";
-        foreach ($errors as $e) echo "<li>".h($e)."</li>";
-        echo "</ul></div>";
-        echo "<a href='?job_id=".h($jobRequestId)."&return_url=".urlencode($returnUrl)."'>← Вернуться к списку кандидатов</a>";
-        require($_SERVER['DOCUMENT_ROOT'].'/bitrix/footer.php');
-        exit;
-    }
-
     $c = $byId[$candidateId];
 
     $ln = (string)($c['lastName'] ?? '');
@@ -932,9 +901,6 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         PROP_TIP_ANKETY_ID => TIP_ANKETY_PROF_VALUE,
         PROP_RECRUITER_ID  => $currentUserId,
-
-        PROP_RESUME_ID     => $resumeFile,
-        PROP_SOGLAS_ID     => $soglasFile,
 
         PROP_ID_ZAYAVKI_ID      => $jobRequestId,
         PROP_ID_KANDIDATA_FW_ID => $candidateId,
@@ -1022,7 +988,7 @@ if ($action === 'create' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 /* ================================================================
-   Форма загрузки файлов
+   Форма запуска проверки
    ================================================================ */
 if ($selectCandidateId > 0 && !empty($byId[$selectCandidateId])) {
     $c = $byId[$selectCandidateId];
@@ -1065,21 +1031,11 @@ if ($selectCandidateId > 0 && !empty($byId[$selectCandidateId])) {
           </table>";
 
     echo "<hr>";
-    echo "<form method='POST' enctype='multipart/form-data' action='?job_id=".h($jobRequestId)."'>
+    echo "<form method='POST' action='?job_id=".h($jobRequestId)."'>
             ".bitrix_sessid_post()."
             <input type='hidden' name='action' value='create'>
             <input type='hidden' name='candidate_id' value='".h($selectCandidateId)."'>
             <input type='hidden' name='return_url' value='".h($returnUrl)."'>
-
-            <div style='margin-bottom:12px'>
-                <b>Согласование кандидата руководителем</b> (обязательно)<br>
-                <input type='file' name='SOGLAS' required>
-            </div>
-
-            <div style='margin-bottom:12px'>
-                <b>Резюме</b> (обязательно)<br>
-                <input type='file' name='RESUME' required>
-            </div>
 
             <button type='submit' style='padding:10px 14px; font-size:14px'>
                 Создать анкету и запустить проверку СБ
