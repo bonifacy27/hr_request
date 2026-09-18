@@ -35,6 +35,7 @@ const FW_STATUS_APPROVED_INTERVIEW_DONE = 127730;
 const FW_CONNECT_TIMEOUT = 10;
 const FW_REQUEST_TIMEOUT = 30;
 const REDIRECT_AFTER_CREATE_URL = '/forms/staffing/check_candidate/list.php';
+const CANDIDATE_HISTORY_PROPERTY_ID = 1276;
 
 function h($s): string
 {
@@ -368,6 +369,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     }
 
     if (!$errors) {
+        $creationMethod = $mode === 'request'
+            ? 'из заявки на подбор #' . $selectedRequestId
+            : 'без заявки на подбор';
+        $propertyValues[CANDIDATE_HISTORY_PROPERTY_ID] = date('d.m.Y H:i')
+            . ': Метод добавления — ' . $creationMethod . '.';
+
         $el = new CIBlockElement();
         $newId = $el->Add([
             'IBLOCK_ID' => IBL_CANDIDATES,

@@ -546,16 +546,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                 if ($requestChanges) { $sourceChangeGroups['заявка на подбор'] = $requestChanges; }
             }
         }
-        $historyBlock = '';
+        if ($mode === 'offer' && $selectedOfferId > 0) {
+            $creationMethod = 'из оффера #' . $selectedOfferId;
+        } elseif ($mode === 'request' && $selectedRequestId > 0) {
+            $creationMethod = 'из заявки на подбор #' . $selectedRequestId;
+        } else {
+            $creationMethod = 'без заявки на подбор';
+        }
+        $creationHistoryBlock = '[' . date('d.m.Y H:i') . '] Метод добавления — ' . $creationMethod . '.';
+        $changesHistoryBlock = '';
         if ($sourceChangeGroups) {
             $historyLines = [];
             foreach ($sourceChangeGroups as $sourceName => $sourceChanges) {
                 $historyLines[] = 'По сравнению с источником «' . $sourceName . '»:';
                 foreach ($sourceChanges as $change) { $historyLines[] = '- ' . $change; }
             }
-            $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании анкеты:\n" . implode("\n", $historyLines);
-            $propertyValues['ISTORIYA_ANKETY'] = $historyBlock;
+            $changesHistoryBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании анкеты:\n" . implode("\n", $historyLines);
         }
+        $propertyValues['ISTORIYA_ANKETY'] = $changesHistoryBlock === ''
+            ? $creationHistoryBlock
+            : $creationHistoryBlock . "\n\n" . $changesHistoryBlock;
 
         $el = new CIBlockElement();
         $newId = $el->Add([
@@ -569,13 +579,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $errors[] = (string)$el->LAST_ERROR;
         } else {
             $saveMessage = 'Анкета успешно создана. ID: ' . (int)$newId;
-            if ($historyBlock !== '') {
+            if ($changesHistoryBlock !== '') {
                 if (Loader::includeModule('bizproc')) {
                     $bpErrors = [];
                     $changeType = implode(', ', array_keys($sourceChangeGroups));
                     $workflowId = CBPDocument::StartWorkflow(BP_TEMPLATE_CHANGES, ['lists', 'BizprocDocument', (int)$newId], [
                         'par_Changes_type' => $changeType,
-                        'par_Changes' => $historyBlock,
+                        'par_Changes' => $changesHistoryBlock,
                     ], $bpErrors);
                     if (!$workflowId || $bpErrors) {
                         $saveMessage .= ' История записана, но процесс уведомления об изменениях не запущен.';
