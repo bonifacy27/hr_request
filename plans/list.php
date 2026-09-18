@@ -41,6 +41,9 @@ const PROP_STATUS_COLOR = 3168;
 const PROP_EMPLOYEE_CARD = 2801;
 const EMPLOYEE_CARD_IBLOCK_ID = 196;
 const PROP_PVD_CREATED_AT = 3064;
+const PROP_PLAN_STATUS = 3176;
+const PLAN_STATUS_IBLOCK_ID = 405;
+const PROP_PLAN_STATUS_COLOR = 3175;
 const EMPLOYEE_CARD_VIEW_URL = '/forms/staff_recruitment/adaptation/view.php?id=';
 const PVD_REVIEW_TASK_TYPE_ID = 3347538;
 const COMPLETED_TASK_STATUS_ID = 3347534;
@@ -85,6 +88,35 @@ function loadUserNames(array $userIds)
         $result[(int)$user['ID']] = formatUserName($user);
     }
     return $result;
+}
+
+function loadPlanStatus($statusId)
+{
+    static $cache = [];
+    $statusId = (int)$statusId;
+    if ($statusId <= 0) {
+        return ['NAME' => '', 'COLOR' => '#cbd5e1'];
+    }
+    if (isset($cache[$statusId])) {
+        return $cache[$statusId];
+    }
+
+    $status = CIBlockElement::GetList(
+        [],
+        ['IBLOCK_ID' => PLAN_STATUS_IBLOCK_ID, 'ID' => $statusId, 'ACTIVE' => 'Y'],
+        false,
+        ['nTopCount' => 1],
+        ['ID', 'NAME', 'PROPERTY_' . PROP_PLAN_STATUS_COLOR]
+    )->Fetch();
+    $color = trim((string)($status['PROPERTY_' . PROP_PLAN_STATUS_COLOR . '_VALUE'] ?? ''));
+    if (!preg_match('/^#[0-9a-f]{6}$/i', $color)) {
+        $color = '#cbd5e1';
+    }
+    $cache[$statusId] = [
+        'NAME' => trim((string)($status['NAME'] ?? '')),
+        'COLOR' => $color,
+    ];
+    return $cache[$statusId];
 }
 
 function loadLinkedIds($planId, $propertyId)
@@ -414,7 +446,7 @@ $plansResult = CIBlockElement::GetList(
     ['nPageSize' => PAGE_SIZE, 'bShowAll' => false],
     ['ID', 'NAME', 'PROPERTY_' . PROP_MANAGER, 'PROPERTY_' . PROP_EMPLOYMENT_DATE,
         'PROPERTY_' . PROP_TRIAL_END_DATE, 'PROPERTY_' . PROP_RECRUITER,
-        'PROPERTY_' . PROP_EMPLOYEE_CARD]
+        'PROPERTY_' . PROP_EMPLOYEE_CARD, 'PROPERTY_' . PROP_PLAN_STATUS]
 );
 
 $plans = [];
@@ -444,6 +476,8 @@ while ($plan = $plansResult->Fetch()) {
         2804 => 'Процент выполнения (%)',
     ], 0, $currentUserId);
     $plan['BP_TASK_ID'] = currentPlanTaskId((int)$plan['ID'], $currentUserId);
+    $plan['STATUS'] = loadPlanStatus((int)($plan['PROPERTY_' . PROP_PLAN_STATUS . '_VALUE'] ?? 0));
+    $plan['BP_EXECUTORS'] = currentTaskExecutors((int)$plan['ID'], PLAN_IBLOCK_ID);
     $employeeCardId = (int)($plan['PROPERTY_' . PROP_EMPLOYEE_CARD . '_VALUE'] ?? 0);
     $plan['EMPLOYEE_CARD_ID'] = $employeeCardId;
     $plan['PVD_CREATED_AT'] = loadPvdCreatedAt($employeeCardId);
@@ -518,6 +552,9 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
 .plans-list-page tr.plan-critical > td { background:#f8d7da; }
 .plans-list-page .plan-notice { display:block; margin-top:6px; padding:5px 7px; border-radius:4px; background:rgba(255,255,255,.72); color:#721c24; font-size:12px; font-weight:600; line-height:1.35; }
 .plans-list-page .pvd-document { min-width:90px; text-align:center; }
+.plans-list-page .plan-status { display:inline-block; padding:5px 10px; border:1px solid rgba(0,0,0,.12); border-radius:999px; color:#111827; font-size:12px; font-weight:600; }
+.plans-list-page button.plan-status { cursor:pointer; }
+.plans-list-page button.plan-status:hover { box-shadow:0 0 0 2px rgba(0,123,255,.2); }
 .plans-list-page .pvd-date { display:block; margin-bottom:4px; color:#6c757d; font-size:10px; line-height:1.2; }
 .plans-list-page .pdf-link { display:inline-flex; align-items:center; justify-content:center; width:38px; height:42px; border-radius:4px; background:#c82333; color:#fff; font-size:11px; font-weight:700; text-decoration:none; box-shadow:0 1px 2px rgba(0,0,0,.2); }
 .plans-list-page .pdf-link:hover { background:#a71d2a; color:#fff; text-decoration:none; }
@@ -575,11 +612,11 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                 <th>Руководитель</th>
                 <th><a class="sort-link" href="<?= h(buildUrl(['sort' => 'employment', 'order' => $employmentSortOrder], ['PAGEN_1'])) ?>">ИС<?= $sortField === 'employment' ? ($sortDirection === 'ASC' ? ' ↑' : ' ↓') : '' ?></a></th>
                 <th>Рекрутер</th>
-                <th>Задачи</th><th>ПВД</th><th>Действия</th>
+                <th>Задачи</th><th>ПВД</th><th>Статус</th><th>Действия</th>
             </tr></thead>
             <tbody>
             <?php if (!$plans): ?>
-                <tr><td colspan="7" class="text-muted">Планы не найдены.</td></tr>
+                <tr><td colspan="8" class="text-muted">Планы не найдены.</td></tr>
             <?php else: foreach ($plans as $plan): ?>
                 <?php
                 $planId = (int)$plan['ID'];
@@ -621,6 +658,21 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                                 <small class="pvd-date">Дата формирования:<br><?= h($plan['PVD_CREATED_AT']) ?></small>
                             <?php endif; ?>
                             <a class="pdf-link" href="/pub/apps/plans/plan.php?id_plan=<?= $planId ?>" target="_blank" rel="noopener" title="Сформировать PDF плана ввода в должность" aria-label="Сформировать PDF плана ввода в должность">PDF</a>
+                        <?php else: ?>—<?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($plan['STATUS']['NAME'] !== ''): ?>
+                            <?php $statusTemplateId = 'plan-status-' . $planId; ?>
+                            <button type="button" class="plan-status js-plan-status" style="background-color:<?= h($plan['STATUS']['COLOR']) ?>" data-template="<?= h($statusTemplateId) ?>" data-plan-name="<?= h($plan['NAME']) ?>"><?= h($plan['STATUS']['NAME']) ?></button>
+                            <div id="<?= h($statusTemplateId) ?>" class="task-details-template">
+                                <div class="task-card-section mt-0">
+                                    <h5>Текущее задание бизнес-процесса</h5>
+                                    <dl class="task-details-list">
+                                        <dt>Исполнители</dt>
+                                        <dd><?= h($plan['BP_EXECUTORS'] ? implode(', ', $plan['BP_EXECUTORS']) : 'Нет текущих заданий') ?></dd>
+                                    </dl>
+                                </div>
+                            </div>
                         <?php else: ?>—<?php endif; ?>
                     </td>
                     <td class="actions">
@@ -707,6 +759,16 @@ document.addEventListener('change', function (event) {
             body.appendChild(frame);
             backdrop.style.display = 'block';
             modal.style.display = 'block';
+        }
+        var statusTrigger = event.target.closest('.js-plan-status');
+        if (statusTrigger) {
+            var statusTemplate = document.getElementById(statusTrigger.getAttribute('data-template'));
+            if (statusTemplate) {
+                title.textContent = 'Статус плана: ' + statusTrigger.getAttribute('data-plan-name');
+                body.innerHTML = statusTemplate.innerHTML;
+                backdrop.style.display = 'block';
+                modal.style.display = 'block';
+            }
         }
         if (event.target.closest('.js-task-modal-close')) {
             closeModal();
