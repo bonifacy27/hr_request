@@ -921,7 +921,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
 </style>
 
 <div class="container-fluid page-wrap">
-    <h2 class="mb-3">Анкеты новых сотрудников</h2>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <h2 class="mb-2 mb-md-0">Анкеты новых сотрудников</h2>
+        <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
+    </div>
 
     <?php if ($actionMessage !== ''): ?>
         <div class="alert alert-<?=h($actionResult)?>"><?=h($actionMessage)?></div>

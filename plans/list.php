@@ -524,7 +524,10 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
 </style>
 
 <div class="container-fluid plans-list-page">
-    <h2 class="mb-3">Планы ввода в должность</h2>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <h2 class="mb-2 mb-md-0">Планы ввода в должность</h2>
+        <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
+    </div>
     <form method="get" class="card mb-3">
         <div class="filter-toolbar">
             <input type="hidden" name="sort" value="<?= h($sortField) ?>">

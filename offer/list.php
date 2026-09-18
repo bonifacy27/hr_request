@@ -1046,7 +1046,10 @@ function navPageUrl(int $pageNum): string
 </style>
 
 <div class="container-fluid offer-list-page">
-    <h2 class="mb-3">Заявки на оффер</h2>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+        <h2 class="mb-2 mb-md-0">Заявки на оффер</h2>
+        <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
+    </div>
 
     <?php if ($approvalCancelResult === 'cancelled'): ?><div class="alert alert-success">Согласование оффера отменено.</div>
     <?php elseif ($approvalCancelResult === 'partial_error'): ?><div class="alert alert-warning">Оффер отменен, но одну из связанных операций выполнить не удалось. Обратитесь к администратору.</div>
