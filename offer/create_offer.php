@@ -902,6 +902,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $formData['month_income_avg_ndfl'] = (string)round(calcNetAfterNdfl((float)$monthIncomeAvg)['net']);
 
     if (empty($errors)) {
+        if ($selectedMode === 'candidate' && $candidateId > 0) {
+            $creationMethod = 'из анкеты кандидата #' . $candidateId;
+        } elseif ($selectedMode === 'request' && $requestId > 0) {
+            $creationMethod = 'из заявки на подбор #' . $requestId;
+        } else {
+            $creationMethod = 'без заявки на подбор';
+        }
+        $creationHistoryBlock = '[' . date('d.m.Y H:i') . '] Метод добавления — ' . $creationMethod . '.';
+
         $props = [
             OFFER_PROP_CANDIDATE_FIO => $formData['candidate_fio'],
             OFFER_PROP_CANDIDATE_PHONE => $formData['candidate_phone'],
@@ -951,6 +960,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
             'IBLOCK_ID' => IBL_OFFERS,
             'NAME' => 'Оффер: ' . $formData['candidate_fio'],
             'ACTIVE' => 'Y',
+            'PREVIEW_TEXT' => $creationHistoryBlock,
+            'PREVIEW_TEXT_TYPE' => 'text',
             'PROPERTY_VALUES' => $props,
         ]);
 
@@ -1048,7 +1059,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
                     $historyBlock = '[' . date('d.m.Y H:i') . "] Изменения при создании оффера (рекрутер, {$who}):\n- " . implode("\n- ", $changes);
                     $elUpdate = new CIBlockElement();
                     $elUpdate->Update((int)$offerId, [
-                        'PREVIEW_TEXT' => appendHistory('', $historyBlock),
+                        'PREVIEW_TEXT' => appendHistory($creationHistoryBlock, $historyBlock),
                         'PREVIEW_TEXT_TYPE' => 'text',
                     ]);
 
