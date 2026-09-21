@@ -72,6 +72,8 @@ const COMMENTS_ADMIN_USER_ID = 3532;
 const OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID = 707;
 const IBL_REQUESTS = 201;
 const IBL_CANDIDATES = 207;
+const IBL_EMPLOYEE_FORMS = 196;
+const EMPLOYEE_OFFER_PROPERTY_ID = 2085;
 const CANDIDATE_REQUEST_PROPERTY_ID = 1596;
 const REQUEST_STATUS_PROPERTY_ID = 1042;
 const REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
@@ -107,6 +109,76 @@ function getStatusBadgeColor(string $status): string
         'Отменен' => '#ef4444',
     ];
     return $map[$status] ?? '#cbd5e1';
+}
+
+function getLinkedElementsMap(int $iblockId, array $elementIds): array
+{
+    $elementIds = array_values(array_unique(array_filter(array_map('intval', $elementIds))));
+    if (!$elementIds) return [];
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        ['IBLOCK_ID' => $iblockId, 'ID' => $elementIds, 'CHECK_PERMISSIONS' => 'Y', 'MIN_PERMISSION' => 'R'],
+        false,
+        false,
+        ['ID', 'NAME', 'DATE_CREATE']
+    );
+    while ($element = $rs->Fetch()) {
+        $map[(int)$element['ID']] = [
+            'NAME' => (string)$element['NAME'],
+            'DATE_CREATE' => (string)$element['DATE_CREATE'],
+        ];
+    }
+    return $map;
+}
+
+function getEmployeeFormsByOfferIds(array $offerIds): array
+{
+    $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds))));
+    if (!$offerIds) return [];
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        [
+            'IBLOCK_ID' => IBL_EMPLOYEE_FORMS,
+            'PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID => $offerIds,
+            'CHECK_PERMISSIONS' => 'Y',
+            'MIN_PERMISSION' => 'R',
+        ],
+        false,
+        false,
+        ['ID', 'NAME', 'DATE_CREATE', 'PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID]
+    );
+    while ($element = $rs->Fetch()) {
+        $offerId = (int)($element['PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID . '_VALUE'] ?? 0);
+        if ($offerId <= 0) continue;
+        $map[$offerId][(int)$element['ID']] = [
+            'NAME' => (string)$element['NAME'],
+            'DATE_CREATE' => (string)$element['DATE_CREATE'],
+        ];
+    }
+    return $map;
+}
+
+function renderOfferRelationsButton(array $relations, int $offerId): string
+{
+    if (!$relations) return '<span class="muted">—</span>';
+
+    $html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
+        . '<thead><tr><th>Сущность</th><th>Название</th><th>Дата создания</th><th></th></tr></thead><tbody>';
+    foreach ($relations as $relation) {
+        $html .= '<tr><td>' . h($relation['LABEL']) . '</td><td>' . h($relation['NAME']) . '</td>'
+            . '<td class="text-nowrap">' . h($relation['DATE_CREATE']) . '</td><td class="text-nowrap">'
+            . '<a class="btn btn-outline-primary btn-sm" href="' . h($relation['URL'])
+            . '" target="_blank" rel="noopener">Перейти</a></td></tr>';
+    }
+    $html .= '</tbody></table></div>';
+
+    return '<button type="button" class="relation-btn js-offer-relations" data-offer-id="' . $offerId
+        . '" data-relations-b64="' . h(base64_encode($html)) . '" title="Показать связи" aria-label="Показать связи">'
+        . '<span aria-hidden="true">🔗</span></button>';
 }
 
 function h($s): string
@@ -949,6 +1021,7 @@ while ($ob = $res->GetNextElement()) {
             (int)($f[PROP_REQUEST_ID . '_VALUE'] ?? 0),
             (int)($f[PROP_CANDIDATE_ID . '_VALUE'] ?? 0)
         ),
+        'CANDIDATE_ID' => (int)($f[PROP_CANDIDATE_ID . '_VALUE'] ?? 0),
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_ID' => (int)($f[PROP_STATUS . '_ENUM_ID'] ?? 0),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
@@ -961,6 +1034,40 @@ while ($ob = $res->GetNextElement()) {
 
     if ($recruiterId > 0) $userIds[$recruiterId] = true;
 }
+
+$requestRelationsMap = getLinkedElementsMap(IBL_REQUESTS, array_column($items, 'REQUEST_ID'));
+$candidateRelationsMap = getLinkedElementsMap(IBL_CANDIDATES, array_column($items, 'CANDIDATE_ID'));
+$employeeRelationsMap = getEmployeeFormsByOfferIds(array_column($items, 'ID'));
+foreach ($items as &$item) {
+    $item['RELATIONS'] = [];
+    $requestId = (int)$item['REQUEST_ID'];
+    if (isset($requestRelationsMap[$requestId])) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Заявка на подбор',
+            'NAME' => $requestRelationsMap[$requestId]['NAME'],
+            'DATE_CREATE' => $requestRelationsMap[$requestId]['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/staffing/view_request.php?id=' . $requestId,
+        ];
+    }
+    $candidateId = (int)$item['CANDIDATE_ID'];
+    if (isset($candidateRelationsMap[$candidateId])) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Анкета кандидата',
+            'NAME' => $candidateRelationsMap[$candidateId]['NAME'],
+            'DATE_CREATE' => $candidateRelationsMap[$candidateId]['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/check_candidate/view.php?id=' . $candidateId,
+        ];
+    }
+    foreach ($employeeRelationsMap[(int)$item['ID']] ?? [] as $employeeId => $employee) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Анкета нового сотрудника',
+            'NAME' => $employee['NAME'],
+            'DATE_CREATE' => $employee['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/adaptation/view.php?id=' . (int)$employeeId,
+        ];
+    }
+}
+unset($item);
 
 $ids = array_keys($userIds);
 $userMap = [];
@@ -1027,6 +1134,9 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .pdf-link { display:inline-flex; align-items:center; justify-content:center; color:#dc3545; }
 .offer-list-page .pdf-link:hover { color:#bd2130; }
 .offer-list-page .pdf-icon { width:26px; height:32px; display:block; }
+.offer-list-page .relation-column { width:46px; text-align:center; vertical-align:middle; }
+.offer-list-page .relation-btn { border:0; background:transparent; padding:0 4px; color:#0d6efd; font-size:19px; line-height:1; cursor:pointer; }
+.offer-list-page .relation-btn:hover { transform:scale(1.08); }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
@@ -1152,12 +1262,13 @@ function navPageUrl(int $pageNum): string
             <th>Рекрутер</th>
             <th><?= sortLink('STATUS', 'Статус + история', $sort, $dir) ?></th>
             <th>PDF</th>
+            <th class="relation-column" title="Связи" aria-label="Связи">🔗</th>
             <th>Действия</th>
         </tr>
         </thead>
         <tbody>
         <?php if (empty($items)): ?>
-            <tr><td colspan="9" class="muted">Ничего не найдено.</td></tr>
+            <tr><td colspan="10" class="muted">Ничего не найдено.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $row): ?>
                 <?php
@@ -1206,6 +1317,7 @@ function navPageUrl(int $pageNum): string
                             <span class="muted">—</span>
                         <?php endif; ?>
                     </td>
+                    <td class="relation-column"><?= renderOfferRelationsButton((array)$row['RELATIONS'], (int)$row['ID']) ?></td>
                     <td>
                         <div class="actions">
                             <?php if ($taskUrl !== ''): ?>
@@ -1431,6 +1543,15 @@ function navPageUrl(int $pageNum): string
   });
 
   document.addEventListener('click', function(e) {
+    var relationsBtn = e.target.closest('.js-offer-relations');
+    if (relationsBtn) {
+      openModal(
+        'Связи (оффер #' + (relationsBtn.getAttribute('data-offer-id') || '') + ')',
+        decodeBase64Utf8(relationsBtn.getAttribute('data-relations-b64') || '')
+      );
+      return;
+    }
+
     var historyBtn = e.target.closest('.js-status-info');
     if (historyBtn) {
       e.preventDefault();
