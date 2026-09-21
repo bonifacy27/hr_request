@@ -595,7 +595,7 @@ function startOfferRightsWorkflow(int $offerId): array
     }
 }
 
-function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
+function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $completeVotingTask = false): array
 {
     $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
     $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
@@ -656,21 +656,32 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
         $attemptedTaskIds[$taskId] = true;
 
         $errors = [];
-        $fields = [
-            'USER_ID' => $assigneeId,
-            'REAL_USER_ID' => $assigneeId,
-            'COMMENT' => $comment,
-            'ACTION' => 'approve',
-            'approve' => 'Y',
-        ];
+        $posted = false;
         try {
-            // Используем ту же форму ответа, что и рабочее действие
-            // «Согласовать за HRD»: approve в нижнем регистре и без
-            // подмены текущей авторизованной сессии.
-            $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors);
+            if ($completeVotingTask && method_exists('CBPTaskService', 'CompleteTask')) {
+                // «Согласование руководителя» — это голосование. PostTaskForm
+                // предназначен для формы задания и в этой активности может
+                // вернуть успех, не отправив голос. CompleteTask фиксирует
+                // пользовательский результат Yes и посылает событие workflow.
+                $posted = CBPTaskService::CompleteTask(
+                    $taskId,
+                    $assigneeId,
+                    CBPTaskUserStatus::Yes,
+                    $comment
+                );
+            } else {
+                // Сохраняем рабочую реализацию действия «Согласовать за HRD».
+                $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, [
+                    'USER_ID' => $assigneeId,
+                    'REAL_USER_ID' => $assigneeId,
+                    'COMMENT' => $comment,
+                    'ACTION' => 'approve',
+                    'approve' => 'Y',
+                ], $errors);
+            }
         } catch (\Throwable $e) {
             $posted = false;
-            $errors[] = ['message' => $e->getMessage()];
+            $errors[] = ['message' => get_class($e) . ': ' . $e->getMessage()];
         }
         if (!empty($errors)) {
             $messages = array_map(static function ($error) {
@@ -679,7 +690,9 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
             return [false, 'Задание #' . $taskId . ': ' . implode('; ', $messages)];
         }
         if ($posted === false) {
-            return [false, 'Задание #' . $taskId . ': PostTaskForm вернул false без описания ошибки.'];
+            return [false, 'Задание #' . $taskId . ': '
+                . ($completeVotingTask ? 'CompleteTask' : 'PostTaskForm')
+                . ' вернул false без описания ошибки.'];
         }
 
         // Для голосования с несколькими ответственными успешный PostTaskForm
@@ -925,7 +938,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_ma
             $result = 'invalid_status';
         } else {
             try {
-                [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment);
+                [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment, true);
             } catch (\Throwable $e) {
                 $approved = false;
                 $approvalError = get_class($e) . ': ' . $e->getMessage();
