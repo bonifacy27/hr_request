@@ -67,6 +67,7 @@ const PDF_WORKFLOW_TEMPLATE_ID = 1353;
 const PDF_WORKFLOW_EXTRA_USER_ID = 3532;
 const PDF_ALLOWED_STATUS_ENUM_IDS = [882, 883];
 const HRD_APPROVAL_STATUS_ENUM_ID = 879;
+const MANAGER_APPROVAL_STATUS_ENUM_ID = 880;
 const HRD_COMMENTS_PROPERTY_ID = 3171;
 const COMMENTS_ADMIN_USER_ID = 3532;
 const OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID = 707;
@@ -691,6 +692,7 @@ $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isCbManager = in_array($currentUserTagLower, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
 $canApproveAsHrd = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
+$canApproveAsManager = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
 $currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
 if ($request->isPost() && (string)$request->getPost('action') === 'cancel_approval') {
@@ -841,6 +843,47 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_hr
     LocalRedirect(buildUrl(['hrd_approval' => $result], []));
 }
 
+if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_manager') {
+    $offerId = (int)$request->getPost('offer_id');
+    $approvalComment = trim((string)$request->getPost('comment'));
+    $result = 'error';
+    if (!check_bitrix_sessid()) {
+        $result = 'session_error';
+    } elseif (!$canApproveAsManager) {
+        $result = 'denied';
+    } elseif ($approvalComment === '') {
+        $result = 'comment_required';
+    } else {
+        $offer = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'PREVIEW_TEXT', PROP_STATUS]
+        )->Fetch();
+        if (!$offer || (int)($offer[PROP_STATUS . '_ENUM_ID'] ?? 0) !== MANAGER_APPROVAL_STATUS_ENUM_ID) {
+            $result = 'invalid_status';
+        } else {
+            [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment);
+            if ($approved) {
+                $userRow = CUser::GetByID($currentUserId)->Fetch() ?: [];
+                $approverName = $userRow ? formatUserName($userRow) : ('Пользователь #' . $currentUserId);
+                $historyLine = date('d.m.Y H:i') . ': ' . $approverName
+                    . ' согласовал оффер за руководителя. Комментарий: ' . $approvalComment;
+                $history = decodeStatusHistoryHtml((string)($offer['PREVIEW_TEXT'] ?? ''));
+                $element = new CIBlockElement();
+                $historyUpdated = $element->Update($offerId, [
+                    'PREVIEW_TEXT' => ($history !== '' ? $history . "\n" : '') . $historyLine,
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
+                appendOfferHrdComment($offerId, $historyLine);
+                $result = $historyUpdated ? 'approved' : 'history_error';
+            }
+        }
+    }
+    LocalRedirect(buildUrl(['manager_approval' => $result], []));
+}
+
 if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf') {
     $offerId = (int)$request->getPost('offer_id');
     $result = 'error';
@@ -888,6 +931,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
+$managerApprovalResult = (string)$request->get('manager_approval');
 $offerDelegateResult = (string)$request->get('offer_delegate');
 $approvalCancelResult = (string)$request->get('approval_cancel');
 
@@ -1187,6 +1231,14 @@ function navPageUrl(int $pageNum): string
     <?php elseif ($hrdApprovalResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла.</div>
     <?php elseif ($hrdApprovalResult === 'error'): ?><div class="alert alert-danger">Не удалось согласовать оффер за HRD.</div><?php endif; ?>
 
+    <?php if ($managerApprovalResult === 'approved'): ?><div class="alert alert-success">Оффер согласован за руководителя.</div>
+    <?php elseif ($managerApprovalResult === 'denied'): ?><div class="alert alert-danger">Недостаточно прав для согласования за руководителя.</div>
+    <?php elseif ($managerApprovalResult === 'invalid_status'): ?><div class="alert alert-danger">Действие доступно только в статусе «Согласование рук-ля».</div>
+    <?php elseif ($managerApprovalResult === 'comment_required'): ?><div class="alert alert-danger">Комментарий обязателен.</div>
+    <?php elseif ($managerApprovalResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла.</div>
+    <?php elseif ($managerApprovalResult === 'history_error'): ?><div class="alert alert-warning">Оффер согласован, но запись в историю добавить не удалось.</div>
+    <?php elseif ($managerApprovalResult === 'error'): ?><div class="alert alert-danger">Не удалось согласовать оффер за руководителя.</div><?php endif; ?>
+
     <?php if ($pdfWorkflowResult === 'started'): ?>
         <div class="alert alert-success">Процесс формирования PDF запущен.</div>
     <?php elseif ($pdfWorkflowResult === 'denied'): ?>
@@ -1277,6 +1329,7 @@ function navPageUrl(int $pageNum): string
                 $canManage = $isAdmin || $isRecruiterForOffer || $isCbManager || $isRecruitHead;
                 $hasPdfStatus = in_array((int)$row['STATUS_ID'], PDF_ALLOWED_STATUS_ENUM_IDS, true);
                 $canApproveThisAsHrd = $canApproveAsHrd && (int)$row['STATUS_ID'] === HRD_APPROVAL_STATUS_ENUM_ID;
+                $canApproveThisAsManager = $canApproveAsManager && (int)$row['STATUS_ID'] === MANAGER_APPROVAL_STATUS_ENUM_ID;
                 $canGeneratePdf = $hasPdfStatus && ($isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID);
                 $canDelegateOffer = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
                 $canCancelApproval = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
@@ -1324,7 +1377,7 @@ function navPageUrl(int $pageNum): string
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
 
-                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canDelegateOffer || $canCancelApproval): ?>
+                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canApproveThisAsManager || $canDelegateOffer || $canCancelApproval): ?>
                                 <select class="form-control form-control-sm actions-select js-offer-action-select"
                                         aria-label="Действия с оффером"
                                         data-offer-id="<?= (int)$row['ID'] ?>"
@@ -1340,6 +1393,7 @@ function navPageUrl(int $pageNum): string
                                     <?php endif; ?>
                                     <?php if ($canDelegateOffer): ?><option value="delegate">Делегировать</option><?php endif; ?>
                                     <?php if ($canApproveThisAsHrd): ?><option value="approve_as_hrd">Согласовать за HRD</option><?php endif; ?>
+                                    <?php if ($canApproveThisAsManager): ?><option value="approve_as_manager">Согласовать за руководителя</option><?php endif; ?>
                                     <?php if ($canGeneratePdf): ?>
                                         <option value="generate_pdf">Сформировать PDF</option>
                                     <?php endif; ?>
@@ -1347,7 +1401,7 @@ function navPageUrl(int $pageNum): string
                                 </select>
                             <?php endif; ?>
 
-                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canDelegateOffer && !$canCancelApproval && $taskUrl === ''): ?>
+                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canApproveThisAsManager && !$canDelegateOffer && !$canCancelApproval && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
                         </div>
@@ -1433,6 +1487,14 @@ function navPageUrl(int $pageNum): string
         openModal('Согласовать за HRD', '<p>Данное действие согласует оффер за HRD.</p><form method="post" id="approve-as-hrd-form"><input type="hidden" name="action" value="approve_as_hrd"><input type="hidden" name="offer_id" value="' + offerId + '"><input type="hidden" name="sessid" value="' + sessid + '"><label for="approve-as-hrd-comment">Комментарий <span class="text-danger">*</span></label><textarea id="approve-as-hrd-comment" name="comment" class="form-control" rows="4" required></textarea><div class="mt-3"><button type="submit" class="btn btn-primary">Согласовать за HRD</button> <button type="button" class="btn btn-secondary" id="approve-as-hrd-cancel">Отмена</button></div></form>');
         var cancel = document.getElementById('approve-as-hrd-cancel');
         if (cancel) cancel.addEventListener('click', closeModal);
+        select.value = '';
+        return;
+      } else if (action === 'approve_as_manager') {
+        var managerOfferId = select.getAttribute('data-offer-id') || '0';
+        var managerSessid = select.getAttribute('data-sessid') || '';
+        openModal('Согласовать за руководителя', '<p>Данное действие согласует оффер за руководителя.</p><form method="post" id="approve-as-manager-form"><input type="hidden" name="action" value="approve_as_manager"><input type="hidden" name="offer_id" value="' + managerOfferId + '"><input type="hidden" name="sessid" value="' + managerSessid + '"><label for="approve-as-manager-comment">Комментарий <span class="text-danger">*</span></label><textarea id="approve-as-manager-comment" name="comment" class="form-control" rows="4" required></textarea><div class="mt-3"><button type="submit" class="btn btn-primary">Согласовать</button> <button type="button" class="btn btn-secondary" id="approve-as-manager-cancel">Отмена</button></div></form>');
+        var managerCancel = document.getElementById('approve-as-manager-cancel');
+        if (managerCancel) managerCancel.addEventListener('click', closeModal);
         select.value = '';
         return;
       } else if (action === 'delegate') {
