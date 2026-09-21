@@ -599,10 +599,15 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
 {
     $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
     $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
-    $states = CBPDocument::GetDocumentStates($documentType, $documentId);
-    foreach ((array)$states as $state) {
+    $states = (array)CBPDocument::GetDocumentStates($documentType, $documentId);
+    $taskRows = [];
+    $workflowIds = [];
+    foreach ($states as $state) {
         $workflowId = (string)($state['ID'] ?? '');
-        if ($workflowId === '') continue;
+        if ($workflowId !== '') $workflowIds[$workflowId] = true;
+    }
+
+    foreach (array_keys($workflowIds) as $workflowId) {
         $tasks = CBPTaskService::GetList(
             ['ID' => 'ASC'],
             ['WORKFLOW_ID' => $workflowId, 'STATUS' => CBPTaskStatus::Running],
@@ -611,48 +616,76 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
             ['ID', 'USER_ID', 'STATUS']
         );
         while ($task = $tasks->Fetch()) {
-            $taskId = (int)($task['ID'] ?? 0);
-            $assigneeId = (int)($task['USER_ID'] ?? 0);
-            if ($taskId <= 0 || $assigneeId <= 0) continue;
-
-            $actionCode = 'Approve';
-            $controls = method_exists('CBPDocument', 'GetTaskControls') ? (array)CBPDocument::GetTaskControls($taskId) : [];
-            foreach ($controls as $control) {
-                $id = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
-                $label = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
-                if (stripos($id, 'approve') !== false || strpos($label, 'соглас') !== false || strpos($label, 'утверж') !== false) {
-                    $actionCode = $id !== '' ? $id : 'Approve';
-                    break;
-                }
-            }
-            $errors = [];
-            $fields = [
-                'approve' => $actionCode,
-                $actionCode => 'Y',
-                'ACTION' => $actionCode,
-                'APPROVE' => 'Y',
-                'status' => 'Y',
-                'comment' => $comment,
-                'task_comment' => $comment,
-                'USER_ID' => $assigneeId,
-                'REAL_USER_ID' => $assigneeId,
-            ];
-            global $USER;
-            $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
-            try {
-                if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
-                CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
-            } finally {
-                if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
-            }
-            $check = CBPTaskService::GetList([], ['ID' => $taskId], false, false, ['ID', 'STATUS'])->Fetch();
-            if (empty($errors) && (!$check || (int)$check['STATUS'] !== (int)CBPTaskStatus::Running)) {
-                return [true, ''];
-            }
-            if (!empty($errors)) return [false, implode('; ', array_map('strval', $errors))];
+            $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
         }
     }
-    return [false, 'Активное задание утверждения для оффера не найдено или не завершилось.'];
+
+    // В разных версиях Bitrix документ списков сохраняется в задании в одном
+    // из этих форматов. Прямой поиск не зависит от результата GetDocumentStates.
+    $documentIds = [
+        ['lists', 'BizprocDocument', 'lists_' . IBL_OFFERS . '_' . $offerId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . IBL_OFFERS . '_' . $offerId],
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$offerId],
+    ];
+    foreach ($documentIds as $candidateDocumentId) {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            ['DOCUMENT_ID' => $candidateDocumentId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            false,
+            ['ID', 'USER_ID', 'STATUS', 'WORKFLOW_ID']
+        );
+        while ($task = $tasks->Fetch()) {
+            $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
+        }
+    }
+
+    foreach ($taskRows as $task) {
+        $taskId = (int)($task['ID'] ?? 0);
+        $assigneeId = (int)($task['USER_ID'] ?? 0);
+        if ($taskId <= 0 || $assigneeId <= 0) continue;
+
+        $actionCode = 'Approve';
+        $controls = method_exists('CBPDocument', 'GetTaskControls') ? (array)CBPDocument::GetTaskControls($taskId) : [];
+        foreach ($controls as $control) {
+            $id = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
+            $label = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
+            if (stripos($id, 'approve') !== false || strpos($label, 'соглас') !== false || strpos($label, 'утверж') !== false) {
+                $actionCode = $id !== '' ? $id : 'Approve';
+                break;
+            }
+        }
+        $errors = [];
+        $fields = [
+            'approve' => 'Y',
+            $actionCode => 'Y',
+            'ACTION' => $actionCode,
+            'APPROVE' => 'Y',
+            'status' => 'Y',
+            'comment' => $comment,
+            'task_comment' => $comment,
+            'USER_ID' => $assigneeId,
+            'REAL_USER_ID' => $assigneeId,
+        ];
+        global $USER;
+        $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
+        try {
+            if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
+            $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
+        } finally {
+            if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
+        }
+        if ($posted !== false && empty($errors)) return [true, ''];
+        if (!empty($errors)) {
+            $messages = array_map(static function ($error) {
+                return is_array($error) ? (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE)) : (string)$error;
+            }, $errors);
+            return [false, 'Задание #' . $taskId . ': ' . implode('; ', $messages)];
+        }
+        return [false, 'Задание #' . $taskId . ': PostTaskForm вернул false без описания ошибки.'];
+    }
+    return [false, 'Активное задание не найдено. Активных workflow: ' . count($workflowIds)
+        . '; найдено строк заданий: ' . count($taskRows) . '.'];
 }
 
 function getBizprocTaskUrl(int $taskId, ?int $userId = null): string
