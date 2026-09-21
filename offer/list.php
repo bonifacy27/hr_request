@@ -847,6 +847,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_ma
     $offerId = (int)$request->getPost('offer_id');
     $approvalComment = trim((string)$request->getPost('comment'));
     $result = 'error';
+    $diagnostic = '';
     if (!check_bitrix_sessid()) {
         $result = 'session_error';
     } elseif (!$canApproveAsManager) {
@@ -864,7 +865,12 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_ma
         if (!$offer || (int)($offer[PROP_STATUS . '_ENUM_ID'] ?? 0) !== MANAGER_APPROVAL_STATUS_ENUM_ID) {
             $result = 'invalid_status';
         } else {
-            [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment);
+            try {
+                [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment);
+            } catch (\Throwable $e) {
+                $approved = false;
+                $approvalError = get_class($e) . ': ' . $e->getMessage();
+            }
             if ($approved) {
                 $userRow = CUser::GetByID($currentUserId)->Fetch() ?: [];
                 $approverName = $userRow ? formatUserName($userRow) : ('Пользователь #' . $currentUserId);
@@ -878,10 +884,18 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_ma
                 ]);
                 appendOfferHrdComment($offerId, $historyLine);
                 $result = $historyUpdated ? 'approved' : 'history_error';
+                if (!$historyUpdated) {
+                    $diagnostic = trim((string)$element->LAST_ERROR) ?: 'Задание бизнес-процесса выполнено, но CIBlockElement::Update вернул false.';
+                }
+            } else {
+                $diagnostic = trim((string)$approvalError) ?: 'Метод approveCurrentOfferTaskAsAssignee не вернул описание ошибки.';
             }
         }
     }
-    LocalRedirect(buildUrl(['manager_approval' => $result], []));
+    LocalRedirect(buildUrl([
+        'manager_approval' => $result,
+        'manager_approval_error' => $diagnostic !== '' ? $diagnostic : null,
+    ], []));
 }
 
 if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf') {
@@ -932,6 +946,7 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
 $managerApprovalResult = (string)$request->get('manager_approval');
+$managerApprovalError = trim((string)$request->get('manager_approval_error'));
 $offerDelegateResult = (string)$request->get('offer_delegate');
 $approvalCancelResult = (string)$request->get('approval_cancel');
 
@@ -1238,6 +1253,9 @@ function navPageUrl(int $pageNum): string
     <?php elseif ($managerApprovalResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла.</div>
     <?php elseif ($managerApprovalResult === 'history_error'): ?><div class="alert alert-warning">Оффер согласован, но запись в историю добавить не удалось.</div>
     <?php elseif ($managerApprovalResult === 'error'): ?><div class="alert alert-danger">Не удалось согласовать оффер за руководителя.</div><?php endif; ?>
+    <?php if ($managerApprovalError !== ''): ?>
+        <div class="alert alert-secondary"><strong>Диагностика:</strong> <?= nl2br(h($managerApprovalError)) ?></div>
+    <?php endif; ?>
 
     <?php if ($pdfWorkflowResult === 'started'): ?>
         <div class="alert alert-success">Процесс формирования PDF запущен.</div>
