@@ -18,6 +18,9 @@ if (!$USER || !$USER->IsAuthorized()) {
 }
 
 const ANKETA_IBLOCK_ID = 196;
+const RECRUITMENT_REQUEST_IBLOCK_ID = 201;
+const CANDIDATE_FORM_IBLOCK_ID = 207;
+const OFFER_IBLOCK_ID = 218;
 const STATUS_IBLOCK_ID = 374;
 const VIEW_URL = 'view.php?id=';
 const EDIT_URL = 'edit_anketa.php?id=';
@@ -37,6 +40,10 @@ const PROP_STATUS = 2930;
 const PROP_HISTORY = 2861;
 const PROP_EMPLOYEE_STATUS = 954;
 const PROP_ADAPTATION_STATUS = 2930;
+// Links to the recruitment request, candidate form and offer.
+const PROP_RECRUITMENT_REQUEST_ID = 1619;
+const PROP_CANDIDATE_FORM_ID = 1621;
+const PROP_OFFER_ID = 2085;
 // Number property on the employee form containing the element ID from list 359.
 const PROP_ONBOARDING_PLAN_ID = 3164;
 const REQUIRED_ORGANIZATION_ID = 3197820;
@@ -303,6 +310,52 @@ function getPropertyValues(array $properties, $propertyId, $valueKey = 'VALUE')
     }
 
     return [];
+}
+
+function getRelationElementsMap($iblockId, array $elementIds)
+{
+    $elementIds = array_values(array_unique(array_filter(array_map('intval', $elementIds))));
+    if (!$elementIds) {
+        return [];
+    }
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        ['IBLOCK_ID' => (int)$iblockId, 'ID' => $elementIds, 'CHECK_PERMISSIONS' => 'Y', 'MIN_PERMISSION' => 'R'],
+        false,
+        false,
+        ['ID', 'NAME', 'DATE_CREATE']
+    );
+    while ($element = $rs->Fetch()) {
+        $map[(int)$element['ID']] = [
+            'NAME' => (string)$element['NAME'],
+            'DATE_CREATE' => (string)$element['DATE_CREATE'],
+        ];
+    }
+
+    return $map;
+}
+
+function renderRelationsButton(array $relations, $employeeFormId)
+{
+    if (!$relations) {
+        return '<span class="text-muted">—</span>';
+    }
+
+    $html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
+        . '<thead><tr><th>Сущность</th><th>Название</th><th>Дата создания</th><th></th></tr></thead><tbody>';
+    foreach ($relations as $relation) {
+        $html .= '<tr><td>' . h($relation['LABEL']) . '</td><td>' . h($relation['NAME']) . '</td>'
+            . '<td class="nowrap">' . h($relation['DATE_CREATE']) . '</td><td class="nowrap">'
+            . '<a class="btn btn-outline-primary btn-sm" href="' . h($relation['URL'])
+            . '" target="_blank" rel="noopener">Перейти</a></td></tr>';
+    }
+    $html .= '</tbody></table></div>';
+
+    return '<button type="button" class="relation-btn js-relations-btn" data-id="' . (int)$employeeFormId
+        . '" data-relations="' . h($html) . '" title="Показать связи" aria-label="Показать связи">'
+        . '<span aria-hidden="true">🔗</span></button>';
 }
 
 function getUserNamesMap(array $userIds)
@@ -692,8 +745,23 @@ while ($ob = $rs->GetNextElement()) {
         'MANAGER_ID' => $managerId,
         'STATUS_ID' => $statusId,
         'HISTORY' => (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE'),
+        'RECRUITMENT_REQUEST_IDS' => getPropertyValues($properties, PROP_RECRUITMENT_REQUEST_ID, 'VALUE'),
+        'CANDIDATE_FORM_IDS' => getPropertyValues($properties, PROP_CANDIDATE_FORM_ID, 'VALUE'),
+        'OFFER_IDS' => getPropertyValues($properties, PROP_OFFER_ID, 'VALUE'),
     ];
 }
+
+$requestIds = [];
+$candidateIds = [];
+$offerIds = [];
+foreach ($rows as $row) {
+    $requestIds = array_merge($requestIds, $row['RECRUITMENT_REQUEST_IDS']);
+    $candidateIds = array_merge($candidateIds, $row['CANDIDATE_FORM_IDS']);
+    $offerIds = array_merge($offerIds, $row['OFFER_IDS']);
+}
+$requestRelationsMap = getRelationElementsMap(RECRUITMENT_REQUEST_IBLOCK_ID, $requestIds);
+$candidateRelationsMap = getRelationElementsMap(CANDIDATE_FORM_IBLOCK_ID, $candidateIds);
+$offerRelationsMap = getRelationElementsMap(OFFER_IBLOCK_ID, $offerIds);
 
 $userMap = getUserNamesMap($userIds);
 $organizationMap = getElementNamesMap($organizationIds);
@@ -709,6 +777,25 @@ foreach ($rows as &$row) {
     $row['ORGANIZATION_NAME'] = $row['ORGANIZATION_ID'] > 0 ? (string)($organizationMap[$row['ORGANIZATION_ID']] ?? '') : '';
     $row['STATUS_NAME'] = $row['STATUS_ID'] > 0 ? (string)($statusMetaMap[$row['STATUS_ID']]['NAME'] ?? '') : '';
     $row['STATUS_COLOR'] = $row['STATUS_ID'] > 0 ? trim((string)($statusMetaMap[$row['STATUS_ID']]['COLOR'] ?? '')) : '';
+    $row['RELATIONS'] = [];
+    foreach ([
+        [$row['RECRUITMENT_REQUEST_IDS'], $requestRelationsMap, 'Заявка на подбор', '/forms/staff_recruitment/staffing/view_request.php?id='],
+        [$row['CANDIDATE_FORM_IDS'], $candidateRelationsMap, 'Анкета кандидата', '/forms/staff_recruitment/check_candidate/view.php?id='],
+        [$row['OFFER_IDS'], $offerRelationsMap, 'Оффер', '/forms/staff_recruitment/offer/view_offer.php?id='],
+    ] as $relationConfig) {
+        [$relationIds, $relationMap, $label, $url] = $relationConfig;
+        foreach ($relationIds as $relationId) {
+            if (!isset($relationMap[$relationId])) {
+                continue;
+            }
+            $row['RELATIONS'][] = [
+                'LABEL' => $label,
+                'NAME' => $relationMap[$relationId]['NAME'],
+                'DATE_CREATE' => $relationMap[$relationId]['DATE_CREATE'],
+                'URL' => $url . (int)$relationId,
+            ];
+        }
+    }
 }
 unset($row);
 
@@ -831,6 +918,18 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
     cursor: pointer;
 }
 .history-btn:hover { background: #5a6268; }
+
+.relation-btn {
+    border: 0;
+    background: transparent;
+    color: #0d6efd;
+    padding: 0 4px;
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+}
+.relation-btn:hover { transform: scale(1.08); }
+.relation-column { width: 46px; text-align: center; }
 
 .history-modal-backdrop {
     position: fixed;
@@ -989,12 +1088,13 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                 <th><?=sortLink('Рекрутер', 'recruiter', $sort, $order)?></th>
                 <th><?=sortLink('Руководитель', 'manager', $sort, $order)?></th>
                 <th><?=sortLink('Статус + история', 'status', $sort, $order)?></th>
+                <th class="relation-column" title="Связи" aria-label="Связи">🔗</th>
                 <th>Действия</th>
             </tr>
             </thead>
             <tbody>
             <?php if (!$rowsPage): ?>
-                <tr><td colspan="10" class="text-center text-muted">Ничего не найдено</td></tr>
+                <tr><td colspan="11" class="text-center text-muted">Ничего не найдено</td></tr>
             <?php endif; ?>
 
             <?php foreach ($rowsPage as $row):
@@ -1023,6 +1123,7 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                         </button>
                         <button type="button" class="history-btn js-history-btn" data-history="<?=h($historyHtml)?>" data-id="<?=$id?>" title="Показать историю">i</button>
                     </td>
+                    <td class="nowrap relation-column"><?=renderRelationsButton((array)$row['RELATIONS'], $id)?></td>
                     <td class="nowrap">
                         <?php
                         $canManage = $isAdministrator || $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
@@ -1174,6 +1275,12 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         var historyBtn = e.target.closest ? e.target.closest('.js-history-btn') : null;
         if (historyBtn) {
             openModal('История (анкета #' + historyBtn.getAttribute('data-id') + ')', historyBtn.getAttribute('data-history') || '');
+            return;
+        }
+
+        var relationsBtn = e.target.closest ? e.target.closest('.js-relations-btn') : null;
+        if (relationsBtn) {
+            openModal('Связи (анкета #' + relationsBtn.getAttribute('data-id') + ')', relationsBtn.getAttribute('data-relations') || '');
             return;
         }
 

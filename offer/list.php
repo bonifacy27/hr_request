@@ -67,11 +67,14 @@ const PDF_WORKFLOW_TEMPLATE_ID = 1353;
 const PDF_WORKFLOW_EXTRA_USER_ID = 3532;
 const PDF_ALLOWED_STATUS_ENUM_IDS = [882, 883];
 const HRD_APPROVAL_STATUS_ENUM_ID = 879;
+const MANAGER_APPROVAL_STATUS_ENUM_ID = 880;
 const HRD_COMMENTS_PROPERTY_ID = 3171;
 const COMMENTS_ADMIN_USER_ID = 3532;
 const OFFER_RIGHTS_WORKFLOW_TEMPLATE_ID = 707;
 const IBL_REQUESTS = 201;
 const IBL_CANDIDATES = 207;
+const IBL_EMPLOYEE_FORMS = 196;
+const EMPLOYEE_OFFER_PROPERTY_ID = 2085;
 const CANDIDATE_REQUEST_PROPERTY_ID = 1596;
 const REQUEST_STATUS_PROPERTY_ID = 1042;
 const REQUEST_CANCELLED_STATUS_ENUM_ID = 795;
@@ -107,6 +110,76 @@ function getStatusBadgeColor(string $status): string
         'Отменен' => '#ef4444',
     ];
     return $map[$status] ?? '#cbd5e1';
+}
+
+function getLinkedElementsMap(int $iblockId, array $elementIds): array
+{
+    $elementIds = array_values(array_unique(array_filter(array_map('intval', $elementIds))));
+    if (!$elementIds) return [];
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        ['IBLOCK_ID' => $iblockId, 'ID' => $elementIds, 'CHECK_PERMISSIONS' => 'Y', 'MIN_PERMISSION' => 'R'],
+        false,
+        false,
+        ['ID', 'NAME', 'DATE_CREATE']
+    );
+    while ($element = $rs->Fetch()) {
+        $map[(int)$element['ID']] = [
+            'NAME' => (string)$element['NAME'],
+            'DATE_CREATE' => (string)$element['DATE_CREATE'],
+        ];
+    }
+    return $map;
+}
+
+function getEmployeeFormsByOfferIds(array $offerIds): array
+{
+    $offerIds = array_values(array_unique(array_filter(array_map('intval', $offerIds))));
+    if (!$offerIds) return [];
+
+    $map = [];
+    $rs = CIBlockElement::GetList(
+        ['ID' => 'ASC'],
+        [
+            'IBLOCK_ID' => IBL_EMPLOYEE_FORMS,
+            'PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID => $offerIds,
+            'CHECK_PERMISSIONS' => 'Y',
+            'MIN_PERMISSION' => 'R',
+        ],
+        false,
+        false,
+        ['ID', 'NAME', 'DATE_CREATE', 'PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID]
+    );
+    while ($element = $rs->Fetch()) {
+        $offerId = (int)($element['PROPERTY_' . EMPLOYEE_OFFER_PROPERTY_ID . '_VALUE'] ?? 0);
+        if ($offerId <= 0) continue;
+        $map[$offerId][(int)$element['ID']] = [
+            'NAME' => (string)$element['NAME'],
+            'DATE_CREATE' => (string)$element['DATE_CREATE'],
+        ];
+    }
+    return $map;
+}
+
+function renderOfferRelationsButton(array $relations, int $offerId): string
+{
+    if (!$relations) return '<span class="muted">—</span>';
+
+    $html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">'
+        . '<thead><tr><th>Сущность</th><th>Название</th><th>Дата создания</th><th></th></tr></thead><tbody>';
+    foreach ($relations as $relation) {
+        $html .= '<tr><td>' . h($relation['LABEL']) . '</td><td>' . h($relation['NAME']) . '</td>'
+            . '<td class="text-nowrap">' . h($relation['DATE_CREATE']) . '</td><td class="text-nowrap">'
+            . '<a class="btn btn-outline-primary btn-sm" href="' . h($relation['URL'])
+            . '" target="_blank" rel="noopener">Перейти</a></td></tr>';
+    }
+    $html .= '</tbody></table></div>';
+
+    return '<button type="button" class="relation-btn js-offer-relations" data-offer-id="' . $offerId
+        . '" data-relations-b64="' . h(base64_encode($html)) . '" title="Показать связи" aria-label="Показать связи">'
+        . '<span aria-hidden="true">🔗</span></button>';
 }
 
 function h($s): string
@@ -522,64 +595,195 @@ function startOfferRightsWorkflow(int $offerId): array
     }
 }
 
-function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
+function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $completeVotingTask = false): array
 {
     $documentType = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', 'iblock_' . IBL_OFFERS];
     $documentId = ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', $offerId];
-    $states = CBPDocument::GetDocumentStates($documentType, $documentId);
-    foreach ((array)$states as $state) {
+    $states = (array)CBPDocument::GetDocumentStates($documentType, $documentId);
+    $taskRows = [];
+    $workflowIds = [];
+    foreach ($states as $state) {
         $workflowId = (string)($state['ID'] ?? '');
-        if ($workflowId === '') continue;
+        if ($workflowId !== '') $workflowIds[$workflowId] = true;
+    }
+
+    foreach (array_keys($workflowIds) as $workflowId) {
         $tasks = CBPTaskService::GetList(
             ['ID' => 'ASC'],
-            ['WORKFLOW_ID' => $workflowId, 'STATUS' => CBPTaskStatus::Running],
+            [
+                'WORKFLOW_ID' => $workflowId,
+                'STATUS' => CBPTaskStatus::Running,
+                'USER_STATUS' => CBPTaskUserStatus::Waiting,
+            ],
             false,
             false,
-            ['ID', 'USER_ID', 'STATUS']
+            ['ID', 'NAME', 'USER_ID', 'USER_STATUS', 'STATUS', 'WORKFLOW_ID', 'ACTIVITY', 'ACTIVITY_NAME', 'PARAMETERS']
         );
         while ($task = $tasks->Fetch()) {
-            $taskId = (int)($task['ID'] ?? 0);
-            $assigneeId = (int)($task['USER_ID'] ?? 0);
-            if ($taskId <= 0 || $assigneeId <= 0) continue;
-
-            $actionCode = 'Approve';
-            $controls = method_exists('CBPDocument', 'GetTaskControls') ? (array)CBPDocument::GetTaskControls($taskId) : [];
-            foreach ($controls as $control) {
-                $id = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
-                $label = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
-                if (stripos($id, 'approve') !== false || strpos($label, 'соглас') !== false || strpos($label, 'утверж') !== false) {
-                    $actionCode = $id !== '' ? $id : 'Approve';
-                    break;
-                }
-            }
-            $errors = [];
-            $fields = [
-                'approve' => $actionCode,
-                $actionCode => 'Y',
-                'ACTION' => $actionCode,
-                'APPROVE' => 'Y',
-                'status' => 'Y',
-                'comment' => $comment,
-                'task_comment' => $comment,
-                'USER_ID' => $assigneeId,
-                'REAL_USER_ID' => $assigneeId,
-            ];
-            global $USER;
-            $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
-            try {
-                if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
-                CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
-            } finally {
-                if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
-            }
-            $check = CBPTaskService::GetList([], ['ID' => $taskId], false, false, ['ID', 'STATUS'])->Fetch();
-            if (empty($errors) && (!$check || (int)$check['STATUS'] !== (int)CBPTaskStatus::Running)) {
-                return [true, ''];
-            }
-            if (!empty($errors)) return [false, implode('; ', array_map('strval', $errors))];
+            $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
         }
     }
-    return [false, 'Активное задание утверждения для оффера не найдено или не завершилось.'];
+
+    // В разных версиях Bitrix документ списков сохраняется в задании в одном
+    // из этих форматов. Прямой поиск не зависит от результата GetDocumentStates.
+    $documentIds = [
+        ['lists', 'BizprocDocument', 'lists_' . IBL_OFFERS . '_' . $offerId],
+        ['iblock', 'CIBlockDocument', 'iblock_' . IBL_OFFERS . '_' . $offerId],
+        ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$offerId],
+    ];
+    foreach ($documentIds as $candidateDocumentId) {
+        $tasks = CBPTaskService::GetList(
+            ['ID' => 'ASC'],
+            [
+                'DOCUMENT_ID' => $candidateDocumentId,
+                'STATUS' => CBPTaskStatus::Running,
+                'USER_STATUS' => CBPTaskUserStatus::Waiting,
+            ],
+            false,
+            false,
+            ['ID', 'NAME', 'USER_ID', 'USER_STATUS', 'STATUS', 'WORKFLOW_ID', 'ACTIVITY', 'ACTIVITY_NAME', 'PARAMETERS']
+        );
+        while ($task = $tasks->Fetch()) {
+            $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
+        }
+    }
+
+    $attemptedTaskIds = [];
+    foreach ($taskRows as $task) {
+        $taskId = (int)($task['ID'] ?? 0);
+        $assigneeId = (int)($task['USER_ID'] ?? 0);
+        if ($taskId <= 0 || $assigneeId <= 0) continue;
+        $attemptedTaskIds[$taskId] = true;
+
+        if (!$completeVotingTask) {
+            $errors = [];
+            CBPDocument::PostTaskForm($taskId, $assigneeId, [
+                'USER_ID' => $assigneeId,
+                'REAL_USER_ID' => $assigneeId,
+                'COMMENT' => $comment,
+                'ACTION' => 'approve',
+                'approve' => 'Y',
+            ], $errors);
+            $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            if (!$check && !$errors) return [true, ''];
+            return [false, $errors ? json_encode($errors, JSON_UNESCAPED_UNICODE) : 'Задание HRD осталось активным.'];
+        }
+
+        $controls = [];
+        foreach ([['CBPDocument', 'GetTaskControls'], ['CBPTaskService', 'GetTaskControls']] as $callable) {
+            if (!method_exists($callable[0], $callable[1])) continue;
+            try {
+                $controls = (array)call_user_func($callable, $taskId, $assigneeId);
+            } catch (\Throwable $e) {
+                try { $controls = (array)call_user_func($callable, $taskId); } catch (\Throwable $ignored) {}
+            }
+            if ($controls) break;
+        }
+        $actionCode = 'Approve';
+        foreach ($controls as $control) {
+            $controlId = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
+            $controlText = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
+            if (stripos($controlId, 'approve') !== false || strpos($controlText, 'соглас') !== false || strpos($controlText, 'утверж') !== false) {
+                $actionCode = $controlId !== '' ? $controlId : 'Approve';
+                break;
+            }
+        }
+        $codes = array_values(array_unique([$actionCode, 'approve', 'Approve', 'yes', 'Y', 'TaskButton1']));
+        $diagnostic = [];
+        global $USER;
+        $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
+        try {
+            if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
+            foreach ($codes as $code) {
+                $errors = [];
+                $fields = [
+                    'USER_ID' => $assigneeId, 'REAL_USER_ID' => $assigneeId,
+                    'COMMENT' => $comment, 'comment' => $comment, 'task_comment' => $comment,
+                    'ACTION' => $code, $code => 'Y', 'APPROVE' => 'Y', 'approve' => $code,
+                ];
+                try {
+                    $result = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
+                    $diagnostic[] = 'PostTaskForm(' . $code . '): result=' . var_export($result, true)
+                        . ', errors=' . json_encode($errors, JSON_UNESCAPED_UNICODE);
+                } catch (\Throwable $e) {
+                    $diagnostic[] = 'PostTaskForm(' . $code . '): ' . get_class($e) . ': ' . $e->getMessage();
+                }
+                $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                if (!$check) return [true, ''];
+            }
+
+            $workflowId = (string)($task['WORKFLOW_ID'] ?? '');
+            $activities = array_values(array_unique(array_filter([(string)($task['ACTIVITY_NAME'] ?? ''), (string)($task['ACTIVITY'] ?? '')])));
+            if ($workflowId !== '' && class_exists('CBPRuntime') && method_exists('CBPRuntime', 'SendExternalEvent')) {
+                foreach ($activities as $activity) {
+                    try {
+                        $result = CBPRuntime::SendExternalEvent($workflowId, $activity, [
+                            'USER_ID' => $assigneeId, 'REAL_USER_ID' => $assigneeId,
+                            'COMMENT' => $comment, 'APPROVE' => 1, 'approve' => 'Y', 'status' => 'Y',
+                        ]);
+                        $diagnostic[] = 'SendExternalEvent(' . $activity . '): ' . var_export($result, true);
+                    } catch (\Throwable $e) {
+                        $diagnostic[] = 'SendExternalEvent(' . $activity . '): ' . get_class($e) . ': ' . $e->getMessage();
+                    }
+                    $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                    if (!$check) return [true, ''];
+                }
+            }
+
+            if (method_exists('CBPTaskService', 'DoTask')) {
+                foreach ($codes as $code) {
+                    try {
+                        $result = CBPTaskService::DoTask($taskId, $assigneeId, [
+                            'ACTION' => $code, $code => 'Y', 'APPROVE' => 'Y',
+                            'COMMENT' => $comment, 'comment' => $comment, 'task_comment' => $comment,
+                        ]);
+                        $diagnostic[] = 'DoTask(' . $code . '): ' . var_export($result, true);
+                    } catch (\Throwable $e) {
+                        $diagnostic[] = 'DoTask(' . $code . '): ' . get_class($e) . ': ' . $e->getMessage();
+                    }
+                    $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                    if (!$check) return [true, ''];
+                }
+            }
+        } finally {
+            if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
+        }
+
+        // Для голосования с несколькими ответственными успешный PostTaskForm
+        // означает только один голос. Продолжаем голосовать за оставшихся
+        // участников, пока задание действительно не закроется.
+        $check = CBPTaskService::GetList(
+            [],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+        if (!$check) return [true, ''];
+        return [false, "Задание #{$taskId} осталось активным.\n"
+            . 'Исполнитель: ' . $assigneeId . '; workflow: ' . (string)($task['WORKFLOW_ID'] ?? '')
+            . '; activity: ' . (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? '') . "\n"
+            . 'Task: ' . print_r($task, true) . "\nControls: " . print_r($controls, true) . "\nПопытки:\n"
+            . implode("\n", $diagnostic)];
+    }
+
+    if ($attemptedTaskIds) {
+        $stillRunning = [];
+        foreach (array_keys($attemptedTaskIds) as $taskId) {
+            $check = CBPTaskService::GetList(
+                [],
+                ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+                false,
+                ['nTopCount' => 1],
+                ['ID']
+            )->Fetch();
+            if ($check) $stillRunning[] = $taskId;
+        }
+        if (!$stillRunning) return [true, ''];
+        return [false, 'Голоса отправлены, но задание осталось активным. ID: ' . implode(', ', $stillRunning) . '.'];
+    }
+    return [false, 'Активное задание не найдено. Активных workflow: ' . count($workflowIds)
+        . '; найдено строк заданий: ' . count($taskRows) . '.'];
 }
 
 function getBizprocTaskUrl(int $taskId, ?int $userId = null): string
@@ -619,6 +823,7 @@ $recruitHeads = getGlobalVarUserList(RECRUIT_HEAD_GLOBAL_VAR_ID);
 $isCbManager = in_array($currentUserTagLower, $cbUsers, true);
 $isRecruitHead = in_array($currentUserTagLower, $recruitHeads, true);
 $canApproveAsHrd = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
+$canApproveAsManager = $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
 $currentUserTasksMap = getCurrentUserRunningTaskMapForOffers($currentUserId, IBL_OFFERS);
 
 if ($request->isPost() && (string)$request->getPost('action') === 'cancel_approval') {
@@ -769,6 +974,63 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_hr
     LocalRedirect(buildUrl(['hrd_approval' => $result], []));
 }
 
+if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_manager') {
+    $offerId = (int)$request->getPost('offer_id');
+    $approvalComment = trim((string)$request->getPost('comment'));
+    $result = 'error';
+    $diagnostic = '';
+    if (!check_bitrix_sessid()) {
+        $result = 'session_error';
+    } elseif (!$canApproveAsManager) {
+        $result = 'denied';
+    } elseif ($approvalComment === '') {
+        $result = 'comment_required';
+    } else {
+        $offer = CIBlockElement::GetList(
+            [],
+            ['IBLOCK_ID' => IBL_OFFERS, 'ID' => $offerId, 'ACTIVE' => 'Y'],
+            false,
+            ['nTopCount' => 1],
+            ['ID', 'PREVIEW_TEXT', PROP_STATUS]
+        )->Fetch();
+        if (!$offer || (int)($offer[PROP_STATUS . '_ENUM_ID'] ?? 0) !== MANAGER_APPROVAL_STATUS_ENUM_ID) {
+            $result = 'invalid_status';
+        } else {
+            try {
+                [$approved, $approvalError] = approveCurrentOfferTaskAsAssignee($offerId, $approvalComment, true);
+            } catch (\Throwable $e) {
+                $approved = false;
+                $approvalError = get_class($e) . ': ' . $e->getMessage();
+            }
+            if ($approved) {
+                $userRow = CUser::GetByID($currentUserId)->Fetch() ?: [];
+                $approverName = $userRow ? formatUserName($userRow) : ('Пользователь #' . $currentUserId);
+                $historyLine = date('d.m.Y H:i') . ': ' . $approverName
+                    . ' согласовал оффер за руководителя. Комментарий: ' . $approvalComment;
+                $history = decodeStatusHistoryHtml((string)($offer['PREVIEW_TEXT'] ?? ''));
+                $element = new CIBlockElement();
+                $historyUpdated = $element->Update($offerId, [
+                    'PREVIEW_TEXT' => ($history !== '' ? $history . "\n" : '') . $historyLine,
+                    'PREVIEW_TEXT_TYPE' => 'text',
+                ]);
+                appendOfferHrdComment($offerId, $historyLine);
+                $result = $historyUpdated ? 'approved' : 'history_error';
+                if (!$historyUpdated) {
+                    $diagnostic = trim((string)$element->LAST_ERROR) ?: 'Задание бизнес-процесса выполнено, но CIBlockElement::Update вернул false.';
+                }
+            } else {
+                $diagnostic = trim((string)$approvalError) ?: 'Метод approveCurrentOfferTaskAsAssignee не вернул описание ошибки.';
+            }
+        }
+    }
+    if ($diagnostic !== '') {
+        $_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC'] = $diagnostic;
+    } else {
+        unset($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC']);
+    }
+    LocalRedirect(buildUrl(['manager_approval' => $result], ['manager_approval_error']));
+}
+
 if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf') {
     $offerId = (int)$request->getPost('offer_id');
     $result = 'error';
@@ -816,6 +1078,9 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
+$managerApprovalResult = (string)$request->get('manager_approval');
+$managerApprovalError = trim((string)($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC'] ?? ''));
+unset($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC']);
 $offerDelegateResult = (string)$request->get('offer_delegate');
 $approvalCancelResult = (string)$request->get('approval_cancel');
 
@@ -949,6 +1214,7 @@ while ($ob = $res->GetNextElement()) {
             (int)($f[PROP_REQUEST_ID . '_VALUE'] ?? 0),
             (int)($f[PROP_CANDIDATE_ID . '_VALUE'] ?? 0)
         ),
+        'CANDIDATE_ID' => (int)($f[PROP_CANDIDATE_ID . '_VALUE'] ?? 0),
         'STATUS' => getFieldValue($f, PROP_STATUS),
         'STATUS_ID' => (int)($f[PROP_STATUS . '_ENUM_ID'] ?? 0),
         'STATUS_HISTORY' => decodeStatusHistoryHtml((string)($f['PREVIEW_TEXT'] ?? '')),
@@ -961,6 +1227,40 @@ while ($ob = $res->GetNextElement()) {
 
     if ($recruiterId > 0) $userIds[$recruiterId] = true;
 }
+
+$requestRelationsMap = getLinkedElementsMap(IBL_REQUESTS, array_column($items, 'REQUEST_ID'));
+$candidateRelationsMap = getLinkedElementsMap(IBL_CANDIDATES, array_column($items, 'CANDIDATE_ID'));
+$employeeRelationsMap = getEmployeeFormsByOfferIds(array_column($items, 'ID'));
+foreach ($items as &$item) {
+    $item['RELATIONS'] = [];
+    $requestId = (int)$item['REQUEST_ID'];
+    if (isset($requestRelationsMap[$requestId])) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Заявка на подбор',
+            'NAME' => $requestRelationsMap[$requestId]['NAME'],
+            'DATE_CREATE' => $requestRelationsMap[$requestId]['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/staffing/view_request.php?id=' . $requestId,
+        ];
+    }
+    $candidateId = (int)$item['CANDIDATE_ID'];
+    if (isset($candidateRelationsMap[$candidateId])) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Анкета кандидата',
+            'NAME' => $candidateRelationsMap[$candidateId]['NAME'],
+            'DATE_CREATE' => $candidateRelationsMap[$candidateId]['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/check_candidate/view.php?id=' . $candidateId,
+        ];
+    }
+    foreach ($employeeRelationsMap[(int)$item['ID']] ?? [] as $employeeId => $employee) {
+        $item['RELATIONS'][] = [
+            'LABEL' => 'Анкета нового сотрудника',
+            'NAME' => $employee['NAME'],
+            'DATE_CREATE' => $employee['DATE_CREATE'],
+            'URL' => '/forms/staff_recruitment/adaptation/view.php?id=' . (int)$employeeId,
+        ];
+    }
+}
+unset($item);
 
 $ids = array_keys($userIds);
 $userMap = [];
@@ -1027,6 +1327,9 @@ function navPageUrl(int $pageNum): string
 .offer-list-page .pdf-link { display:inline-flex; align-items:center; justify-content:center; color:#dc3545; }
 .offer-list-page .pdf-link:hover { color:#bd2130; }
 .offer-list-page .pdf-icon { width:26px; height:32px; display:block; }
+.offer-list-page .relation-column { width:46px; text-align:center; vertical-align:middle; }
+.offer-list-page .relation-btn { border:0; background:transparent; padding:0 4px; color:#0d6efd; font-size:19px; line-height:1; cursor:pointer; }
+.offer-list-page .relation-btn:hover { transform:scale(1.08); }
 .offer-list-page .pagination { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
 .offer-list-page .pagination a, .offer-list-page .pagination span { padding:4px 8px; border:1px solid #cbd5e1; border-radius:6px; text-decoration:none; }
 .offer-list-page .pagination .active { background:#007bff; border-color:#007bff; color:#fff; }
@@ -1076,6 +1379,17 @@ function navPageUrl(int $pageNum): string
     <?php elseif ($hrdApprovalResult === 'comment_required'): ?><div class="alert alert-danger">Комментарий обязателен.</div>
     <?php elseif ($hrdApprovalResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла.</div>
     <?php elseif ($hrdApprovalResult === 'error'): ?><div class="alert alert-danger">Не удалось согласовать оффер за HRD.</div><?php endif; ?>
+
+    <?php if ($managerApprovalResult === 'approved'): ?><div class="alert alert-success">Оффер согласован за руководителя.</div>
+    <?php elseif ($managerApprovalResult === 'denied'): ?><div class="alert alert-danger">Недостаточно прав для согласования за руководителя.</div>
+    <?php elseif ($managerApprovalResult === 'invalid_status'): ?><div class="alert alert-danger">Действие доступно только в статусе «Согласование рук-ля».</div>
+    <?php elseif ($managerApprovalResult === 'comment_required'): ?><div class="alert alert-danger">Комментарий обязателен.</div>
+    <?php elseif ($managerApprovalResult === 'session_error'): ?><div class="alert alert-danger">Сессия истекла.</div>
+    <?php elseif ($managerApprovalResult === 'history_error'): ?><div class="alert alert-warning">Оффер согласован, но запись в историю добавить не удалось.</div>
+    <?php elseif ($managerApprovalResult === 'error'): ?><div class="alert alert-danger">Не удалось согласовать оффер за руководителя.</div><?php endif; ?>
+    <?php if ($managerApprovalError !== ''): ?>
+        <div class="alert alert-secondary"><strong>Диагностика:</strong> <?= nl2br(h($managerApprovalError)) ?></div>
+    <?php endif; ?>
 
     <?php if ($pdfWorkflowResult === 'started'): ?>
         <div class="alert alert-success">Процесс формирования PDF запущен.</div>
@@ -1152,12 +1466,13 @@ function navPageUrl(int $pageNum): string
             <th>Рекрутер</th>
             <th><?= sortLink('STATUS', 'Статус + история', $sort, $dir) ?></th>
             <th>PDF</th>
+            <th class="relation-column" title="Связи" aria-label="Связи">🔗</th>
             <th>Действия</th>
         </tr>
         </thead>
         <tbody>
         <?php if (empty($items)): ?>
-            <tr><td colspan="9" class="muted">Ничего не найдено.</td></tr>
+            <tr><td colspan="10" class="muted">Ничего не найдено.</td></tr>
         <?php else: ?>
             <?php foreach ($items as $row): ?>
                 <?php
@@ -1166,6 +1481,7 @@ function navPageUrl(int $pageNum): string
                 $canManage = $isAdmin || $isRecruiterForOffer || $isCbManager || $isRecruitHead;
                 $hasPdfStatus = in_array((int)$row['STATUS_ID'], PDF_ALLOWED_STATUS_ENUM_IDS, true);
                 $canApproveThisAsHrd = $canApproveAsHrd && (int)$row['STATUS_ID'] === HRD_APPROVAL_STATUS_ENUM_ID;
+                $canApproveThisAsManager = $canApproveAsManager && (int)$row['STATUS_ID'] === MANAGER_APPROVAL_STATUS_ENUM_ID;
                 $canGeneratePdf = $hasPdfStatus && ($isRecruiterForOffer || $currentUserId === PDF_WORKFLOW_EXTRA_USER_ID);
                 $canDelegateOffer = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
                 $canCancelApproval = $isRecruiterForOffer || $isRecruitHead || $currentUserId === COMMENTS_ADMIN_USER_ID;
@@ -1206,13 +1522,14 @@ function navPageUrl(int $pageNum): string
                             <span class="muted">—</span>
                         <?php endif; ?>
                     </td>
+                    <td class="relation-column"><?= renderOfferRelationsButton((array)$row['RELATIONS'], (int)$row['ID']) ?></td>
                     <td>
                         <div class="actions">
                             <?php if ($taskUrl !== ''): ?>
                                 <a class="btn btn-info btn-sm" href="<?= h($taskUrl) ?>" target="_blank" rel="noopener">Перейти в задание</a>
                             <?php endif; ?>
 
-                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canDelegateOffer || $canCancelApproval): ?>
+                            <?php if ($canManage || $canGeneratePdf || $canApproveThisAsHrd || $canApproveThisAsManager || $canDelegateOffer || $canCancelApproval): ?>
                                 <select class="form-control form-control-sm actions-select js-offer-action-select"
                                         aria-label="Действия с оффером"
                                         data-offer-id="<?= (int)$row['ID'] ?>"
@@ -1228,6 +1545,7 @@ function navPageUrl(int $pageNum): string
                                     <?php endif; ?>
                                     <?php if ($canDelegateOffer): ?><option value="delegate">Делегировать</option><?php endif; ?>
                                     <?php if ($canApproveThisAsHrd): ?><option value="approve_as_hrd">Согласовать за HRD</option><?php endif; ?>
+                                    <?php if ($canApproveThisAsManager): ?><option value="approve_as_manager">Согласовать за руководителя</option><?php endif; ?>
                                     <?php if ($canGeneratePdf): ?>
                                         <option value="generate_pdf">Сформировать PDF</option>
                                     <?php endif; ?>
@@ -1235,7 +1553,7 @@ function navPageUrl(int $pageNum): string
                                 </select>
                             <?php endif; ?>
 
-                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canDelegateOffer && !$canCancelApproval && $taskUrl === ''): ?>
+                            <?php if (!$canManage && !$canGeneratePdf && !$canApproveThisAsHrd && !$canApproveThisAsManager && !$canDelegateOffer && !$canCancelApproval && $taskUrl === ''): ?>
                                 <span class="muted">—</span>
                             <?php endif; ?>
                         </div>
@@ -1321,6 +1639,14 @@ function navPageUrl(int $pageNum): string
         openModal('Согласовать за HRD', '<p>Данное действие согласует оффер за HRD.</p><form method="post" id="approve-as-hrd-form"><input type="hidden" name="action" value="approve_as_hrd"><input type="hidden" name="offer_id" value="' + offerId + '"><input type="hidden" name="sessid" value="' + sessid + '"><label for="approve-as-hrd-comment">Комментарий <span class="text-danger">*</span></label><textarea id="approve-as-hrd-comment" name="comment" class="form-control" rows="4" required></textarea><div class="mt-3"><button type="submit" class="btn btn-primary">Согласовать за HRD</button> <button type="button" class="btn btn-secondary" id="approve-as-hrd-cancel">Отмена</button></div></form>');
         var cancel = document.getElementById('approve-as-hrd-cancel');
         if (cancel) cancel.addEventListener('click', closeModal);
+        select.value = '';
+        return;
+      } else if (action === 'approve_as_manager') {
+        var managerOfferId = select.getAttribute('data-offer-id') || '0';
+        var managerSessid = select.getAttribute('data-sessid') || '';
+        openModal('Согласовать за руководителя', '<p>Данное действие согласует оффер за руководителя.</p><form method="post" id="approve-as-manager-form"><input type="hidden" name="action" value="approve_as_manager"><input type="hidden" name="offer_id" value="' + managerOfferId + '"><input type="hidden" name="sessid" value="' + managerSessid + '"><label for="approve-as-manager-comment">Комментарий <span class="text-danger">*</span></label><textarea id="approve-as-manager-comment" name="comment" class="form-control" rows="4" required></textarea><div class="mt-3"><button type="submit" class="btn btn-primary">Согласовать</button> <button type="button" class="btn btn-secondary" id="approve-as-manager-cancel">Отмена</button></div></form>');
+        var managerCancel = document.getElementById('approve-as-manager-cancel');
+        if (managerCancel) managerCancel.addEventListener('click', closeModal);
         select.value = '';
         return;
       } else if (action === 'delegate') {
@@ -1431,6 +1757,15 @@ function navPageUrl(int $pageNum): string
   });
 
   document.addEventListener('click', function(e) {
+    var relationsBtn = e.target.closest('.js-offer-relations');
+    if (relationsBtn) {
+      openModal(
+        'Связи (оффер #' + (relationsBtn.getAttribute('data-offer-id') || '') + ')',
+        decodeBase64Utf8(relationsBtn.getAttribute('data-relations-b64') || '')
+      );
+      return;
+    }
+
     var historyBtn = e.target.closest('.js-status-info');
     if (historyBtn) {
       e.preventDefault();
