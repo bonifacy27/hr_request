@@ -32,4 +32,11 @@ expect(rl_score($entity, $requests[20], true)['percent'] === 100, 'явная с
 $index = rl_build_request_index($requests);
 $candidates = rl_candidate_requests($entity, $requests, $index);
 expect(array_keys($candidates) === [10], 'индекс исключает заведомо неподходящие заявки');
+
+$sorted = rl_sort_suggestions([
+    'low' => ['type' => 'offer', 'id' => 2, 'score' => ['percent' => 60]],
+    'high' => ['type' => 'candidate', 'id' => 1, 'score' => ['percent' => 95]],
+    'middle' => ['type' => 'employee', 'id' => 3, 'score' => ['percent' => 75]],
+]);
+expect(array_keys($sorted) === ['high', 'middle', 'low'], 'предложения сортируются по вероятности по убыванию');
 echo "OK\n";

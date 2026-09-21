@@ -189,6 +189,8 @@ for ($pass = 0; $pass < 3; $pass++) {
     }
 }
 
+$autoThreshold = (int)($_POST['auto_threshold'] ?? $_GET['auto_threshold'] ?? 70);
+$autoThreshold = max(45, min(100, $autoThreshold));
 $suggestions = [];
 $requestIndex = rl_build_request_index($requests);
 foreach ($entities as $type => $items) {
@@ -215,10 +217,11 @@ foreach ($entities as $type => $items) {
             'id' => $id,
             'request_id' => $linkedRequest,
             'score' => $score,
-            'safe' => $score['percent'] >= 70,
+            'safe' => $score['percent'] >= $autoThreshold,
         ];
     }
 }
+$suggestions = rl_sort_suggestions($suggestions);
 
 $apply = $_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['apply'] ?? '') === 'Y';
 $selected = array_fill_keys(array_map('strval', (array)($_POST['selected'] ?? [])), true);
@@ -300,13 +303,20 @@ if ($apply) {
 </style>
 <div class="rl-card">
     <b>Предварительный расчёт</b>
-    <p>Найдено <?=count($suggestions)?> незаполненных связей. Автоматически применяются только варианты с вероятностью не ниже 70%. Уже заполненные ID не заменяются.</p>
+    <p>Найдено <?=count($suggestions)?> незаполненных связей. Список отсортирован по вероятности от большей к меньшей. Уже заполненные ID не заменяются.</p>
+    <form method="get" style="margin:10px 0">
+        <label for="rl-auto-threshold"><b>Вероятность для автоматического применения:</b></label>
+        <input id="rl-auto-threshold" type="number" name="auto_threshold" min="45" max="100" step="1" value="<?=$autoThreshold?>" style="width:75px"> %
+        <button type="submit" class="ui-btn ui-btn-light-border ui-btn-xs">Пересчитать</button>
+        <span class="rl-muted">Варианты от <?=$autoThreshold?>% будут заранее отмечены и доступны для записи.</span>
+    </form>
     <div class="rl-muted">Вес факторов: рекрутер — 25%, руководитель — 25%, должность — 30%, близость дат — 20%. Явная обратная или транзитивная связь даёт 100%.</div>
     <?php if ($apply): ?><p class="<?=empty($failed) ? 'rl-high' : 'rl-low'?>">Связей с заявками обновлено: <?=$updated?>; пар анкета–оффер: <?=$pairsUpdated?>. Ошибок проверки: <?=count($failed)?>.</p><?php endif; ?>
 </div>
 <form method="post">
     <?=bitrix_sessid_post()?>
     <input type="hidden" name="apply" value="Y">
+    <input type="hidden" name="auto_threshold" value="<?=$autoThreshold?>">
     <div class="rl-actions">
         <button type="button" class="ui-btn ui-btn-light" onclick="document.querySelectorAll('.rl-safe').forEach(x=>x.checked=true)">Выбрать надёжные</button>
         <button type="button" class="ui-btn ui-btn-light-border" onclick="document.querySelectorAll('[name=\'selected[]\']').forEach(x=>x.checked=false)">Снять выбор</button>

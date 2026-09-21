@@ -169,3 +169,16 @@ function rl_candidate_requests(array $entity, array $requests, array $index): ar
     }
     return array_intersect_key($requests, $ids);
 }
+
+function rl_sort_suggestions(array $suggestions): array
+{
+    uasort($suggestions, static function (array $left, array $right): int {
+        $byProbability = (int)$right['score']['percent'] <=> (int)$left['score']['percent'];
+        if ($byProbability !== 0) {
+            return $byProbability;
+        }
+        $byType = strcmp((string)$left['type'], (string)$right['type']);
+        return $byType !== 0 ? $byType : (int)$left['id'] <=> (int)$right['id'];
+    });
+    return $suggestions;
+}
