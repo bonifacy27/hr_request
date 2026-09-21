@@ -37,6 +37,10 @@ const PROP_STATUS = 2930;
 const PROP_HISTORY = 2861;
 const PROP_EMPLOYEE_STATUS = 954;
 const PROP_ADAPTATION_STATUS = 2930;
+// Links to the recruitment request, candidate form and offer.
+const PROP_RECRUITMENT_REQUEST_ID = 1619;
+const PROP_CANDIDATE_FORM_ID = 1621;
+const PROP_OFFER_ID = 2085;
 // Number property on the employee form containing the element ID from list 359.
 const PROP_ONBOARDING_PLAN_ID = 3164;
 const REQUIRED_ORGANIZATION_ID = 3197820;
@@ -303,6 +307,25 @@ function getPropertyValues(array $properties, $propertyId, $valueKey = 'VALUE')
     }
 
     return [];
+}
+
+function renderRelationsColumn(array $requestIds, array $candidateIds, array $offerIds)
+{
+    $relations = [
+        ['IDS' => $requestIds, 'URL' => '/forms/staff_recruitment/staffing/view_request.php?id=', 'LABEL' => 'Заявка'],
+        ['IDS' => $candidateIds, 'URL' => '/forms/staff_recruitment/check_candidate/view.php?id=', 'LABEL' => 'Анкета'],
+        ['IDS' => $offerIds, 'URL' => '/forms/staff_recruitment/offer/view_offer.php?id=', 'LABEL' => 'Оффер'],
+    ];
+    $links = [];
+
+    foreach ($relations as $relation) {
+        foreach (array_unique(array_filter(array_map('intval', $relation['IDS']))) as $id) {
+            $links[] = '<a href="' . h($relation['URL'] . $id) . '" target="_blank" rel="noopener">'
+                . h($relation['LABEL'] . ' #' . $id) . '</a>';
+        }
+    }
+
+    return $links ? implode('<br>', $links) : '<span class="text-muted">—</span>';
 }
 
 function getUserNamesMap(array $userIds)
@@ -692,6 +715,9 @@ while ($ob = $rs->GetNextElement()) {
         'MANAGER_ID' => $managerId,
         'STATUS_ID' => $statusId,
         'HISTORY' => (string)getPropertyValue($properties, PROP_HISTORY, 'VALUE'),
+        'RECRUITMENT_REQUEST_IDS' => getPropertyValues($properties, PROP_RECRUITMENT_REQUEST_ID, 'VALUE'),
+        'CANDIDATE_FORM_IDS' => getPropertyValues($properties, PROP_CANDIDATE_FORM_ID, 'VALUE'),
+        'OFFER_IDS' => getPropertyValues($properties, PROP_OFFER_ID, 'VALUE'),
     ];
 }
 
@@ -989,12 +1015,13 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                 <th><?=sortLink('Рекрутер', 'recruiter', $sort, $order)?></th>
                 <th><?=sortLink('Руководитель', 'manager', $sort, $order)?></th>
                 <th><?=sortLink('Статус + история', 'status', $sort, $order)?></th>
+                <th>Связи</th>
                 <th>Действия</th>
             </tr>
             </thead>
             <tbody>
             <?php if (!$rowsPage): ?>
-                <tr><td colspan="10" class="text-center text-muted">Ничего не найдено</td></tr>
+                <tr><td colspan="11" class="text-center text-muted">Ничего не найдено</td></tr>
             <?php endif; ?>
 
             <?php foreach ($rowsPage as $row):
@@ -1023,6 +1050,11 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
                         </button>
                         <button type="button" class="history-btn js-history-btn" data-history="<?=h($historyHtml)?>" data-id="<?=$id?>" title="Показать историю">i</button>
                     </td>
+                    <td class="nowrap"><?=renderRelationsColumn(
+                        (array)$row['RECRUITMENT_REQUEST_IDS'],
+                        (array)$row['CANDIDATE_FORM_IDS'],
+                        (array)$row['OFFER_IDS']
+                    )?></td>
                     <td class="nowrap">
                         <?php
                         $canManage = $isAdministrator || $isRecruitHead || (int)$row['RECRUITER_ID'] === $currentUserId;
