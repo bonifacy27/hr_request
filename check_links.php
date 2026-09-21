@@ -1,36 +1,28 @@
 <?php
 /**
- * /forms/staff_recruitment/check_links.php
+ * Восстановление связей в исторических данных подбора.
  *
- * Контроль и настройка связок между сущностями подбора:
- * - заявка на подбор (ИБ 201)
- * - анкеты кандидата (ИБ 207)
- * - офферы (ИБ 218)
- * - карточки сотрудников (ИБ 196)
+ * Страница всегда сначала строит прогноз. Запись выполняется только для явно
+ * отмеченных строк, не заменяет уже заполненные одиночные связи и защищена
+ * bitrix_sessid().
  */
 
 use Bitrix\Main\Loader;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
+require_once __DIR__ . '/lib/recruitment_linker.php';
 
 global $APPLICATION;
-$APPLICATION->SetTitle('Проверка связок: заявка → анкеты → офферы → карточки');
+$APPLICATION->SetTitle('Восстановление связей подбора');
 
-const CL_IBLOCK_REQUEST   = 201;
-const CL_IBLOCK_CANDIDATE = 207;
-const CL_IBLOCK_OFFER     = 218;
-const CL_IBLOCK_EMPLOYEE  = 196;
+const RL_IBLOCK_REQUEST = 201;
+const RL_IBLOCK_CANDIDATE = 207;
+const RL_IBLOCK_OFFER = 218;
+const RL_IBLOCK_EMPLOYEE = 196;
 
-const CL_PROP_CAND_REQ_ID    = 1596; // 207.ID_ZAYAVKI_NA_PODBOR
-const CL_PROP_OFFER_REQ_ID   = 1601; // 218.ID_ZAYAVKI_NA_PODBOR
-const CL_PROP_OFFER_CAND_ID  = 1603; // 218.ID_ANKETY_KANDIDATA
-const CL_PROP_EMP_REQ_ID     = 1619; // 196.ID_ZAYAVKI_NA_PODBOR
-const CL_PROP_EMP_CAND_ID    = 1621; // 196.ID_ANKETY_KANDIDATA
-const CL_PROP_EMP_OFFER_ID   = 2085; // 196.ID_ZAYAVKI_NA_OFFER
-
-const CL_PROP_REQ_CAND_MULTI  = 3127; // 201.ANKETA_KANDIDATA
-const CL_PROP_REQ_OFFER_MULTI = 3128; // 201.ID_OFFERA
-const CL_PROP_REQ_EMP_MULTI   = 3129; // 201.ID_KARTOCHKI_SOTRUDNIKA
+const RL_REQUEST_CANDIDATES = 3127;
+const RL_REQUEST_OFFERS = 3128;
+const RL_REQUEST_EMPLOYEES = 3129;
 
 if (!Loader::includeModule('iblock')) {
     ShowError('Не удалось подключить модуль iblock.');
@@ -38,357 +30,298 @@ if (!Loader::includeModule('iblock')) {
     return;
 }
 
-function cl_h($value)
+$types = [
+    'candidate' => [
+        'title' => 'Анкета', 'iblock' => RL_IBLOCK_CANDIDATE,
+        'request' => 1596, 'recruiter' => 1323, 'manager' => 1988, 'position' => 1617,
+        'candidate' => null, 'offer' => 1616, 'request_back' => RL_REQUEST_CANDIDATES,
+    ],
+    'offer' => [
+        'title' => 'Оффер', 'iblock' => RL_IBLOCK_OFFER,
+        'request' => 1601, 'recruiter' => 1190, 'manager' => 1164, 'position' => 1161,
+        'candidate' => 1603, 'offer' => null, 'request_back' => RL_REQUEST_OFFERS,
+    ],
+    'employee' => [
+        'title' => 'Карточка', 'iblock' => RL_IBLOCK_EMPLOYEE,
+        'request' => 1619, 'recruiter' => 961, 'manager' => 959, 'position' => 958,
+        'candidate' => 1621, 'offer' => 2085, 'request_back' => RL_REQUEST_EMPLOYEES,
+    ],
+];
+
+function rl_h($value): string
 {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function cl_normalize_id($value): int
+function rl_property_values(int $iblockId, int $elementId, int $propertyId): array
 {
-    $value = trim((string)$value);
-    if ($value === '') {
-        return 0;
-    }
-
-    if (preg_match('/\d+/', $value, $m)) {
-        return (int)$m[0];
-    }
-
-    return 0;
-}
-
-function cl_unique_sorted(array $ids): array
-{
-    $ids = array_map('intval', $ids);
-    $ids = array_filter($ids, static function ($v) {
-        return $v > 0;
-    });
-    $ids = array_values(array_unique($ids));
-    sort($ids, SORT_NUMERIC);
-    return $ids;
-}
-
-function cl_get_prop_value(int $iblockId, int $elementId, int $propertyId): string
-{
-    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
-    while ($row = $rs->Fetch()) {
-        $v = trim((string)($row['VALUE'] ?? ''));
-        if ($v !== '') {
-            return $v;
-        }
-    }
-    return '';
-}
-
-function cl_get_prop_values(int $iblockId, int $elementId, int $propertyId): array
-{
-    $values = [];
-    $rs = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
-    while ($row = $rs->Fetch()) {
-        $id = cl_normalize_id($row['VALUE'] ?? '');
+    $result = [];
+    $iterator = CIBlockElement::GetProperty($iblockId, $elementId, ['sort' => 'asc'], ['ID' => $propertyId]);
+    while ($property = $iterator->Fetch()) {
+        $id = rl_extract_id($property['VALUE'] ?? null);
         if ($id > 0) {
-            $values[] = $id;
+            $result[$id] = $id;
         }
     }
-    return cl_unique_sorted($values);
+    return array_values($result);
 }
 
-function cl_update_request_links(int $requestId, array $candIds, array $offerIds, array $empIds): array
+function rl_load(int $iblockId, array $propertyIds): array
 {
-    $candIds = cl_unique_sorted($candIds);
-    $offerIds = cl_unique_sorted($offerIds);
-    $empIds = cl_unique_sorted($empIds);
-
-    // Для SetPropertyValuesEx используем ID свойств (число),
-    // т.к. в ИБ поля множественные, тип "Число".
-    CIBlockElement::SetPropertyValuesEx(
-        $requestId,
-        CL_IBLOCK_REQUEST,
-        [
-            CL_PROP_REQ_CAND_MULTI => $candIds,
-            CL_PROP_REQ_OFFER_MULTI => $offerIds,
-            CL_PROP_REQ_EMP_MULTI => $empIds,
-        ]
-    );
-
-    // Явно проверяем, что значения реально записались.
-    $savedCand = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_CAND_MULTI);
-    $savedOffer = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_OFFER_MULTI);
-    $savedEmp = cl_get_prop_values(CL_IBLOCK_REQUEST, $requestId, CL_PROP_REQ_EMP_MULTI);
-
-    $ok = ($savedCand === $candIds) && ($savedOffer === $offerIds) && ($savedEmp === $empIds);
-
-    return [
-        'ok' => $ok,
-        'saved_cand' => $savedCand,
-        'saved_offer' => $savedOffer,
-        'saved_emp' => $savedEmp,
-    ];
-}
-
-function cl_collect_entities(int $iblockId, int $propReqId, ?int $propCandId = null, ?int $propOfferId = null): array
-{
-    $byReq = [];
     $rows = [];
-
-    $rs = CIBlockElement::GetList(
+    $iterator = CIBlockElement::GetList(
         ['ID' => 'ASC'],
-        ['IBLOCK_ID' => $iblockId, 'ACTIVE' => 'Y'],
+        ['IBLOCK_ID' => $iblockId],
         false,
         false,
-        ['ID', 'NAME']
+        ['ID', 'NAME', 'DATE_CREATE']
     );
-
-    while ($item = $rs->GetNext()) {
-        $id = (int)$item['ID'];
-        $reqId = cl_normalize_id(cl_get_prop_value($iblockId, $id, $propReqId));
-        $candId = $propCandId ? cl_normalize_id(cl_get_prop_value($iblockId, $id, $propCandId)) : 0;
-        $offerId = $propOfferId ? cl_normalize_id(cl_get_prop_value($iblockId, $id, $propOfferId)) : 0;
-
-        if ($reqId > 0) {
-            $byReq[$reqId][] = $id;
+    while ($element = $iterator->Fetch()) {
+        $id = (int)$element['ID'];
+        $props = [];
+        foreach (array_unique(array_filter($propertyIds)) as $propertyId) {
+            $value = '';
+            $propertyIterator = CIBlockElement::GetProperty($iblockId, $id, ['sort' => 'asc'], ['ID' => $propertyId]);
+            while ($property = $propertyIterator->Fetch()) {
+                if (trim((string)($property['VALUE'] ?? '')) !== '') {
+                    $value = $property['VALUE'];
+                    break;
+                }
+            }
+            $props[(int)$propertyId] = $value;
         }
-
         $rows[$id] = [
             'id' => $id,
-            'req_id' => $reqId,
-            'cand_id' => $candId,
-            'offer_id' => $offerId,
-            'name' => (string)$item['NAME'],
+            'name' => (string)$element['NAME'],
+            'date' => strtotime((string)$element['DATE_CREATE']) ?: 0,
+            'props' => $props,
         ];
     }
-
-    foreach ($byReq as $reqId => $list) {
-        $byReq[$reqId] = cl_unique_sorted($list);
-    }
-
-    return [$byReq, $rows];
+    return $rows;
 }
 
-function cl_collect_requests(): array
-{
-    $ids = [];
-    $names = [];
+$requests = rl_load(RL_IBLOCK_REQUEST, [1035, 1034, 1011]);
+foreach ($requests as &$request) {
+    $request['recruiter'] = rl_extract_id($request['props'][1035] ?? null);
+    $request['manager'] = rl_extract_id($request['props'][1034] ?? null);
+    $request['position'] = (string)($request['props'][1011] ?? '');
+    $request['backlinks'] = ['candidate' => [], 'offer' => [], 'employee' => []];
+}
+unset($request);
 
-    $rs = CIBlockElement::GetList(
-        ['ID' => 'ASC'],
-        ['IBLOCK_ID' => CL_IBLOCK_REQUEST, 'ACTIVE' => 'Y'],
-        false,
-        false,
-        ['ID', 'NAME']
-    );
-
-    while ($item = $rs->GetNext()) {
-        $id = (int)$item['ID'];
-        $ids[] = $id;
-        $names[$id] = (string)$item['NAME'];
+$entities = [];
+foreach ($types as $type => $config) {
+    $propertyIds = [$config['request'], $config['recruiter'], $config['manager'], $config['position'], $config['candidate'], $config['offer']];
+    $entities[$type] = rl_load($config['iblock'], $propertyIds);
+    foreach ($entities[$type] as &$entity) {
+        $entity['type'] = $type;
+        foreach (['request', 'recruiter', 'manager', 'candidate', 'offer'] as $field) {
+            $propertyId = $config[$field];
+            $entity[$field] = $propertyId ? rl_extract_id($entity['props'][$propertyId] ?? null) : 0;
+        }
+        $entity['position'] = (string)($entity['props'][$config['position']] ?? '');
     }
-
-    return [cl_unique_sorted($ids), $names];
+    unset($entity);
 }
 
-function cl_render_compact_links(array $ids, array $map): string
-{
-    if (empty($ids)) {
-        return '—';
+// Обратные связи из заявки — тоже достоверное свидетельство, даже если поле
+// ID заявки на старой сущности осталось пустым.
+foreach ($requests as $requestId => &$request) {
+    foreach ($types as $type => $config) {
+        $request['backlinks'][$type] = rl_property_values(RL_IBLOCK_REQUEST, $requestId, $config['request_back']);
     }
+}
+unset($request);
 
-    $parts = [];
-    foreach ($ids as $id) {
-        $name = trim((string)($map[$id]['name'] ?? ''));
-        $parts[] = '#' . (int)$id . ($name !== '' ? ' — ' . $name : '');
+$knownRequest = [];
+$backlinkVotes = [];
+foreach ($entities as $type => $items) {
+    foreach ($items as $id => $entity) {
+        if (isset($requests[$entity['request']])) {
+            $knownRequest[$type][$id] = $entity['request'];
+        }
     }
-
-    return implode('<br>', array_map('cl_h', $parts));
+}
+foreach ($requests as $requestId => $request) {
+    foreach ($request['backlinks'] as $type => $ids) {
+        foreach ($ids as $id) {
+            if (isset($entities[$type][$id]) && empty($knownRequest[$type][$id])) {
+                $backlinkVotes[$type][$id][$requestId] = $requestId;
+            }
+        }
+    }
+}
+foreach ($backlinkVotes as $type => $items) {
+    foreach ($items as $id => $requestIds) {
+        if (count($requestIds) === 1) {
+            $knownRequest[$type][$id] = reset($requestIds);
+        }
+    }
 }
 
-[$requestIds, $requestNames] = cl_collect_requests();
-[$candByReq, $candRows] = cl_collect_entities(CL_IBLOCK_CANDIDATE, CL_PROP_CAND_REQ_ID);
-[$offerByReq, $offerRows] = cl_collect_entities(CL_IBLOCK_OFFER, CL_PROP_OFFER_REQ_ID, CL_PROP_OFFER_CAND_ID);
-[$empByReq, $empRows] = cl_collect_entities(CL_IBLOCK_EMPLOYEE, CL_PROP_EMP_REQ_ID, CL_PROP_EMP_CAND_ID, CL_PROP_EMP_OFFER_ID);
-
-$requestIds = array_merge($requestIds, array_keys($candByReq), array_keys($offerByReq), array_keys($empByReq));
-$requestIds = cl_unique_sorted($requestIds);
-
-$apply = (
-    $_SERVER['REQUEST_METHOD'] === 'POST'
-    && check_bitrix_sessid()
-    && (string)($_POST['apply'] ?? '') === 'Y'
-);
-
-$selectedReqIds = array_map('intval', (array)($_POST['selected_req'] ?? []));
-$selectedReqIds = cl_unique_sorted($selectedReqIds);
-$selectedReqMap = array_fill_keys($selectedReqIds, true);
-
-$updated = 0;
-$errors = 0;
-$errorItems = [];
-$message = '';
-
-$rows = [];
-
-foreach ($requestIds as $reqId) {
-    $candIds = $candByReq[$reqId] ?? [];
-    $offerIds = $offerByReq[$reqId] ?? [];
-    $empIds = $empByReq[$reqId] ?? [];
-
-    $warnings = [];
-
-    foreach ($offerIds as $offerId) {
-        $offer = $offerRows[$offerId] ?? null;
-        if (!$offer) {
-            continue;
-        }
-
-        $candId = (int)($offer['cand_id'] ?? 0);
-        if ($candId > 0 && !in_array($candId, $candIds, true)) {
-            $warnings[] = 'Оффер #' . $offerId . ' → анкета #' . $candId . ' вне заявки';
+// Несколько проходов позволяют протянуть заявку по цепочке
+// карточка -> оффер -> анкета -> заявка.
+for ($pass = 0; $pass < 3; $pass++) {
+    foreach ($entities as $type => $items) {
+        foreach ($items as $id => $entity) {
+            if (!empty($knownRequest[$type][$id])) {
+                continue;
+            }
+            $votes = [];
+            if ($entity['candidate'] && !empty($knownRequest['candidate'][$entity['candidate']])) {
+                $votes[] = $knownRequest['candidate'][$entity['candidate']];
+            }
+            if ($entity['offer'] && !empty($knownRequest['offer'][$entity['offer']])) {
+                $votes[] = $knownRequest['offer'][$entity['offer']];
+            }
+            if (count(array_unique($votes)) === 1) {
+                $knownRequest[$type][$id] = $votes[0];
+            }
         }
     }
+}
 
-    foreach ($empIds as $empId) {
-        $emp = $empRows[$empId] ?? null;
-        if (!$emp) {
-            continue;
+$suggestions = [];
+foreach ($entities as $type => $items) {
+    foreach ($items as $id => $entity) {
+        if ($entity['request'] > 0) {
+            continue; // Никогда не предлагаем заменить существующую связь.
         }
-
-        $candId = (int)($emp['cand_id'] ?? 0);
-        $offerId = (int)($emp['offer_id'] ?? 0);
-
-        if ($candId > 0 && !in_array($candId, $candIds, true)) {
-            $warnings[] = 'Карточка #' . $empId . ' → анкета #' . $candId . ' вне заявки';
-        }
-
-        if ($offerId > 0 && !in_array($offerId, $offerIds, true)) {
-            $warnings[] = 'Карточка #' . $empId . ' → оффер #' . $offerId . ' вне заявки';
-        }
-    }
-
-    if ($apply && isset($selectedReqMap[$reqId])) {
-        $updateResult = cl_update_request_links($reqId, $candIds, $offerIds, $empIds);
-        if (!$updateResult['ok']) {
-            $errors++;
-            $errorItems[] = $reqId;
+        $linkedRequest = $knownRequest[$type][$id] ?? 0;
+        if ($linkedRequest && isset($requests[$linkedRequest])) {
+            $score = rl_score($entity, $requests[$linkedRequest], true);
         } else {
-            $updated++;
+            $score = rl_best_request($entity, $requests);
+            $linkedRequest = $score['request_id'];
         }
+        if (!$linkedRequest || $score['percent'] < 45) {
+            continue;
+        }
+        $suggestions[$type . ':' . $id] = [
+            'key' => $type . ':' . $id,
+            'type' => $type,
+            'id' => $id,
+            'request_id' => $linkedRequest,
+            'score' => $score,
+            'safe' => $score['percent'] >= 70,
+        ];
     }
-
-    $rows[] = [
-        'req_id' => $reqId,
-        'req_name' => (string)($requestNames[$reqId] ?? ''),
-        'cand_ids' => $candIds,
-        'offer_ids' => $offerIds,
-        'emp_ids' => $empIds,
-        'warnings' => $warnings,
-    ];
 }
 
+$apply = $_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && ($_POST['apply'] ?? '') === 'Y';
+$selected = array_fill_keys(array_map('strval', (array)($_POST['selected'] ?? [])), true);
+$selectedPairs = array_fill_keys(array_map('strval', (array)($_POST['selected_pair'] ?? [])), true);
+$pairSuggestions = [];
+foreach ($entities['offer'] as $offerId => $offer) {
+    $candidateId = $offer['candidate'];
+    if ($candidateId && isset($entities['candidate'][$candidateId]) && !$entities['candidate'][$candidateId]['offer']) {
+        $pairSuggestions['candidate:' . $candidateId . ':offer:' . $offerId] = [
+            'target_type' => 'candidate', 'target_id' => $candidateId, 'property' => $types['candidate']['offer'],
+            'value' => $offerId, 'text' => 'Анкета #' . $candidateId . ' → оффер #' . $offerId,
+        ];
+    }
+}
+foreach ($entities['candidate'] as $candidateId => $candidate) {
+    $offerId = $candidate['offer'];
+    if ($offerId && isset($entities['offer'][$offerId]) && !$entities['offer'][$offerId]['candidate']) {
+        $pairSuggestions['offer:' . $offerId . ':candidate:' . $candidateId] = [
+            'target_type' => 'offer', 'target_id' => $offerId, 'property' => $types['offer']['candidate'],
+            'value' => $candidateId, 'text' => 'Оффер #' . $offerId . ' → анкета #' . $candidateId,
+        ];
+    }
+}
+$updated = 0;
+$pairsUpdated = 0;
+$failed = [];
 if ($apply) {
-    if (empty($selectedReqIds)) {
-        $message = 'Не выбрано ни одной заявки для обновления.';
-    } else {
-        $message = 'Обновление выполнено. Успешно: ' . $updated . '.';
+    foreach ($suggestions as $key => $suggestion) {
+        if (!isset($selected[$key]) || !$suggestion['safe']) {
+            continue;
+        }
+        $config = $types[$suggestion['type']];
+        $entity = $entities[$suggestion['type']][$suggestion['id']];
+        // Повторная проверка непосредственно перед записью защищает от гонки.
+        $current = rl_property_values($config['iblock'], $suggestion['id'], $config['request']);
+        if ($current) {
+            continue;
+        }
+        CIBlockElement::SetPropertyValuesEx($suggestion['id'], $config['iblock'], [
+            $config['request'] => $suggestion['request_id'],
+        ]);
+        $backlinks = rl_property_values(RL_IBLOCK_REQUEST, $suggestion['request_id'], $config['request_back']);
+        $backlinks[] = $suggestion['id'];
+        $backlinks = array_values(array_unique(array_map('intval', $backlinks)));
+        sort($backlinks, SORT_NUMERIC);
+        CIBlockElement::SetPropertyValuesEx($suggestion['request_id'], RL_IBLOCK_REQUEST, [
+            $config['request_back'] => $backlinks,
+        ]);
+        $saved = rl_property_values($config['iblock'], $suggestion['id'], $config['request']);
+        if ($saved === [$suggestion['request_id']]) {
+            $updated++;
+        } else {
+            $failed[] = $key;
+        }
+    }
+    foreach ($pairSuggestions as $key => $repair) {
+        if (!isset($selectedPairs[$key])) {
+            continue;
+        }
+        $config = $types[$repair['target_type']];
+        if (rl_property_values($config['iblock'], $repair['target_id'], $repair['property'])) {
+            continue;
+        }
+        CIBlockElement::SetPropertyValuesEx($repair['target_id'], $config['iblock'], [
+            $repair['property'] => $repair['value'],
+        ]);
+        $saved = rl_property_values($config['iblock'], $repair['target_id'], $repair['property']);
+        if ($saved === [$repair['value']]) {
+            $pairsUpdated++;
+        } else {
+            $failed[] = $key;
+        }
     }
 }
 
 ?>
 <style>
-    .cl-wrap { margin: 12px 0 24px; }
-    .cl-card { border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; background: #fff; }
-    .cl-meta { color: #555; margin-top: 4px; font-size: 13px; }
-    .cl-actions { margin: 8px 0; }
-    .cl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .cl-table th, .cl-table td { border: 1px solid #e2e8f0; padding: 6px; vertical-align: top; }
-    .cl-table th { background: #f8fafc; text-align: left; white-space: nowrap; }
-    .cl-table td { line-height: 1.25; }
-    .cl-warn { color: #b45309; }
-    .cl-ok { color: #166534; }
-    .cl-err { color: #b91c1c; }
-    .cl-small { font-size: 12px; color: #6b7280; }
+    .rl-card{background:#fff;border:1px solid #dfe3e8;border-radius:9px;padding:14px;margin:12px 0}.rl-table{width:100%;border-collapse:collapse;font-size:13px}.rl-table th,.rl-table td{padding:8px;border:1px solid #dfe3e8;text-align:left;vertical-align:top}.rl-table th{background:#f6f8fa}.rl-score{font-weight:700}.rl-high{color:#16813d}.rl-low{color:#a15c00}.rl-muted{color:#6b7280;font-size:12px}.rl-reasons{margin:4px 0 0;padding-left:18px}.rl-actions{position:sticky;top:0;background:#fff;padding:10px 0;z-index:2}
 </style>
-
-<div class="cl-wrap">
-    <div class="cl-card">
-        <b>Собранные данные</b>
-        <div class="cl-meta">
-            Заявок: <?=count($requestIds)?>,
-            анкет: <?=count($candRows)?>,
-            офферов: <?=count($offerRows)?>,
-            карточек сотрудников: <?=count($empRows)?>.
-        </div>
-
-        <?php if ($apply): ?>
-            <div class="cl-meta <?=($errors > 0 ? 'cl-err' : 'cl-ok')?>" style="margin-top:8px;">
-                <?=cl_h($message)?>
-                <?php if ($errors > 0): ?>
-                    Ошибки: <?=$errors?> (заявки: <?=cl_h(implode(', ', $errorItems))?>).
-                <?php endif; ?>
-            </div>
-        <?php endif; ?>
-
-        <div class="cl-small" style="margin-top:8px;">
-            Отметьте заявки и нажмите «Обновить выбранные заявки» — будут обновлены только отмеченные записи.
-        </div>
-    </div>
-
-    <form method="post">
-        <?=bitrix_sessid_post()?>
-        <input type="hidden" name="apply" value="Y">
-
-        <div class="cl-actions">
-            <button type="button" class="ui-btn ui-btn-light" onclick="for (const c of document.querySelectorAll('.cl-check')) c.checked = true;">Выбрать все</button>
-            <button type="button" class="ui-btn ui-btn-light-border" onclick="for (const c of document.querySelectorAll('.cl-check')) c.checked = false;">Снять все</button>
-            <button type="submit" class="ui-btn ui-btn-success">Обновить выбранные заявки</button>
-        </div>
-
-        <table class="cl-table">
-            <thead>
-            <tr>
-                <th>Обновить</th>
-                <th>Заявка</th>
-                <th>Анкеты</th>
-                <th>Офферы</th>
-                <th>Карточки</th>
-                <th>Контроль</th>
-            </tr>
-            </thead>
-            <tbody>
-            <?php foreach ($rows as $row): ?>
-                <tr>
-                    <td>
-                        <input
-                            class="cl-check"
-                            type="checkbox"
-                            name="selected_req[]"
-                            value="<?= (int)$row['req_id'] ?>"
-                            <?=(isset($selectedReqMap[(int)$row['req_id']]) ? 'checked' : '')?>
-                        >
-                    </td>
-                    <td>
-                        #<?= (int)$row['req_id'] ?>
-                        <?php if ($row['req_name'] !== ''): ?>
-                            <br><span class="cl-small"><?=cl_h($row['req_name'])?></span>
-                        <?php endif; ?>
-                    </td>
-                    <td><?=cl_render_compact_links($row['cand_ids'], $candRows)?></td>
-                    <td><?=cl_render_compact_links($row['offer_ids'], $offerRows)?></td>
-                    <td><?=cl_render_compact_links($row['emp_ids'], $empRows)?></td>
-                    <td>
-                        <?php if (empty($row['warnings'])): ?>
-                            <span class="cl-ok">OK</span>
-                        <?php else: ?>
-                            <?php foreach ($row['warnings'] as $warn): ?>
-                                <div class="cl-warn">• <?=cl_h($warn)?></div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
-                    </td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table>
-    </form>
+<div class="rl-card">
+    <b>Предварительный расчёт</b>
+    <p>Найдено <?=count($suggestions)?> незаполненных связей. Автоматически применяются только варианты с вероятностью не ниже 70%. Уже заполненные ID не заменяются.</p>
+    <div class="rl-muted">Вес факторов: рекрутер — 25%, руководитель — 25%, должность — 30%, близость дат — 20%. Явная обратная или транзитивная связь даёт 100%.</div>
+    <?php if ($apply): ?><p class="<?=empty($failed) ? 'rl-high' : 'rl-low'?>">Связей с заявками обновлено: <?=$updated?>; пар анкета–оффер: <?=$pairsUpdated?>. Ошибок проверки: <?=count($failed)?>.</p><?php endif; ?>
 </div>
-
-<?php
-require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
+<form method="post">
+    <?=bitrix_sessid_post()?>
+    <input type="hidden" name="apply" value="Y">
+    <div class="rl-actions">
+        <button type="button" class="ui-btn ui-btn-light" onclick="document.querySelectorAll('.rl-safe').forEach(x=>x.checked=true)">Выбрать надёжные</button>
+        <button type="button" class="ui-btn ui-btn-light-border" onclick="document.querySelectorAll('[name=\'selected[]\']').forEach(x=>x.checked=false)">Снять выбор</button>
+        <button type="submit" class="ui-btn ui-btn-success" onclick="return confirm('Записать выбранные связи?')">Связать выбранные</button>
+    </div>
+    <table class="rl-table">
+        <thead><tr><th></th><th>Сущность</th><th>Предлагаемая заявка</th><th>Вероятность</th><th>Основания</th></tr></thead>
+        <tbody>
+        <?php foreach ($suggestions as $suggestion): $entity = $entities[$suggestion['type']][$suggestion['id']]; $request = $requests[$suggestion['request_id']]; ?>
+            <tr>
+                <td><input type="checkbox" name="selected[]" value="<?=rl_h($suggestion['key'])?>" class="<?=$suggestion['safe'] ? 'rl-safe' : ''?>" <?=$suggestion['safe'] ? 'checked' : 'disabled'?>></td>
+                <td><b><?=rl_h($types[$suggestion['type']]['title'])?> #<?=$suggestion['id']?></b><br><?=rl_h($entity['name'])?><div class="rl-muted"><?=rl_h($entity['position'])?></div></td>
+                <td><b>#<?=$suggestion['request_id']?></b><br><?=rl_h($request['name'])?><div class="rl-muted"><?=rl_h($request['position'])?></div></td>
+                <td class="rl-score <?=$suggestion['safe'] ? 'rl-high' : 'rl-low'?>"><?=$suggestion['score']['percent']?>%</td>
+                <td><ul class="rl-reasons"><?php foreach ($suggestion['score']['reasons'] as $reason): ?><li><?=rl_h($reason)?></li><?php endforeach; ?></ul></td>
+            </tr>
+        <?php endforeach; ?>
+        <?php if (!$suggestions): ?><tr><td colspan="5">Подходящих незаполненных связей не найдено.</td></tr><?php endif; ?>
+        </tbody>
+    </table>
+    <div class="rl-card">
+        <b>Односторонние связи анкета ↔ оффер</b>
+        <p class="rl-muted">Эти пары найдены по уже заполнённому ID на одной стороне. Скрипт может безопасно дописать обратную ссылку.</p>
+        <?php foreach ($pairSuggestions as $key => $repair): ?>
+            <label style="display:block;margin:5px 0"><input type="checkbox" name="selected_pair[]" value="<?=rl_h($key)?>" checked> <?=rl_h($repair['text'])?> <span class="rl-high">(100%)</span></label>
+        <?php endforeach; ?>
+        <?php if (!$pairSuggestions): ?><span class="rl-muted">Несимметричных связей нет.</span><?php endif; ?>
+    </div>
+</form>
+<?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
