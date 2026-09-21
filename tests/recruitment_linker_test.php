@@ -11,6 +11,7 @@ function expect($condition, string $message): void
 }
 
 expect(rl_extract_id('user_412') === 412, 'ID извлекается из пользовательского значения');
+expect(rl_extract_ids(['12', 'user_14', '12']) === [12, 14], 'множественные ID извлекаются без дублей');
 expect(rl_normalize_text('Ведущий — Разработчик') === 'ведущий разработчик', 'текст нормализуется');
 expect(rl_title_similarity('Senior PHP developer', 'PHP developer senior') > .7, 'порядок слов не мешает сравнению');
 expect(rl_date_similarity(strtotime('2024-01-01'), strtotime('2024-01-08')) === 1.0, 'семь дней считаются близкими');
@@ -27,4 +28,8 @@ $ambiguous = rl_best_request($entity, [10 => $requests[10], 11 => $requests[10]]
 expect($ambiguous['percent'] === 69, 'неоднозначное совпадение нельзя применить автоматически');
 
 expect(rl_score($entity, $requests[20], true)['percent'] === 100, 'явная связь имеет максимальную уверенность');
+
+$index = rl_build_request_index($requests);
+$candidates = rl_candidate_requests($entity, $requests, $index);
+expect(array_keys($candidates) === [10], 'индекс исключает заведомо неподходящие заявки');
 echo "OK\n";

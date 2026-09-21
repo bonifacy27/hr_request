@@ -69,6 +69,7 @@ function rl_property_values(int $iblockId, int $elementId, int $propertyId): arr
 function rl_load(int $iblockId, array $propertyIds): array
 {
     $rows = [];
+    $propertyIds = array_values(array_unique(array_map('intval', array_filter($propertyIds))));
     $iterator = CIBlockElement::GetList(
         ['ID' => 'ASC'],
         ['IBLOCK_ID' => $iblockId],
@@ -78,29 +79,37 @@ function rl_load(int $iblockId, array $propertyIds): array
     );
     while ($element = $iterator->Fetch()) {
         $id = (int)$element['ID'];
-        $props = [];
-        foreach (array_unique(array_filter($propertyIds)) as $propertyId) {
-            $value = '';
-            $propertyIterator = CIBlockElement::GetProperty($iblockId, $id, ['sort' => 'asc'], ['ID' => $propertyId]);
-            while ($property = $propertyIterator->Fetch()) {
-                if (trim((string)($property['VALUE'] ?? '')) !== '') {
-                    $value = $property['VALUE'];
-                    break;
-                }
-            }
-            $props[(int)$propertyId] = $value;
-        }
         $rows[$id] = [
             'id' => $id,
             'name' => (string)$element['NAME'],
             'date' => strtotime((string)$element['DATE_CREATE']) ?: 0,
-            'props' => $props,
+            'props' => [],
         ];
+    }
+
+    // GetProperty для каждого поля каждого элемента создавал десятки тысяч
+    // запросов. Загружаем свойства пакетами: один запрос на 500 элементов.
+    foreach (array_chunk(array_keys($rows), 500) as $elementIds) {
+        $loaded = [];
+        CIBlockElement::GetPropertyValuesArray(
+            $loaded,
+            $iblockId,
+            ['ID' => $elementIds],
+            ['ID' => $propertyIds]
+        );
+        foreach ($loaded as $elementId => $properties) {
+            foreach ($properties as $property) {
+                $propertyId = (int)($property['ID'] ?? 0);
+                if ($propertyId > 0) {
+                    $rows[(int)$elementId]['props'][$propertyId] = $property['VALUE'] ?? '';
+                }
+            }
+        }
     }
     return $rows;
 }
 
-$requests = rl_load(RL_IBLOCK_REQUEST, [1035, 1034, 1011]);
+$requests = rl_load(RL_IBLOCK_REQUEST, [1035, 1034, 1011, RL_REQUEST_CANDIDATES, RL_REQUEST_OFFERS, RL_REQUEST_EMPLOYEES]);
 foreach ($requests as &$request) {
     $request['recruiter'] = rl_extract_id($request['props'][1035] ?? null);
     $request['manager'] = rl_extract_id($request['props'][1034] ?? null);
@@ -124,11 +133,10 @@ foreach ($types as $type => $config) {
     unset($entity);
 }
 
-// Обратные связи из заявки — тоже достоверное свидетельство, даже если поле
-// ID заявки на старой сущности осталось пустым.
+// Обратные связи уже пришли в пакетной загрузке заявки.
 foreach ($requests as $requestId => &$request) {
     foreach ($types as $type => $config) {
-        $request['backlinks'][$type] = rl_property_values(RL_IBLOCK_REQUEST, $requestId, $config['request_back']);
+        $request['backlinks'][$type] = rl_extract_ids($request['props'][$config['request_back']] ?? null);
     }
 }
 unset($request);
@@ -182,6 +190,7 @@ for ($pass = 0; $pass < 3; $pass++) {
 }
 
 $suggestions = [];
+$requestIndex = rl_build_request_index($requests);
 foreach ($entities as $type => $items) {
     foreach ($items as $id => $entity) {
         if ($entity['request'] > 0) {
@@ -191,7 +200,10 @@ foreach ($entities as $type => $items) {
         if ($linkedRequest && isset($requests[$linkedRequest])) {
             $score = rl_score($entity, $requests[$linkedRequest], true);
         } else {
-            $score = rl_best_request($entity, $requests);
+            // Сравниваем только с заявками, у которых совпал хотя бы один
+            // индексируемый признак, вместо полного декартова произведения.
+            $candidateRequests = rl_candidate_requests($entity, $requests, $requestIndex);
+            $score = rl_best_request($entity, $candidateRequests);
             $linkedRequest = $score['request_id'];
         }
         if (!$linkedRequest || $score['percent'] < 45) {

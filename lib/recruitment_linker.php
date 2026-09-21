@@ -10,6 +10,19 @@ function rl_extract_id($value): int
     return preg_match('/\d+/', trim((string)$value), $match) ? (int)$match[0] : 0;
 }
 
+function rl_extract_ids($value): array
+{
+    $values = is_array($value) ? $value : [$value];
+    $result = [];
+    foreach ($values as $item) {
+        $id = rl_extract_id($item);
+        if ($id > 0) {
+            $result[$id] = $id;
+        }
+    }
+    return array_values($result);
+}
+
 function rl_normalize_text($value): string
 {
     $value = mb_strtolower(trim((string)$value), 'UTF-8');
@@ -101,4 +114,58 @@ function rl_best_request(array $entity, array $requests): array
         $best['percent'] = min($best['percent'], 69);
     }
     return $best;
+}
+
+function rl_position_tokens($value): array
+{
+    $tokens = explode(' ', rl_normalize_text($value));
+    return array_values(array_filter(array_unique($tokens), static function ($token) {
+        return mb_strlen($token, 'UTF-8') >= 3;
+    }));
+}
+
+function rl_build_request_index(array $requests): array
+{
+    $index = ['recruiter' => [], 'manager' => [], 'token' => [], 'month' => []];
+    foreach ($requests as $id => $request) {
+        foreach (['recruiter', 'manager'] as $field) {
+            $value = (int)($request[$field] ?? 0);
+            if ($value > 0) {
+                $index[$field][$value][$id] = $id;
+            }
+        }
+        foreach (rl_position_tokens($request['position'] ?? '') as $token) {
+            $index['token'][$token][$id] = $id;
+        }
+        if (!empty($request['date'])) {
+            $index['month'][date('Y-m', (int)$request['date'])][$id] = $id;
+        }
+    }
+    return $index;
+}
+
+function rl_candidate_requests(array $entity, array $requests, array $index): array
+{
+    $ids = [];
+    foreach (['recruiter', 'manager'] as $field) {
+        $value = (int)($entity[$field] ?? 0);
+        if ($value > 0 && isset($index[$field][$value])) {
+            $ids += $index[$field][$value];
+        }
+    }
+    foreach (rl_position_tokens($entity['position'] ?? '') as $token) {
+        if (isset($index['token'][$token])) {
+            $ids += $index['token'][$token];
+        }
+    }
+    if (!empty($entity['date'])) {
+        $base = new DateTimeImmutable('@' . (int)$entity['date']);
+        for ($offset = -12; $offset <= 12; $offset++) {
+            $month = $base->modify(($offset >= 0 ? '+' : '') . $offset . ' months')->format('Y-m');
+            if (isset($index['month'][$month])) {
+                $ids += $index['month'][$month];
+            }
+        }
+    }
+    return array_intersect_key($requests, $ids);
 }
