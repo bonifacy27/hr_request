@@ -617,7 +617,7 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $
             ],
             false,
             false,
-            ['ID', 'USER_ID', 'STATUS']
+            ['ID', 'NAME', 'USER_ID', 'USER_STATUS', 'STATUS', 'WORKFLOW_ID', 'ACTIVITY', 'ACTIVITY_NAME', 'PARAMETERS']
         );
         while ($task = $tasks->Fetch()) {
             $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
@@ -641,7 +641,7 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $
             ],
             false,
             false,
-            ['ID', 'USER_ID', 'STATUS', 'WORKFLOW_ID']
+            ['ID', 'NAME', 'USER_ID', 'USER_STATUS', 'STATUS', 'WORKFLOW_ID', 'ACTIVITY', 'ACTIVITY_NAME', 'PARAMETERS']
         );
         while ($task = $tasks->Fetch()) {
             $taskRows[(int)($task['ID'] ?? 0) . ':' . (int)($task['USER_ID'] ?? 0)] = $task;
@@ -655,44 +655,98 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $
         if ($taskId <= 0 || $assigneeId <= 0) continue;
         $attemptedTaskIds[$taskId] = true;
 
-        $errors = [];
-        $posted = false;
-        try {
-            if ($completeVotingTask && method_exists('CBPTaskService', 'CompleteTask')) {
-                // «Согласование руководителя» — это голосование. PostTaskForm
-                // предназначен для формы задания и в этой активности может
-                // вернуть успех, не отправив голос. CompleteTask фиксирует
-                // пользовательский результат Yes и посылает событие workflow.
-                $posted = CBPTaskService::CompleteTask(
-                    $taskId,
-                    $assigneeId,
-                    CBPTaskUserStatus::Yes,
-                    $comment
-                );
-            } else {
-                // Сохраняем рабочую реализацию действия «Согласовать за HRD».
-                $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, [
-                    'USER_ID' => $assigneeId,
-                    'REAL_USER_ID' => $assigneeId,
-                    'COMMENT' => $comment,
-                    'ACTION' => 'approve',
-                    'approve' => 'Y',
-                ], $errors);
+        if (!$completeVotingTask) {
+            $errors = [];
+            CBPDocument::PostTaskForm($taskId, $assigneeId, [
+                'USER_ID' => $assigneeId,
+                'REAL_USER_ID' => $assigneeId,
+                'COMMENT' => $comment,
+                'ACTION' => 'approve',
+                'approve' => 'Y',
+            ], $errors);
+            $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+            if (!$check && !$errors) return [true, ''];
+            return [false, $errors ? json_encode($errors, JSON_UNESCAPED_UNICODE) : 'Задание HRD осталось активным.'];
+        }
+
+        $controls = [];
+        foreach ([['CBPDocument', 'GetTaskControls'], ['CBPTaskService', 'GetTaskControls']] as $callable) {
+            if (!method_exists($callable[0], $callable[1])) continue;
+            try {
+                $controls = (array)call_user_func($callable, $taskId, $assigneeId);
+            } catch (\Throwable $e) {
+                try { $controls = (array)call_user_func($callable, $taskId); } catch (\Throwable $ignored) {}
             }
-        } catch (\Throwable $e) {
-            $posted = false;
-            $errors[] = ['message' => get_class($e) . ': ' . $e->getMessage()];
+            if ($controls) break;
         }
-        if (!empty($errors)) {
-            $messages = array_map(static function ($error) {
-                return is_array($error) ? (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE)) : (string)$error;
-            }, $errors);
-            return [false, 'Задание #' . $taskId . ': ' . implode('; ', $messages)];
+        $actionCode = 'Approve';
+        foreach ($controls as $control) {
+            $controlId = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
+            $controlText = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
+            if (stripos($controlId, 'approve') !== false || strpos($controlText, 'соглас') !== false || strpos($controlText, 'утверж') !== false) {
+                $actionCode = $controlId !== '' ? $controlId : 'Approve';
+                break;
+            }
         }
-        if ($posted === false) {
-            return [false, 'Задание #' . $taskId . ': '
-                . ($completeVotingTask ? 'CompleteTask' : 'PostTaskForm')
-                . ' вернул false без описания ошибки.'];
+        $codes = array_values(array_unique([$actionCode, 'approve', 'Approve', 'yes', 'Y', 'TaskButton1']));
+        $diagnostic = [];
+        global $USER;
+        $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
+        try {
+            if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
+            foreach ($codes as $code) {
+                $errors = [];
+                $fields = [
+                    'USER_ID' => $assigneeId, 'REAL_USER_ID' => $assigneeId,
+                    'COMMENT' => $comment, 'comment' => $comment, 'task_comment' => $comment,
+                    'ACTION' => $code, $code => 'Y', 'APPROVE' => 'Y', 'approve' => $code,
+                ];
+                try {
+                    $result = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
+                    $diagnostic[] = 'PostTaskForm(' . $code . '): result=' . var_export($result, true)
+                        . ', errors=' . json_encode($errors, JSON_UNESCAPED_UNICODE);
+                } catch (\Throwable $e) {
+                    $diagnostic[] = 'PostTaskForm(' . $code . '): ' . get_class($e) . ': ' . $e->getMessage();
+                }
+                $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                if (!$check) return [true, ''];
+            }
+
+            $workflowId = (string)($task['WORKFLOW_ID'] ?? '');
+            $activities = array_values(array_unique(array_filter([(string)($task['ACTIVITY_NAME'] ?? ''), (string)($task['ACTIVITY'] ?? '')])));
+            if ($workflowId !== '' && class_exists('CBPRuntime') && method_exists('CBPRuntime', 'SendExternalEvent')) {
+                foreach ($activities as $activity) {
+                    try {
+                        $result = CBPRuntime::SendExternalEvent($workflowId, $activity, [
+                            'USER_ID' => $assigneeId, 'REAL_USER_ID' => $assigneeId,
+                            'COMMENT' => $comment, 'APPROVE' => 1, 'approve' => 'Y', 'status' => 'Y',
+                        ]);
+                        $diagnostic[] = 'SendExternalEvent(' . $activity . '): ' . var_export($result, true);
+                    } catch (\Throwable $e) {
+                        $diagnostic[] = 'SendExternalEvent(' . $activity . '): ' . get_class($e) . ': ' . $e->getMessage();
+                    }
+                    $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                    if (!$check) return [true, ''];
+                }
+            }
+
+            if (method_exists('CBPTaskService', 'DoTask')) {
+                foreach ($codes as $code) {
+                    try {
+                        $result = CBPTaskService::DoTask($taskId, $assigneeId, [
+                            'ACTION' => $code, $code => 'Y', 'APPROVE' => 'Y',
+                            'COMMENT' => $comment, 'comment' => $comment, 'task_comment' => $comment,
+                        ]);
+                        $diagnostic[] = 'DoTask(' . $code . '): ' . var_export($result, true);
+                    } catch (\Throwable $e) {
+                        $diagnostic[] = 'DoTask(' . $code . '): ' . get_class($e) . ': ' . $e->getMessage();
+                    }
+                    $check = CBPTaskService::GetList([], ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running], false, ['nTopCount' => 1], ['ID'])->Fetch();
+                    if (!$check) return [true, ''];
+                }
+            }
+        } finally {
+            if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
         }
 
         // Для голосования с несколькими ответственными успешный PostTaskForm
@@ -706,6 +760,11 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment, bool $
             ['ID']
         )->Fetch();
         if (!$check) return [true, ''];
+        return [false, "Задание #{$taskId} осталось активным.\n"
+            . 'Исполнитель: ' . $assigneeId . '; workflow: ' . (string)($task['WORKFLOW_ID'] ?? '')
+            . '; activity: ' . (string)($task['ACTIVITY_NAME'] ?? $task['ACTIVITY'] ?? '') . "\n"
+            . 'Task: ' . print_r($task, true) . "\nControls: " . print_r($controls, true) . "\nПопытки:\n"
+            . implode("\n", $diagnostic)];
     }
 
     if ($attemptedTaskIds) {
@@ -964,10 +1023,12 @@ if ($request->isPost() && (string)$request->getPost('action') === 'approve_as_ma
             }
         }
     }
-    LocalRedirect(buildUrl([
-        'manager_approval' => $result,
-        'manager_approval_error' => $diagnostic !== '' ? $diagnostic : null,
-    ], []));
+    if ($diagnostic !== '') {
+        $_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC'] = $diagnostic;
+    } else {
+        unset($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC']);
+    }
+    LocalRedirect(buildUrl(['manager_approval' => $result], ['manager_approval_error']));
 }
 
 if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf') {
@@ -1018,7 +1079,8 @@ if ($request->isPost() && (string)$request->getPost('action') === 'generate_pdf'
 $pdfWorkflowResult = (string)$request->get('pdf_bp');
 $hrdApprovalResult = (string)$request->get('hrd_approval');
 $managerApprovalResult = (string)$request->get('manager_approval');
-$managerApprovalError = trim((string)$request->get('manager_approval_error'));
+$managerApprovalError = trim((string)($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC'] ?? ''));
+unset($_SESSION['OFFER_MANAGER_APPROVAL_DIAGNOSTIC']);
 $offerDelegateResult = (string)$request->get('offer_delegate');
 $approvalCancelResult = (string)$request->get('approval_cancel');
 
