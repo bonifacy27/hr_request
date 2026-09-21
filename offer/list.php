@@ -640,10 +640,12 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
         }
     }
 
+    $attemptedTaskIds = [];
     foreach ($taskRows as $task) {
         $taskId = (int)($task['ID'] ?? 0);
         $assigneeId = (int)($task['USER_ID'] ?? 0);
         if ($taskId <= 0 || $assigneeId <= 0) continue;
+        $attemptedTaskIds[$taskId] = true;
 
         $actionCode = 'Approve';
         $controls = method_exists('CBPDocument', 'GetTaskControls') ? (array)CBPDocument::GetTaskControls($taskId) : [];
@@ -675,14 +677,43 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
         } finally {
             if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
         }
-        if ($posted !== false && empty($errors)) return [true, ''];
         if (!empty($errors)) {
             $messages = array_map(static function ($error) {
                 return is_array($error) ? (string)($error['message'] ?? json_encode($error, JSON_UNESCAPED_UNICODE)) : (string)$error;
             }, $errors);
             return [false, 'Задание #' . $taskId . ': ' . implode('; ', $messages)];
         }
-        return [false, 'Задание #' . $taskId . ': PostTaskForm вернул false без описания ошибки.'];
+        if ($posted === false) {
+            return [false, 'Задание #' . $taskId . ': PostTaskForm вернул false без описания ошибки.'];
+        }
+
+        // Для голосования с несколькими ответственными успешный PostTaskForm
+        // означает только один голос. Продолжаем голосовать за оставшихся
+        // участников, пока задание действительно не закроется.
+        $check = CBPTaskService::GetList(
+            [],
+            ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+            false,
+            ['nTopCount' => 1],
+            ['ID']
+        )->Fetch();
+        if (!$check) return [true, ''];
+    }
+
+    if ($attemptedTaskIds) {
+        $stillRunning = [];
+        foreach (array_keys($attemptedTaskIds) as $taskId) {
+            $check = CBPTaskService::GetList(
+                [],
+                ['ID' => $taskId, 'STATUS' => CBPTaskStatus::Running],
+                false,
+                ['nTopCount' => 1],
+                ['ID']
+            )->Fetch();
+            if ($check) $stillRunning[] = $taskId;
+        }
+        if (!$stillRunning) return [true, ''];
+        return [false, 'Голоса отправлены, но задание осталось активным. ID: ' . implode(', ', $stillRunning) . '.'];
     }
     return [false, 'Активное задание не найдено. Активных workflow: ' . count($workflowIds)
         . '; найдено строк заданий: ' . count($taskRows) . '.'];
