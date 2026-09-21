@@ -610,7 +610,11 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
     foreach (array_keys($workflowIds) as $workflowId) {
         $tasks = CBPTaskService::GetList(
             ['ID' => 'ASC'],
-            ['WORKFLOW_ID' => $workflowId, 'STATUS' => CBPTaskStatus::Running],
+            [
+                'WORKFLOW_ID' => $workflowId,
+                'STATUS' => CBPTaskStatus::Running,
+                'USER_STATUS' => CBPTaskUserStatus::Waiting,
+            ],
             false,
             false,
             ['ID', 'USER_ID', 'STATUS']
@@ -630,7 +634,11 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
     foreach ($documentIds as $candidateDocumentId) {
         $tasks = CBPTaskService::GetList(
             ['ID' => 'ASC'],
-            ['DOCUMENT_ID' => $candidateDocumentId, 'STATUS' => CBPTaskStatus::Running],
+            [
+                'DOCUMENT_ID' => $candidateDocumentId,
+                'STATUS' => CBPTaskStatus::Running,
+                'USER_STATUS' => CBPTaskUserStatus::Waiting,
+            ],
             false,
             false,
             ['ID', 'USER_ID', 'STATUS', 'WORKFLOW_ID']
@@ -647,35 +655,22 @@ function approveCurrentOfferTaskAsAssignee(int $offerId, string $comment): array
         if ($taskId <= 0 || $assigneeId <= 0) continue;
         $attemptedTaskIds[$taskId] = true;
 
-        $actionCode = 'Approve';
-        $controls = method_exists('CBPDocument', 'GetTaskControls') ? (array)CBPDocument::GetTaskControls($taskId) : [];
-        foreach ($controls as $control) {
-            $id = (string)($control['CONTROL_ID'] ?? $control['ID'] ?? '');
-            $label = mb_strtolower((string)($control['NAME'] ?? $control['TEXT'] ?? $control['LABEL'] ?? ''));
-            if (stripos($id, 'approve') !== false || strpos($label, 'соглас') !== false || strpos($label, 'утверж') !== false) {
-                $actionCode = $id !== '' ? $id : 'Approve';
-                break;
-            }
-        }
         $errors = [];
         $fields = [
-            'approve' => 'Y',
-            $actionCode => 'Y',
-            'ACTION' => $actionCode,
-            'APPROVE' => 'Y',
-            'status' => 'Y',
-            'comment' => $comment,
-            'task_comment' => $comment,
             'USER_ID' => $assigneeId,
             'REAL_USER_ID' => $assigneeId,
+            'COMMENT' => $comment,
+            'ACTION' => 'approve',
+            'approve' => 'Y',
         ];
-        global $USER;
-        $previousUserId = is_object($USER) ? (int)$USER->GetID() : 0;
         try {
-            if (is_object($USER) && $previousUserId !== $assigneeId) $USER->Authorize($assigneeId);
-            $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors, '', $assigneeId);
-        } finally {
-            if (is_object($USER) && $previousUserId > 0 && (int)$USER->GetID() !== $previousUserId) $USER->Authorize($previousUserId);
+            // Используем ту же форму ответа, что и рабочее действие
+            // «Согласовать за HRD»: approve в нижнем регистре и без
+            // подмены текущей авторизованной сессии.
+            $posted = CBPDocument::PostTaskForm($taskId, $assigneeId, $fields, $errors);
+        } catch (\Throwable $e) {
+            $posted = false;
+            $errors[] = ['message' => $e->getMessage()];
         }
         if (!empty($errors)) {
             $messages = array_map(static function ($error) {
