@@ -296,12 +296,15 @@ function renderRelationsColumn(array $candidateFormIds, array $offerIds, array $
     );
     if ($offerLinks !== '') $chunks[] = '<div><strong>Офферы:</strong> ' . $offerLinks . '</div>';
 
-    $cardLinks = $buildLinks(
-        $employeeCardIds,
-        'https://ourtricolortv.nsc.ru/services/lists/196/element/0/',
-        'Карточка'
-    );
-    if ($cardLinks !== '') $chunks[] = '<div><strong>Карточки:</strong> ' . $cardLinks . '</div>';
+    if ($employeeCardIds) {
+        $employeeLinks = [];
+        foreach ($employeeCardIds as $employeeCardId) {
+            $employeeCardId = (int)$employeeCardId;
+            $url = '/forms/staff_recruitment/adaptation/view.php?id=' . $employeeCardId;
+            $employeeLinks[] = '<a href="' . h($url) . '" target="_blank" rel="noopener">Сотрудник #' . $employeeCardId . '</a>';
+        }
+        $chunks[] = '<div><strong>Сотрудники:</strong> ' . implode(', ', $employeeLinks) . '</div>';
+    }
 
     if ($friendworkVacancyId > 0) {
         $friendworkUrl = 'https://app.friend.work/Job/Edit/' . $friendworkVacancyId;
@@ -1307,13 +1310,6 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     <h1 class="mb-2 mb-md-0">Заявки на подбор</h1>
     <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
   </div>
-  <p class="text-muted small mb-3">
-    Источник: инфоблок <?= (int)$IBLOCK_ID ?>.
-    Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>.
-    Пагинация: 50 / страница.
-    Версия скрипта: 2.3.8.
-  </p>
-
   <?php if ($flashMessage !== ''): ?>
     <div class="alert alert-<?= h($flashType) ?>"><?= h($flashMessage) ?></div>
   <?php endif; ?>
@@ -1563,6 +1559,10 @@ $recruiterUsers = fetchUsersMapByIds($recruiterIds);
     <?php endif; ?>
 
   <?php endif; ?>
+
+  <p class="text-muted small mt-2 mb-0">
+    Всего записей (с учетом фильтров/поиска): <?= (int)$totalCount ?>
+  </p>
 </div>
 
 <!-- ===== Шаблоны попапов делегирования/отмены (без изменений) ===== -->
