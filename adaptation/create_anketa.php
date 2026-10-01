@@ -57,6 +57,11 @@ function parseCheckbox($value): string
     return in_array((string)$value, ['Y', '1', 'on'], true) ? 'Y' : 'N';
 }
 
+function isNewsDutiesRequired($organizationId): bool
+{
+    return (int)$organizationId === NEWS_REQUIRED_ORGANIZATION_ID;
+}
+
 function getIblockElementsById(int $iblockId, array $sort = ['SORT' => 'ASC', 'NAME' => 'ASC']): array
 {
     $res = [];
@@ -472,8 +477,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             $errors[] = 'Не заполнено обязательное поле: ' . $rf;
         }
     }
-    $isNewsRequiredOrganization = (int)($formData['ORGANIZATSIYA'] ?? 0) === NEWS_REQUIRED_ORGANIZATION_ID;
-    if ($isNewsRequiredOrganization && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
+    if (isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0)
+        && trim((string)($formData['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI'] ?? '')) === '') {
         $errors[] = 'Не заполнено обязательное поле: Основные обязанности (для новости)';
     }
 
@@ -604,6 +609,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     }
 }
 
+$newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
+
 ?><style>
 .anketa-wrap{max-width:960px;margin:24px auto;padding:0 12px}.anketa-title{font-size:24px;font-weight:600;margin:0 0 18px}
 .anketa-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px}.anketa-field{display:flex;flex-direction:column;gap:6px}
@@ -662,7 +669,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                     <div class="anketa-grid">
                     <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
                         <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','PRINYAT_PO_REKOMENDATSII','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
-                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'PRINYAT_PO_REKOMENDATSII'], true)) ? '<span class="req">*</span>' : '' ?></label>
+                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'PRINYAT_PO_REKOMENDATSII'], true)) ? '<span class="req">*</span>' : '' ?><?php if ($code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' && $newsDutiesRequired): ?><span class="req" data-role="organization-required">*</span><?php endif; ?></label>
                         <?php if ($f['type'] === 'L'): ?>
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
                             <select name="<?= h($code) ?>" id="<?= h($code) ?>">
@@ -714,7 +721,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
                         <?php elseif ($f['type'] === 'FILE'): ?>
                             <input type="file" name="<?= h($code) ?>" id="<?= h($code) ?>" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
                         <?php elseif (in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI', 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'OPISANIE_K_ZAYAVKE_NA_PROPUSK'], true)): ?>
-                            <textarea name="<?= h($code) ?>" id="<?= h($code) ?>"><?= h($formData[$code]) ?></textarea>
+                            <textarea name="<?= h($code) ?>" id="<?= h($code) ?>"<?= $code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' && $newsDutiesRequired ? ' required aria-required="true"' : '' ?>><?= h($formData[$code]) ?></textarea>
                         <?php elseif (in_array($code, ['FIO_V_DATELNOM_PADEZHE', 'FIO_V_RODITELNOM_PADEZHE'], true)): ?>
                             <div style="display:flex; gap:8px; align-items:center;"><input type="text" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>"><?php if ($code === 'FIO_V_DATELNOM_PADEZHE'): ?><button type="button" id="fill_fio_cases_btn" class="ui-btn ui-btn-light-border ui-btn-xs">Заполнить склонения ФИО</button><?php endif; ?></div>
                         <?php else: ?>
@@ -829,7 +836,10 @@ BX.ready(function () {
         const warning = BX('photo_deadline_warning');
         const startDate = BX('DATA_PRIEMA');
         const requiresNews = organization && parseInt(organization.value, 10) === newsRequiredOrganizationId;
-        if (duties) { duties.required = requiresNews; }
+        if (duties) {
+            duties.required = requiresNews;
+            duties.setAttribute('aria-required', requiresNews ? 'true' : 'false');
+        }
         if (dutiesLabel) {
             dutiesLabel.classList.toggle('organization-required', requiresNews);
             let mark = dutiesLabel.querySelector('[data-role="organization-required"]');
