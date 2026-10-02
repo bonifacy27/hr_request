@@ -52,6 +52,15 @@ function normalizeDate(string $value): string
     return $value;
 }
 
+function formatDateForInput(string $value): string
+{
+    $value = trim($value);
+    if (preg_match('/^(\d{2})\.(\d{2})\.(\d{4})$/', $value, $matches)) {
+        return $matches[3] . '-' . $matches[2] . '-' . $matches[1];
+    }
+    return $value;
+}
+
 function parseCheckbox($value): string
 {
     return in_array((string)$value, ['Y', '1', 'on'], true) ? 'Y' : 'N';
@@ -262,6 +271,11 @@ $requiredFields = [
     'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
 ];
 
+$fieldLabels = [];
+foreach ($fields as $field) {
+    $fieldLabels[$field['code']] = $field['label'];
+}
+
 $sections = [
  '1'=>['title'=>'1. Основные данные','fields'=>['FAMILIYA','IMYA','OTCHESTVO','STATUS_SOTRUDNIKA','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA']],
  '2'=>['title'=>'2. Условия выхода','fields'=>['DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA']],
@@ -469,12 +483,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     $middleName = trim((string)($formData['OTCHESTVO'] ?? ''));
     $name = trim($lastName . ' ' . $firstName . ' ' . $middleName);
 
-    if ($name === '') {
-        $errors[] = 'Заполните минимум Фамилию и Имя.';
-    }
     foreach ($requiredFields as $rf) {
         if (trim((string)($formData[$rf] ?? '')) === '') {
-            $errors[] = 'Не заполнено обязательное поле: ' . $rf;
+            $errors[] = 'Заполните обязательное поле «' . ($fieldLabels[$rf] ?? $rf) . '».';
         }
     }
     if (isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0)
@@ -618,6 +629,7 @@ $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
 .anketa-field textarea{min-height:110px;padding:10px;border:1px solid #c6cdd3;border-radius:6px;resize:vertical}
 .anketa-full{grid-column:1/-1}.anketa-actions{margin-top:18px}.anketa-msg{padding:10px 12px;border-radius:6px;margin-bottom:14px}
 .anketa-msg-ok{background:#e8f7e8;color:#1f7a1f}.anketa-msg-err{background:#ffe9e9;color:#9f2f2f}
+.anketa-msg-err ul{margin:8px 0 0;padding-left:22px}.anketa-msg-err li+li{margin-top:4px}
 .anketa-mode-box{border:1px solid #dfe5eb;border-radius:8px;padding:12px 14px;background:#fafcff}
 .anketa-source-select{max-width:560px;width:100%}
 .anketa-mode-row{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anketa-section{border:1px solid #e6eaef;border-radius:8px;padding:12px;margin-top:14px}.anketa-section-title{font-weight:600;margin:0 0 10px}.anketa-hint{font-size:12px;color:#7a869a;line-height:1.35}.req{color:#d95757}
@@ -632,7 +644,14 @@ $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
     <?php endif; ?>
 
     <?php if ($errors): ?>
-        <div class="anketa-msg anketa-msg-err"><?= h(implode("\n", $errors)) ?></div>
+        <div class="anketa-msg anketa-msg-err">
+            <strong>Проверьте заполнение формы:</strong>
+            <ul>
+                <?php foreach ($errors as $error): ?>
+                    <li><?= h($error) ?></li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
     <?php endif; ?>
 
     <form method="post" enctype="multipart/form-data">
@@ -713,7 +732,7 @@ $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
                                 <?php endforeach; ?>
                             </select>
                         <?php elseif ($f['type'] === 'DATE'): ?>
-                            <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>">
+                            <input type="date" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h(formatDateForInput((string)$formData[$code])) ?>">
                         <?php elseif ($f['type'] === 'USER'): ?>
                             <input type="hidden" name="<?= h($code) ?>" id="<?= h($code) ?>" value="<?= h($formData[$code]) ?>"><div id="<?= h($code) ?>_selector"></div>
                         <?php elseif ($f['type'] === 'CHK'): ?>
