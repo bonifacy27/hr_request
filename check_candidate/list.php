@@ -771,6 +771,10 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         <a href="/forms/staff_recruitment/dashboard.php" class="btn btn-outline-primary mb-2 mb-md-0">Перейти на Дашбоард</a>
     </div>
 
+    <div class="alert alert-info py-2 mb-3 small" role="note">
+        Доступ к данной вкладке есть у Отдела профессионального подбора, Группы защиты кадровых ресурсов и Отдела кадрового администрирования. Доступ для новых сотрудников данных отделов инициируют руководители Отдела профессионального подбора, Группы защиты кадровых ресурсов и Отдела кадрового администрирования через Группу бизнес-процессов.
+    </div>
+
     <?php if ($msgText !== ''): ?>
         <div class="alert alert-<?=h($msgType === 'success' ? 'success' : 'danger')?>">
             <?=h($msgText)?>
