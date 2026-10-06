@@ -98,8 +98,13 @@ $BG_PAGE4 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page4
 $BG_PAGE5 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page4_edo.jpg';
 $BG_PAGE6 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page6.jpg';
 
+// Alternative three-page template for ООО "Семейный магазин"
+$BG_TELEMAG_PAGE1 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page1_telemag.jpg';
+$BG_TELEMAG_PAGE2 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page2_telemag.jpg';
+$BG_TELEMAG_PAGE3 = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/page3_telemag.jpg';
+
 // Icons
-$ICON_USER  = $_SERVER["DOCUMENTORY_ROOT"] . '/upload/application/offers/images/phone.png';
+$ICON_USER  = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/phone.png';
 $ICON_PHONE = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/phone.png';
 $ICON_EMAIL = $_SERVER["DOCUMENT_ROOT"] . '/upload/application/offers/images/email.png';
 
@@ -263,7 +268,7 @@ while ($p = $res->Fetch()) {
 
 function propStr($code) {
     global $props;
-    return trim($props[$code]["VALUE"]);
+    return trim((string)($props[$code]["VALUE"] ?? ""));
 }
 function propNum($code) {
     global $props;
@@ -276,6 +281,10 @@ function propEnumName($code) {
     $el = CIBlockElement::GetByID($id)->GetNext();
     return $el ? trim($el["NAME"]) : "";
 }
+
+// Only this organization uses the shortened "Телемагазин" template. An empty
+// organization (as well as НАО "НСК") keeps the existing six-page template.
+$isTelemagOffer = ((int)propStr("YURIDICHESKOE_LITSO") === 3339193);
 
 
 /*************************************************************
@@ -300,9 +309,14 @@ $ruk = trim(
     propStr("DOLZHNOST_RUKOVODITELYA_ESLI_OTSUTSTVUET_V_SPISKE")
 );
 
+$department = propStr("POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE");
+if ($isTelemagOffer) {
+    $department .= ($department !== "" ? "\n" : "") . "Проект \"Телемагазин\"";
+}
+
 $col1Data = [
     ["label" => "Должность",    "value" => propStr("DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE")],
-    ["label" => "Подразделение","value" => propStr("POZDRAZDELENIE_ESLI_OTSUTSTVUET_V_SPISKE")],
+    ["label" => "Подразделение","value" => $department],
     ["label" => "Руководитель", "value" => $ruk],
 ];
 
@@ -737,7 +751,7 @@ $font_bold = TCPDF_FONTS::addTTFfont(
 /*************************************************************
  * PAGE 1 — COVER
  *************************************************************/
-$pdf->backgroundFile = $BG_PAGE1;
+$pdf->backgroundFile = $isTelemagOffer ? $BG_TELEMAG_PAGE1 : $BG_PAGE1;
 $pdf->AddPage();
 
 // Title
@@ -751,39 +765,50 @@ $pdf->SetFont($font_bold, "", 26);
 $pdf->SetXY(15, 105);
 $pdf->Write(0, $EMPLOYEE_NAME);
 
-// Contact phone
-$phone = propStr("KONTAKTNYY_TELEFON_KANDIDATA_7_");
-if ($phone) {
-    $pdf->SetFont($font_regular, "", 16);
-    $pdf->SetXY(15, 125);
-    $pdf->Write(0, $phone);
+if ($isTelemagOffer) {
+    // The shortened cover contains the candidate's position instead of
+    // contact details, offer date and the confidentiality note.
+    $position = propStr("DOLZHNOST_ESLI_OTSUTSTVUET_V_SPISKE");
+    if ($position !== "") {
+        $pdf->SetFont($font_regular, "", 18);
+        $pdf->SetXY(15, 125);
+        $pdf->Write(0, $position);
+    }
+} else {
+    // Contact phone
+    $phone = propStr("KONTAKTNYY_TELEFON_KANDIDATA_7_");
+    if ($phone) {
+        $pdf->SetFont($font_regular, "", 16);
+        $pdf->SetXY(15, 125);
+        $pdf->Write(0, $phone);
+    }
+
+    // Planned offer date
+    $offerDateRaw = propStr("PLANIRUEMAYA_DATA_OTPRAVKI_OFFERA_KANDIDATU");
+    $offerDateFmt = "";
+    if ($offerDateRaw) {
+        $offerDateFmt = date("d.m.Y", strtotime($offerDateRaw));
+
+        $pdf->SetFont($font_regular, "", 26);
+        $pdf->SetXY(15, 140);
+        $pdf->Write(0, $offerDateFmt);
+    }
+
+    // Confidential note bottom-center
+    $pdf->SetFont($font_regular, "", 12);
+    $pdf->SetTextColor(255,255,255);
+
+    $txt = "Строго конфиденциально";
+    $txtWidth = $pdf->GetStringWidth($txt);
+    $pdf->SetXY(($PDF_WIDTH - $txtWidth) / 2, 185);
+    $pdf->Write(0, $txt);
 }
-
-// Planned offer date
-$offerDateRaw = propStr("PLANIRUEMAYA_DATA_OTPRAVKI_OFFERA_KANDIDATU");
-$offerDateFmt = "";
-if ($offerDateRaw) {
-    $offerDateFmt = date("d.m.Y", strtotime($offerDateRaw));
-
-    $pdf->SetFont($font_regular, "", 26);
-    $pdf->SetXY(15, 140);
-    $pdf->Write(0, $offerDateFmt);
-}
-
-// Confidential note bottom-center
-$pdf->SetFont($font_regular, "", 12);
-$pdf->SetTextColor(255,255,255);
-
-$txt = "Строго конфиденциально";
-$txtWidth = $pdf->GetStringWidth($txt);
-$pdf->SetXY(($PDF_WIDTH - $txtWidth) / 2, 185);
-$pdf->Write(0, $txt);
 
 
 /*************************************************************
  * PAGE 2 — MAIN CONTENT (table)
  *************************************************************/
-$pdf->backgroundFile = $BG_PAGE2;
+$pdf->backgroundFile = $isTelemagOffer ? $BG_TELEMAG_PAGE2 : $BG_PAGE2;
 $pdf->AddPage();
 
 // ===== Title "Наше предложение" in the top-right corner =====
@@ -874,29 +899,29 @@ renderColumn3(
 /*************************************************************
  * PAGE 3 — EMPTY PAGE WITH BACKGROUND
  *************************************************************/
-$pdf->backgroundFile = $BG_PAGE3;
+$pdf->backgroundFile = $isTelemagOffer ? $BG_TELEMAG_PAGE3 : $BG_PAGE3;
 $pdf->AddPage();
 
+if (!$isTelemagOffer) {
+    /*************************************************************
+     * PAGE 4 — EMPTY PAGE WITH BACKGROUND
+     *************************************************************/
+    $pdf->backgroundFile = $BG_PAGE4;
+    $pdf->AddPage();
 
-/*************************************************************
- * PAGE 4 — EMPTY PAGE WITH BACKGROUND
- *************************************************************/
-$pdf->backgroundFile = $BG_PAGE4;
-$pdf->AddPage();
+    /*************************************************************
+     * PAGE 5 — EMPTY PAGE WITH BACKGROUND
+     *************************************************************/
+    $pdf->backgroundFile = $BG_PAGE5;
+    $pdf->AddPage();
 
+    /*************************************************************
+     * PAGE 6 — FINAL PAGE
+     *************************************************************/
+    $pdf->backgroundFile = $BG_PAGE6;
+    $pdf->AddPage();
+}
 
-/*************************************************************
- * PAGE 5 — EMPTY PAGE WITH BACKGROUND
- *************************************************************/
-$pdf->backgroundFile = $BG_PAGE5;
-$pdf->AddPage();
-
-
-/*************************************************************
- * PAGE 6 — FINAL PAGE
- *************************************************************/
-$pdf->backgroundFile = $BG_PAGE6;
-$pdf->AddPage();
 
 // ===== White text =====
 $pdf->SetTextColor(255,255,255);
@@ -969,13 +994,15 @@ if ($rekEmail) {
 //$pdf->SetFillColor(255,255,255);
 //$pdf->Rect(0, 200, $PDF_WIDTH, 18, 'F');
 
-$pdf->SetFont($font_bold, "", 14);
-$pdf->SetTextColor(255,255,255); // ссылка белая
-$link = "https://tricolor.ru/";
+if (!$isTelemagOffer) {
+    $pdf->SetFont($font_bold, "", 14);
+    $pdf->SetTextColor(255,255,255); // ссылка белая
+    $link = "https://tricolor.ru/";
 
-$linkWidth = $pdf->GetStringWidth($link);
-$pdf->SetXY(($PDF_WIDTH - $linkWidth) / 2, 190);
-$pdf->Write(0, $link, $link);
+    $linkWidth = $pdf->GetStringWidth($link);
+    $pdf->SetXY(($PDF_WIDTH - $linkWidth) / 2, 190);
+    $pdf->Write(0, $link, $link);
+}
 
 
 
