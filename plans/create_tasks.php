@@ -855,10 +855,6 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
         <?php endif; ?>
     </div>
 
-    <div class="actions" style="justify-content:flex-start; margin-top:12px;">
-        <button type="button" class="btn btn-secondary" id="addRow">+ Добавить строку</button>
-    </div>
-
     <table id="kpiTable">
         <thead>
         <tr>
@@ -871,6 +867,10 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
         </thead>
         <tbody id="kpiTbody"></tbody>
     </table>
+
+    <div class="actions" style="justify-content:flex-start; margin-top:12px;">
+        <button type="button" class="btn btn-secondary" id="addRow">Добавить еще задачу</button>
+    </div>
 
     <div class="actions">
         <button type="button" class="btn btn-primary" id="saveBtn">Сохранить план ввода в должность</button>
