@@ -113,6 +113,24 @@ function delegateRows($planId)
     return $rows;
 }
 
+function delegateCanTransfer(array $row, $manager)
+{
+    return $manager > 0 && $row['RESPONSIBLE'] === $manager
+        && in_array($row['STATUS_ID'], [3396791, 3507933], true);
+}
+
+function delegateWarning(array $row, $manager)
+{
+    if ($row['STATUS_ID'] === 3347534) return '';
+    if (!in_array($row['STATUS_ID'], [3396791, 3507933], true)) {
+        return 'Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.';
+    }
+    if ($manager <= 0 || $row['RESPONSIBLE'] !== $manager) {
+        return 'Ответственный не является текущим руководителем ПВД и смене не подлежит.';
+    }
+    return '';
+}
+
 function delegateSnapshot($manager, array $rows)
 {
     $state = [$manager];
@@ -169,12 +187,12 @@ try {
             }
             unset($_SESSION['PVD_DELEGATE'][$planId]);
             foreach ($rows as $row) {
-                if ($row['STATUS_ID'] === 3507933 && !$row['ASSIGNMENTS']) {
+                if (delegateCanTransfer($row, $manager) && $row['STATUS_ID'] === 3507933 && !$row['ASSIGNMENTS']) {
                     throw new RuntimeException('Для задачи ' . $row['ID'] . ' на согласовании не найдено текущее задание. Изменения не выполнены.');
                 }
             }
             foreach ($rows as $row) {
-                if (!in_array($row['STATUS_ID'], [3396791, 3507933], true)) continue;
+                if (!delegateCanTransfer($row, $manager)) continue;
                 if ($row['STATUS_ID'] === 3507933) {
                     foreach ($row['ASSIGNMENTS'] as $assignment) {
                         if ($assignment['USER_ID'] === $newManager) continue;
@@ -203,7 +221,9 @@ try {
 .pvd-delegate table {border-collapse:collapse;width:100%;margin:16px 0;font-size:14px}
 .pvd-delegate th,.pvd-delegate td {border:1px solid #ccc;padding:10px;text-align:left;vertical-align:top}
 .pvd-delegate th {background:#f0f0f0}.pvd-delegate .summary {max-width:900px}
-.pvd-delegate .warning {background:#fff4d0;padding:12px;margin:12px 0}
+.pvd-delegate .manager-info {display:flex;align-items:center;flex-wrap:wrap;gap:16px}
+.pvd-delegate .task-blocked td {background:#ffe5e5}
+.pvd-delegate .responsible-warning {display:block;font-size:12px;line-height:1.4;color:#a32020;margin-top:4px;max-width:320px}
 .pvd-delegate .scroll {overflow:auto}
 </style>
 <div class="pvd-delegate">
@@ -212,8 +232,8 @@ try {
 <?php if ($success): ?><div class="ui-alert ui-alert-success">Руководитель ПВД изменен. Доступные задачи переданы новому руководителю.</div><?php endif; ?>
 <table class="summary">
 <tr><th>ФИО сотрудника</th><td><?= delegateH($plan['NAME']) ?></td></tr>
-<tr><th>Руководитель</th><td><?= delegateH(delegateUserName($manager)) ?>
-<?php if ($canChange): ?><button type="button" class="ui-btn ui-btn-primary" onclick="document.getElementById('manager-selection').hidden=false">Сменить руководителя ПВД</button><?php endif; ?></td></tr>
+<tr><th>Руководитель</th><td><div class="manager-info"><span><?= delegateH(delegateUserName($manager)) ?></span>
+<?php if ($canChange): ?><button type="button" class="ui-btn ui-btn-primary" onclick="document.getElementById('manager-selection').hidden=false">Сменить руководителя ПВД</button><?php endif; ?></div></td></tr>
 <tr><th>Дата трудоустройства</th><td><?= delegateH($plan['PROPERTY_2776_VALUE']) ?></td></tr>
 <tr><th>Дата окончания ИС</th><td><?= delegateH($plan['PROPERTY_2802_VALUE']) ?></td></tr>
 <tr><th>Рекрутер</th><td><?= delegateH(delegateUserName($recruiter)) ?></td></tr>
@@ -236,7 +256,8 @@ try {
 <ul>
 <?php foreach ($rows as $row): ?>
 <li><?= $row['IBLOCK'] === 360 ? 'ПВД' : 'KPI' ?> #<?= $row['ID'] ?>: <?= delegateH($row['NAME']) ?> —
-<?php if ($row['STATUS_ID'] === 3396791): ?>изменить ответственного на <?= delegateH(delegateUserName($newManager)) ?>.
+<?php if (delegateWarning($row, $manager) !== ''): ?><?= delegateH(delegateWarning($row, $manager)) ?>
+<?php elseif ($row['STATUS_ID'] === 3396791): ?>изменить ответственного на <?= delegateH(delegateUserName($newManager)) ?>.
 <?php elseif ($row['STATUS_ID'] === 3507933): ?>изменить ответственного и делегировать текущие задания на <?= delegateH(delegateUserName($newManager)) ?>.<?php if (!$row['ASSIGNMENTS']): ?> <b>Текущее задание не найдено; передача заблокирована.</b><?php endif; ?>
 <?php elseif ($row['STATUS_ID'] === 3347534): ?>задача выполнена, ответственный останется прежним.
 <?php else: ?>Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.
@@ -258,15 +279,14 @@ $first = reset($group); ?>
 <div class="scroll"><table><thead><tr><th>ID</th><th>Название</th><th>Статус</th>
 <?php foreach ($first['FIELDS'] as $label): ?><th><?= delegateH($label) ?></th><?php endforeach; ?>
 <th>Текущий исполнитель</th><th>Ответственный</th></tr></thead><tbody>
-<?php foreach ($group as $row): ?>
-<tr><td><a href="/workgroups/group/206/lists/<?= $iblock ?>/element/0/<?= $row['ID'] ?>/" target="_blank" rel="noopener"><?= $row['ID'] ?></a></td>
+<?php foreach ($group as $row): $warning = delegateWarning($row, $manager); ?>
+<tr<?= $warning !== '' ? ' class="task-blocked"' : '' ?>><td><a href="/workgroups/group/206/lists/<?= $iblock ?>/element/0/<?= $row['ID'] ?>/" target="_blank" rel="noopener"><?= $row['ID'] ?></a></td>
 <td><?= delegateH($row['NAME']) ?></td><td><?= delegateH($row['STATUS']) ?></td>
 <?php foreach ($row['FIELDS'] as $property => $label): ?><td><?= delegateH($row['ELEMENT']['PROPERTY_' . $property . '_VALUE'] ?? '') ?></td><?php endforeach; ?>
 <td><?= delegateH(implode(', ', array_unique(array_map(function ($assignment) { return delegateUserName($assignment['USER_ID']); }, $row['ASSIGNMENTS']))) ?: '—') ?></td>
-<td><?= delegateH(delegateUserName($row['RESPONSIBLE'])) ?></td></tr>
-<?php if (!in_array($row['STATUS_ID'], [3396791, 3507933, 3347534], true)): ?>
-<tr><td colspan="<?= count($row['FIELDS']) + 5 ?>" class="warning">Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.</td></tr>
-<?php endif; endforeach; ?></tbody></table></div>
+<td><?= delegateH(delegateUserName($row['RESPONSIBLE'])) ?>
+<?php if ($warning !== ''): ?><small class="responsible-warning"><?= delegateH($warning) ?></small><?php endif; ?></td></tr>
+<?php endforeach; ?></tbody></table></div>
 <?php endif; endforeach; ?>
 </div>
 <script>
