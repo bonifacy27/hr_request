@@ -684,7 +684,7 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                             <option value="">Действия…</option>
                             <option value="<?= h($reportUrl) ?>">Посмотреть план</option>
                             <?php if (plansCanReplaceManager($currentUserId, (int)$plan['RECRUITER_ID'])): ?>
-                                <option value="/forms/plans/delegate.php?PLAN_ID=<?= $planId ?>">Заменить руководителя</option>
+                                <option value="/forms/staff_recruitment/plans/delegate.php?PLAN_ID=<?= $planId ?>">Заменить руководителя</option>
                             <?php endif; ?>
                         </select>
                     </td>

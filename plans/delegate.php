@@ -206,7 +206,7 @@ try {
             }
             // Руководитель меняется после успешной передачи всех доступных задач.
             delegateSetUser($planId, 359, 2775, $newManager);
-            LocalRedirect('/forms/plans/list.php');
+            LocalRedirect('/forms/staff_recruitment/plans/list.php');
             return;
         } else {
             throw new RuntimeException('Неизвестное действие.');
