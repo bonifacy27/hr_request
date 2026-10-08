@@ -10,6 +10,7 @@ use Bitrix\Main\Loader;
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Планы ввода в должность');
+require_once __DIR__ . '/delegate_permissions.php';
 
 if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
     ShowError('Не удалось подключить модули iblock/bizproc.');
@@ -682,6 +683,9 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                         <select class="form-control form-control-sm js-plan-action" aria-label="Действия с планом">
                             <option value="">Действия…</option>
                             <option value="<?= h($reportUrl) ?>">Посмотреть план</option>
+                            <?php if (plansCanReplaceManager($currentUserId, (int)$plan['RECRUITER_ID'])): ?>
+                                <option value="/forms/plans/delegate.php?PLAN_ID=<?= $planId ?>">Заменить руководителя</option>
+                            <?php endif; ?>
                         </select>
                     </td>
                 </tr>

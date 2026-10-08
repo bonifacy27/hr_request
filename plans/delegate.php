@@ -3,6 +3,7 @@
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Делегировать ПВД');
+require_once __DIR__ . '/delegate_permissions.php';
 \Bitrix\Main\UI\Extension::load(['main.core', 'ui.entity-selector']);
 foreach (['iblock', 'lists', 'bizproc'] as $module) {
     if (!\Bitrix\Main\Loader::includeModule($module)) {
@@ -123,7 +124,7 @@ function delegateWarning(array $row, $manager)
 {
     if ($row['STATUS_ID'] === 3347534) return '';
     if (!in_array($row['STATUS_ID'], [3396791, 3507933], true)) {
-        return 'Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.';
+        return 'Смена ответственного за эту задачу невозможна. Сначала сотрудник должен выполнить свой этап задания по этой задаче и только затем можно будет сменить ответственного за эту задачу.';
     }
     if ($manager <= 0 || $row['RESPONSIBLE'] !== $manager) {
         return 'Ответственный не является текущим руководителем ПВД и смене не подлежит.';
@@ -159,7 +160,7 @@ if (!$plan) {
 }
 $manager = delegateUserId($plan['PROPERTY_2775_VALUE']);
 $recruiter = delegateUserId($plan['PROPERTY_2796_VALUE']);
-$canChange = $USER->IsAdmin() || in_array((int)$USER->GetID(), array_filter([$manager, $recruiter]), true);
+$canChange = plansCanReplaceManager((int)$USER->GetID(), $recruiter);
 $rows = [];
 $error = '';
 $success = false;
@@ -205,9 +206,8 @@ try {
             }
             // Руководитель меняется после успешной передачи всех доступных задач.
             delegateSetUser($planId, 359, 2775, $newManager);
-            $manager = $newManager;
-            $success = true;
-            $rows = delegateRows($planId);
+            LocalRedirect('/forms/plans/list.php');
+            return;
         } else {
             throw new RuntimeException('Неизвестное действие.');
         }
@@ -260,7 +260,7 @@ try {
 <?php elseif ($row['STATUS_ID'] === 3396791): ?>изменить ответственного на <?= delegateH(delegateUserName($newManager)) ?>.
 <?php elseif ($row['STATUS_ID'] === 3507933): ?>изменить ответственного и делегировать текущие задания на <?= delegateH(delegateUserName($newManager)) ?>.<?php if (!$row['ASSIGNMENTS']): ?> <b>Текущее задание не найдено; передача заблокирована.</b><?php endif; ?>
 <?php elseif ($row['STATUS_ID'] === 3347534): ?>задача выполнена, ответственный останется прежним.
-<?php else: ?>Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.
+<?php else: ?>Смена ответственного за эту задачу невозможна. Сначала сотрудник должен выполнить свой этап задания по этой задаче и только затем можно будет сменить ответственного за эту задачу.
 <?php endif; ?></li>
 <?php endforeach; ?></ul>
 <form method="post"><?= bitrix_sessid_post() ?>
