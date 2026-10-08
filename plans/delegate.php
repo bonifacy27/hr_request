@@ -3,7 +3,7 @@
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Делегировать ПВД');
-CJSCore::Init(['popup', 'ui.entity-selector']);
+\Bitrix\Main\UI\Extension::load(['main.core', 'ui.entity-selector']);
 foreach (['iblock', 'lists', 'bizproc'] as $module) {
     if (!\Bitrix\Main\Loader::includeModule($module)) {
         ShowError('Не удалось подключить модуль ' . $module);
@@ -270,42 +270,68 @@ $first = reset($group); ?>
 <?php endif; endforeach; ?>
 </div>
 <script>
-BX.ready(function () {
+(function () {
+function initManagerSelector() {
     var button = document.getElementById('pick-manager');
     if (!button) return;
     var input = document.getElementById('new-manager');
     var label = document.getElementById('selected-manager');
     var submit = document.getElementById('check-manager');
     var currentManagerId = <?= (int)$manager ?>;
-    var selector = new BX.UI.EntitySelector.Dialog({
-        targetNode: button,
-        context: 'delegate-onboarding-plan-manager',
-        multiple: false,
-        dropdownMode: true,
-        enableSearch: true,
-        entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
-        preselectedItems: input.value > 0 ? [['user', parseInt(input.value, 10)]] : [],
-        events: {
-            'Item:onSelect': function (event) {
-                var item = event.getData().item;
-                var userId = parseInt(item.getId(), 10) || 0;
-                input.value = userId > 0 ? String(userId) : '';
-                label.textContent = item.getTitle() || 'Сотрудник не выбран';
-                submit.disabled = userId <= 0 || userId === currentManagerId;
-                selector.hide();
-            },
-            'Item:onDeselect': function () {
-                input.value = '';
-                label.textContent = 'Сотрудник не выбран';
-                submit.disabled = true;
+    var selector = null;
+    function createSelector() {
+        return new BX.UI.EntitySelector.Dialog({
+            targetNode: button,
+            context: 'delegate-onboarding-plan-manager',
+            multiple: false,
+            dropdownMode: true,
+            enableSearch: true,
+            entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
+            preselectedItems: input.value > 0 ? [['user', parseInt(input.value, 10)]] : [],
+            events: {
+                'Item:onSelect': function (event) {
+                    var item = event.getData().item;
+                    var userId = parseInt(item.getId(), 10) || 0;
+                    input.value = userId > 0 ? String(userId) : '';
+                    label.textContent = item.getTitle() || 'Сотрудник не выбран';
+                    submit.disabled = userId <= 0 || userId === currentManagerId;
+                    selector.hide();
+                },
+                'Item:onDeselect': function () {
+                    input.value = '';
+                    label.textContent = 'Сотрудник не выбран';
+                    submit.disabled = true;
+                }
             }
+        });
+    }
+    button.addEventListener('click', function () {
+        // Подключаем обработчик до создания диалога: ошибка загрузки не оставляет кнопку без действия.
+        if (selector) {
+            selector.show();
+            return;
         }
+        button.disabled = true;
+        BX.Runtime.loadExtension('ui.entity-selector').then(function () {
+            selector = createSelector();
+            selector.show();
+        }).catch(function (error) {
+            console.error('Не удалось открыть выбор руководителя ПВД', error);
+            label.textContent = 'Не удалось загрузить список сотрудников. Обновите страницу и повторите выбор.';
+        }).then(function () {
+            button.disabled = false;
+        });
     });
-    button.addEventListener('click', function () { selector.show(); });
     document.getElementById('manager-selection').addEventListener('submit', function (event) {
         var userId = parseInt(input.value, 10) || 0;
         if (userId <= 0 || userId === currentManagerId) event.preventDefault();
     });
-});
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initManagerSelector);
+} else {
+    initManagerSelector();
+}
+}());
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php'); ?>
