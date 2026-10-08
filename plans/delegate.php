@@ -3,6 +3,7 @@
 define('BX_COMPOSITE_DO_NOT_CACHE', true);
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Делегировать ПВД');
+CJSCore::Init(['popup', 'ui.entity-selector']);
 foreach (['iblock', 'lists', 'bizproc'] as $module) {
     if (!\Bitrix\Main\Loader::includeModule($module)) {
         ShowError('Не удалось подключить модуль ' . $module);
@@ -203,7 +204,7 @@ try {
 .pvd-delegate th,.pvd-delegate td {border:1px solid #ccc;padding:10px;text-align:left;vertical-align:top}
 .pvd-delegate th {background:#f0f0f0}.pvd-delegate .summary {max-width:900px}
 .pvd-delegate .warning {background:#fff4d0;padding:12px;margin:12px 0}
-.pvd-delegate .scroll {overflow:auto}.pvd-delegate select {max-width:100%;padding:8px}
+.pvd-delegate .scroll {overflow:auto}
 </style>
 <div class="pvd-delegate">
 <h2>План ввода в должность: <?= delegateH($plan['NAME']) ?></h2>
@@ -222,16 +223,11 @@ try {
 <?= bitrix_sessid_post() ?>
 <input type="hidden" name="PLAN_ID" value="<?= $planId ?>">
 <input type="hidden" name="action" value="preview">
-<label for="new-manager">Новый руководитель ПВД</label>
-<select name="new_manager" id="new-manager" required><option value="">Выберите сотрудника</option>
-<?php
-$users = \Bitrix\Main\UserTable::getList(['filter' => ['=ACTIVE' => 'Y', '!UF_DEPARTMENT' => false], 'select' => ['ID', 'LAST_NAME', 'NAME', 'SECOND_NAME', 'LOGIN'], 'order' => ['LAST_NAME' => 'ASC', 'NAME' => 'ASC']]);
-while ($user = $users->fetch()): if ((int)$user['ID'] === $manager) continue;
-$name = trim($user['LAST_NAME'] . ' ' . $user['NAME'] . ' ' . $user['SECOND_NAME']) ?: $user['LOGIN'];
-?>
-<option value="<?= (int)$user['ID'] ?>" <?= (int)$user['ID'] === $newManager ? 'selected' : '' ?>><?= delegateH($name) ?> (<?= (int)$user['ID'] ?>)</option>
-<?php endwhile; ?></select>
-<button class="ui-btn ui-btn-primary" type="submit">Проверить изменения</button>
+<span>Новый руководитель ПВД:</span>
+<input type="hidden" name="new_manager" id="new-manager" value="<?= $newManager ?>">
+<span id="selected-manager"><?= $newManager > 0 ? delegateH(delegateUserName($newManager)) : 'Сотрудник не выбран' ?></span>
+<button class="ui-btn ui-btn-light-border" type="button" id="pick-manager">Выбрать сотрудника</button>
+<button class="ui-btn ui-btn-primary" type="submit" id="check-manager" <?= $newManager > 0 && $newManager !== $manager ? '' : 'disabled' ?>>Проверить изменения</button>
 </form>
 <?php endif; ?>
 <?php if ($preview): ?>
@@ -242,7 +238,8 @@ $name = trim($user['LAST_NAME'] . ' ' . $user['NAME'] . ' ' . $user['SECOND_NAME
 <li><?= $row['IBLOCK'] === 360 ? 'ПВД' : 'KPI' ?> #<?= $row['ID'] ?>: <?= delegateH($row['NAME']) ?> —
 <?php if ($row['STATUS_ID'] === 3396791): ?>изменить ответственного на <?= delegateH(delegateUserName($newManager)) ?>.
 <?php elseif ($row['STATUS_ID'] === 3507933): ?>изменить ответственного и делегировать текущие задания на <?= delegateH(delegateUserName($newManager)) ?>.<?php if (!$row['ASSIGNMENTS']): ?> <b>Текущее задание не найдено; передача заблокирована.</b><?php endif; ?>
-<?php else: ?>ответственный останется прежним. Сначала сотрудник должен выполнить свое задание, затем можно сменить ответственного.
+<?php elseif ($row['STATUS_ID'] === 3347534): ?>задача выполнена, ответственный останется прежним.
+<?php else: ?>Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.
 <?php endif; ?></li>
 <?php endforeach; ?></ul>
 <form method="post"><?= bitrix_sessid_post() ?>
@@ -267,9 +264,48 @@ $first = reset($group); ?>
 <?php foreach ($row['FIELDS'] as $property => $label): ?><td><?= delegateH($row['ELEMENT']['PROPERTY_' . $property . '_VALUE'] ?? '') ?></td><?php endforeach; ?>
 <td><?= delegateH(implode(', ', array_unique(array_map(function ($assignment) { return delegateUserName($assignment['USER_ID']); }, $row['ASSIGNMENTS']))) ?: '—') ?></td>
 <td><?= delegateH(delegateUserName($row['RESPONSIBLE'])) ?></td></tr>
-<?php if (!in_array($row['STATUS_ID'], [3396791, 3507933], true)): ?>
-<tr><td colspan="<?= count($row['FIELDS']) + 5 ?>" class="warning">Сначала сотрудник должен выполнить свое задание по этой задаче, и только затем можно сменить ответственного.</td></tr>
+<?php if (!in_array($row['STATUS_ID'], [3396791, 3507933, 3347534], true)): ?>
+<tr><td colspan="<?= count($row['FIELDS']) + 5 ?>" class="warning">Смена ответственного на этом этапе невозможна. Сначала сотрудник должен выполнить свое задание по задачам ПВД и KPI, и только затем можно будет сменить ответственного.</td></tr>
 <?php endif; endforeach; ?></tbody></table></div>
 <?php endif; endforeach; ?>
 </div>
+<script>
+BX.ready(function () {
+    var button = document.getElementById('pick-manager');
+    if (!button) return;
+    var input = document.getElementById('new-manager');
+    var label = document.getElementById('selected-manager');
+    var submit = document.getElementById('check-manager');
+    var currentManagerId = <?= (int)$manager ?>;
+    var selector = new BX.UI.EntitySelector.Dialog({
+        targetNode: button,
+        context: 'delegate-onboarding-plan-manager',
+        multiple: false,
+        dropdownMode: true,
+        enableSearch: true,
+        entities: [{ id: 'user', options: { inviteEmployeeLink: false } }],
+        preselectedItems: input.value > 0 ? [['user', parseInt(input.value, 10)]] : [],
+        events: {
+            'Item:onSelect': function (event) {
+                var item = event.getData().item;
+                var userId = parseInt(item.getId(), 10) || 0;
+                input.value = userId > 0 ? String(userId) : '';
+                label.textContent = item.getTitle() || 'Сотрудник не выбран';
+                submit.disabled = userId <= 0 || userId === currentManagerId;
+                selector.hide();
+            },
+            'Item:onDeselect': function () {
+                input.value = '';
+                label.textContent = 'Сотрудник не выбран';
+                submit.disabled = true;
+            }
+        }
+    });
+    button.addEventListener('click', function () { selector.show(); });
+    document.getElementById('manager-selection').addEventListener('submit', function (event) {
+        var userId = parseInt(input.value, 10) || 0;
+        if (userId <= 0 || userId === currentManagerId) event.preventDefault();
+    });
+});
+</script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php'); ?>
