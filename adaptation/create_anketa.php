@@ -304,6 +304,12 @@ foreach ($fields as $f) {
 
 $errors = [];
 $saveMessage = null;
+require_once __DIR__ . '/../lib/create_once.php';
+$creationToken = (string)($_POST['creation_token'] ?? '');
+if (!RecruitmentCreateOnce::valid('adaptation', $creationToken)) {
+    $creationToken = RecruitmentCreateOnce::token('adaptation');
+}
+$creationGuard = null;
 $offerList = getIblockElementsById(IBL_OFFERS, ['ID' => 'DESC']);
 $requestList = getIblockElementsById(IBL_REQUESTS, ['ID' => 'DESC']);
 $equipmentRows = getIblockElementsById(IBL_EQUIPMENT);
@@ -494,6 +500,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     }
 
     if (!$errors) {
+        try {
+            $creationGuard = new RecruitmentCreateOnce('adaptation', (string)($_POST['creation_token'] ?? ''));
+            if ($creationGuard->existingId(IBL_ADAPTATION) > 0) {
+                $creationGuard->release();
+                LocalRedirect(ADAPTATION_LIST_URL);
+                return;
+            }
+        } catch (\Throwable $exception) {
+            $errors[] = $exception instanceof \DomainException
+                ? $exception->getMessage()
+                : 'Не удалось проверить повторное создание. Попробуйте позже.';
+        }
+    }
+
+    if (!$errors) {
         $comparisonLabels = [
             'FAMILIYA' => 'Фамилия', 'IMYA' => 'Имя', 'OTCHESTVO' => 'Отчество',
             'ORGANIZATSIYA' => 'Организация', 'DOLZHNOST' => 'Должность', 'OTDEL' => 'Отдел',
@@ -586,6 +607,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         $el = new CIBlockElement();
         $newId = $el->Add([
             'IBLOCK_ID' => IBL_ADAPTATION,
+            'XML_ID' => $creationGuard->xmlId,
             'ACTIVE' => 'Y',
             'NAME' => $name,
             'PROPERTY_VALUES' => $propertyValues,
@@ -618,6 +640,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
             return;
         }
     }
+}
+
+if ($creationGuard !== null) {
+    $creationGuard->release();
 }
 
 $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
@@ -654,8 +680,9 @@ $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
         </div>
     <?php endif; ?>
 
-    <form method="post" enctype="multipart/form-data">
+    <form data-create-once method="post" enctype="multipart/form-data">
         <?= bitrix_sessid_post() ?>
+        <input type="hidden" name="creation_token" value="<?=h($creationToken)?>">
         <div class="anketa-field anketa-full anketa-mode-box">
             <label>Режим создания</label>
             <div>
@@ -1135,4 +1162,6 @@ BX.ready(function () {
     }
 });
 </script>
+<script src="../lib/create_once.js"></script>
+
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
