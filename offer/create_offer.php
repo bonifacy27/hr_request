@@ -577,6 +577,12 @@ $candidate = null;
 $requestItem = null;
 $errors = [];
 $saveMessage = null;
+require_once __DIR__ . '/../lib/create_once.php';
+$creationToken = (string)($_POST['creation_token'] ?? '');
+if (!RecruitmentCreateOnce::valid('offer', $creationToken)) {
+    $creationToken = RecruitmentCreateOnce::token('offer');
+}
+$creationGuard = null;
 
 $formData = [
     'candidate_fio' => '',
@@ -901,6 +907,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
     $formData['bonus_rub_ndfl'] = (string)round(calcNetAfterNdfl((float)$bonusRubGross)['net']);
     $formData['month_income_avg_ndfl'] = (string)round(calcNetAfterNdfl((float)$monthIncomeAvg)['net']);
 
+    if (!$errors) {
+        try {
+            $creationGuard = new RecruitmentCreateOnce('offer', (string)($_POST['creation_token'] ?? ''));
+            if ($creationGuard->existingId(IBL_OFFERS) > 0) {
+                $creationGuard->release();
+                LocalRedirect('/forms/staff_recruitment/offer/list.php');
+                return;
+            }
+        } catch (\Throwable $exception) {
+            $errors[] = $exception instanceof \DomainException
+                ? $exception->getMessage()
+                : 'Не удалось проверить повторное создание. Попробуйте позже.';
+        }
+    }
+
     if (empty($errors)) {
         if ($selectedMode === 'candidate' && $candidateId > 0) {
             $creationMethod = 'из анкеты кандидата #' . $candidateId;
@@ -958,6 +979,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         $el = new CIBlockElement();
         $offerId = $el->Add([
             'IBLOCK_ID' => IBL_OFFERS,
+            'XML_ID' => $creationGuard->xmlId,
             'NAME' => 'Оффер: ' . $formData['candidate_fio'],
             'ACTIVE' => 'Y',
             'PREVIEW_TEXT' => $creationHistoryBlock,
@@ -1084,6 +1106,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         ];
     }
 }
+if ($creationGuard !== null) {
+    $creationGuard->release();
+}
+
 
 ?>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
@@ -1102,8 +1128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         <div class="alert alert-<?=h($saveMessage['type'])?>" role="alert"><?=h($saveMessage['text'])?></div>
     <?php endif; ?>
 
-    <form method="post">
+    <form data-create-once method="post">
         <?=bitrix_sessid_post()?>
+        <input type="hidden" name="creation_token" value="<?=h($creationToken)?>">
+        <input type="hidden" name="action" value="save">
         <div class="card mb-3">
             <div class="card-header">Режим создания</div>
             <div class="card-body">
@@ -1432,7 +1460,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid() && (string)($
         </div>
 
         <div class="text-right">
-            <button type="submit" class="btn btn-primary" name="action" value="save">Создать оффер</button>
+            <button type="submit" class="btn btn-primary">Создать оффер</button>
             <a href="/forms/staff_recruitment/offer/list.php" class="btn btn-link">К списку офферов</a>
         </div>
     </form>
@@ -1948,5 +1976,7 @@ BX.ready(function () {
     recalcIncomeFields();
 });
 </script>
+
+<script src="../lib/create_once.js"></script>
 
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/footer.php');
