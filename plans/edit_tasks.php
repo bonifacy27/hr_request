@@ -140,44 +140,62 @@ $retryJob = $_SESSION['KPI_EDIT_JOBS'][$planId] ?? null;
 $APPLICATION->SetTitle('Редактирование KPI-задач ПВД');
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_after.php');
 ?>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-.kpi-editor {max-width:1200px;margin:24px auto;padding:20px;font:14px/1.5 Arial,sans-serif}
-.kpi-editor table {width:100%;border-collapse:collapse;margin:16px 0}
-.kpi-editor th,.kpi-editor td {border:1px solid #ccc;padding:10px;vertical-align:top}
-.kpi-editor th {background:#f0f0f0}.kpi-editor textarea {width:100%;min-height:80px;box-sizing:border-box}
-.kpi-editor select,.kpi-editor input {max-width:100%;box-sizing:border-box;padding:6px}
+.kpi-editor {max-width:1200px;margin:20px auto;background:#fff;border-radius:10px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,.08);font:14px/1.5 'Open Sans',Arial,sans-serif}
+.kpi-editor h1 {margin:0 0 10px;font-size:20px}.kpi-editor h2 {margin:22px 0 10px;font-size:16px}
+.kpi-editor .info {background:#f8fafc;border:1px solid #e8eef6;border-radius:10px;padding:14px;margin-bottom:16px}
+.kpi-editor .info p {margin:6px 0}
+.kpi-editor input[type="text"],.kpi-editor textarea,.kpi-editor select,.kpi-editor input[type="number"] {width:100%;border:1px solid #dfe6f0;border-radius:8px;padding:10px 12px;box-sizing:border-box;font-family:inherit;font-size:14px}
+.kpi-editor textarea {min-height:90px;resize:vertical}
+.kpi-editor .btn {display:inline-flex;align-items:center;justify-content:center;border:none;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:700}
+.kpi-editor .btn-primary {background:#1f6feb;color:#fff}.kpi-editor .btn-secondary {background:#eef2ff;color:#1f2a44}.kpi-editor .btn-danger {background:#ffecec;color:#a31212}
+.kpi-editor .actions {display:flex;justify-content:flex-end;margin-top:18px;gap:10px;flex-wrap:wrap}.kpi-editor .add-actions {justify-content:flex-start;margin-top:12px}
+.kpi-editor table {width:100%;border-collapse:collapse;margin-top:10px}
+.kpi-editor th,.kpi-editor td {border:1px solid #e8eef6;padding:10px;vertical-align:top}
+.kpi-editor th {background:#f8fafc;text-align:left;font-size:13px}.kpi-editor .td-actions {width:90px;text-align:center}
 .kpi-editor .locked {background:#f7eeee}.kpi-editor small {display:block;color:#983434}
-.kpi-editor .actions {display:flex;gap:12px;margin-top:16px;flex-wrap:wrap}
-.kpi-editor .notice {padding:12px;background:#fff3cd;margin:12px 0}
-.kpi-editor .success {padding:12px;background:#dcf3df}.kpi-editor .changes {white-space:pre-wrap;background:#f5f5f5;padding:16px}
-.kpi-editor .table-scroll {overflow:auto}.kpi-editor button {padding:8px 14px;cursor:pointer}
+.kpi-editor .notice {padding:12px;background:#fff3cd;margin:12px 0;border-radius:10px}.kpi-editor .success {padding:12px;background:#dcf3df;border-radius:10px}
+.kpi-editor .changes {white-space:pre-wrap;background:#f8fafc;padding:16px;max-height:50vh;overflow:auto}.kpi-editor .table-scroll {overflow:auto}
+.kpi-editor .note {margin-top:8px;color:#6b778c;font-size:12px}.kpi-editor a {color:#1f6feb}
+.kpi-editor .modal-overlay {position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:9999}
+.kpi-editor .modal {background:#fff;border-radius:14px;width:min(720px,100%);padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.kpi-editor .modal h3 {margin:0 0 8px}.kpi-editor .modal-overlay[hidden] {display:none}
 </style>
 <div class="kpi-editor">
-<h2>KPI задачи (обязательно минимум 1 строка)</h2>
+<h1>Редактирование задач</h1>
+<div class="info">
 <p>ПВД: <?= kpiEditH($plan['NAME']) ?> (#<?= $planId ?>)</p>
 <?php if ($window): ?><p>Редактирование доступно один раз, с <?= date('d.m.Y', strtotime($window['first'])) ?> по <?= date('d.m.Y', strtotime($window['last'])) ?> включительно. Планируемый срок измененных и новых задач — не позднее <?= date('d.m.Y', strtotime($window['last'])) ?>.</p><?php endif; ?>
 <p>Можно изменить или удалить задачи в статусе «Инициализация» с текущим сроком не ранее <?= date('d.m.Y', strtotime($tomorrow)) ?>. Срок новых и измененных задач — также не ранее этой даты.</p>
+</div>
 <?php if ($editUnavailable && !$error): ?><div class="notice"><?= kpiEditH($editUnavailable) ?></div><?php endif; ?>
 <?php if ($error): ?><div class="notice" role="alert"><?= kpiEditH($error) ?></div><?php endif; ?>
 <?php if ($success): ?><div class="success" role="status"><?= kpiEditH($success) ?></div><?php endif; ?>
 <?php if ($retryJob): ?>
 <pre class="changes"><?= kpiEditH($retryJob['text']) ?></pre>
 <?php if ($retryJob['user'] === $userId): ?>
-<form method="post"><?= bitrix_sessid_post() ?><input type="hidden" name="action" value="retry"><input type="hidden" name="token" value="<?= kpiEditH($retryJob['token']) ?>"><button type="submit">Повторить запуск уведомления</button></form>
+<form method="post"><?= bitrix_sessid_post() ?><input type="hidden" name="action" value="retry"><input type="hidden" name="token" value="<?= kpiEditH($retryJob['token']) ?>"><button type="submit" class="btn btn-primary">Повторить запуск уведомления</button></form>
 <?php endif; ?>
 <?php elseif ($preview): ?>
-<h3>Будет изменено</h3>
+<div class="modal-overlay" id="changes-modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="changes-title">
+<h3 id="changes-title">Будет изменено</h3>
 <pre class="changes"><?= kpiEditH($preview['description']) ?></pre>
 <form method="post"><?= bitrix_sessid_post() ?><input type="hidden" name="action" value="apply"><input type="hidden" name="token" value="<?= kpiEditH($preview['token']) ?>">
-<div class="actions"><button type="submit">Подтвердить и сохранить</button><button type="button" id="back-to-edit">Продолжить редактирование</button></div></form>
+<div class="actions"><button type="submit" class="btn btn-primary">Подтвердить и сохранить</button><button type="button" class="btn btn-secondary" id="back-to-edit">Продолжить редактирование</button></div></form>
+</div></div>
 <?php endif; ?>
 <form method="post" id="kpi-edit-form" <?= $preview || $retryJob || $editUnavailable ? 'hidden' : '' ?>>
 <?= bitrix_sessid_post() ?><input type="hidden" name="action" value="preview"><input type="hidden" name="revision" value="<?= kpiEditH($revision) ?>">
-<div class="table-scroll"><table id="kpi-table"><thead><tr><th>Тип задачи</th><th>Планируемый результат</th><th>Вес (%)</th><th>Планируемый срок</th><th>Действие</th></tr></thead><tbody id="kpi-rows"></tbody></table></div>
-<div class="actions"><button type="button" id="add-kpi">Добавить еще задачу</button><button type="submit">Проверить изменения</button></div>
+<div class="table-scroll"><table id="kpi-table"><thead><tr><th style="width:220px">Тип задачи</th><th>Планируемый результат</th><th style="width:120px">Вес (%)</th><th style="width:160px">Планируемая дата</th><th class="td-actions">Действие</th></tr></thead><tbody id="kpi-rows"></tbody></table></div>
+<div class="actions add-actions"><button type="button" class="btn btn-secondary" id="add-kpi">Добавить еще задачу</button></div>
+<div class="actions"><button type="submit" class="btn btn-primary">Проверить изменения</button></div>
 </form>
 <p><a href="/forms/staff_recruitment/plans/list.php">Вернуться к списку ПВД</a></p>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/ru.js"></script>
 <script>
 (function () {
     var types = <?= json_encode($types, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
@@ -194,6 +212,7 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_after.p
         var old = existing.find(function (task) {return task.id === Number(row.id);});
         var locked = old && (old.status !== 3396791 || !old.due_date || old.due_date < tomorrow);
         var tr = document.createElement('tr');
+        body.appendChild(tr);
         if (locked) {
             tr.className = 'locked';
             tr.innerHTML = '<td><input type="hidden" name="' + name + '[id]" value="' + old.id + '">' + escape(types[old.type] || old.name) + '</td><td>' + escape(old.planned_result) + '</td><td>' + old.weight + '</td><td>' + escape(old.due_date) + '</td><td><small>' + (old.status !== 3396791 ? 'Статус отличается от «Инициализация».' : 'Текущий срок раньше завтрашнего дня.') + '</small></td>';
@@ -203,30 +222,22 @@ require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_after.p
             tr.innerHTML = '<td><input type="hidden" name="' + name + '[id]" value="' + (Number(row.id) || 0) + '"><select name="' + name + '[type]" required>' + options + '</select></td>'
                 + '<td><textarea name="' + name + '[planned_result]" required>' + escape(row.planned_result) + '</textarea></td>'
                 + '<td><input type="number" name="' + name + '[weight]" min="1" step="1" required value="' + (Number(row.weight) || '') + '"></td>'
-                + '<td><input type="date" name="' + name + '[due_date]" min="' + tomorrow + '" max="' + latest + '" required value="' + escape(row.due_date) + '"></td>'
-                + '<td><button type="button" class="delete-kpi">Удалить</button></td>';
-            tr.querySelector('.delete-kpi').addEventListener('click', function () {tr.remove();});
-            // Старые неизмененные сроки сохраняются. Верхний предел применяется при любом изменении строки.
-            var dateInput = tr.querySelector('input[type="date"]');
-            function updateDateLimit() {
-                var unchanged = old
-                    && Number(tr.querySelector('select').value) === old.type
-                    && tr.querySelector('textarea').value.trim() === old.planned_result.trim()
-                    && Number(tr.querySelector('input[type="number"]').value) === old.weight
-                    && dateInput.value === old.due_date;
-                dateInput.max = unchanged ? '' : latest;
-            }
-            tr.addEventListener('input', updateDateLimit);
-            tr.addEventListener('change', updateDateLimit);
-            updateDateLimit();
+                + '<td><input type="text" class="kpi-date" name="' + name + '[due_date]" placeholder="дд.мм.гггг" readonly required value="' + escape(row.due_date) + '"><div class="note">Срок — в пределах доступного диапазона календаря.</div></td>'
+                + '<td class="td-actions"><button type="button" class="btn btn-danger delete-kpi">Удалить</button></td>';
+            var dateInput = tr.querySelector('.kpi-date');
+            var picker = flatpickr(dateInput, {
+                locale: 'ru', dateFormat: 'Y-m-d', altInput: true, altFormat: 'd.m.Y',
+                minDate: tomorrow, maxDate: latest, allowInput: false,
+                allowInvalidPreload: true, disableMobile: true
+            });
+            tr.querySelector('.delete-kpi').addEventListener('click', function () {picker.destroy();tr.remove();});
         }
-        body.appendChild(tr);
     }
     (submitted || existing).forEach(addRow);
     if (!(submitted || existing).length) addRow();
     document.getElementById('add-kpi').addEventListener('click', function () {addRow();});
     var back = document.getElementById('back-to-edit');
-    if (back) back.addEventListener('click', function () {document.getElementById('kpi-edit-form').hidden = false; back.closest('form').hidden = true;});
+    if (back) back.addEventListener('click', function () {document.getElementById('kpi-edit-form').hidden = false; document.getElementById('changes-modal').hidden = true;});
 }());
 </script>
 <?php require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/epilog.php'); ?>
