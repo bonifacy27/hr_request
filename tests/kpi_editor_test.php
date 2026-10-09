@@ -37,17 +37,43 @@ foreach ([[$input,$input], [array_replace($input,['id'=>999])], [array_replace($
 }
 // После полуночи задача со сроком вчерашнего «завтра» блокируется.
 rejects(function () use ($task,$changed,$types) {kpiEditChanges([1=>$task],[$changed],$types,'2026-10-10');}, 'Midnight revalidation');
+// Половина ИС округляется вперед до следующего календарного дня.
+$window = kpiEditWindow('01.07.2026', '01.10.2026');
+expect($window === ['first'=>'2026-08-16','last'=>'2026-09-10'], 'Trial midpoint and end minus 21 days');
+kpiEditCheckWindow($window, '', '2026-08-16');
+kpiEditCheckWindow($window, '', '2026-09-10');
+rejects(function() use($window){kpiEditCheckWindow($window,'','2026-08-15');}, 'Before midpoint');
+rejects(function() use($window){kpiEditCheckWindow($window,'','2026-09-11');}, 'After final edit date');
+rejects(function() use($window){kpiEditCheckWindow($window,'16.08.2026 10:00:00','2026-08-16');}, 'Only once');
+$odd = kpiEditWindow('01.07.2026', '30.09.2026');
+expect($odd['first'] === '2026-08-16', 'Odd trial duration rounds forward');
+rejects(function(){kpiEditWindow('','01.10.2026');}, 'Missing trial dates');
+rejects(function(){kpiEditCheckWindow(kpiEditWindow('01.07.2026','01.08.2026'),'','2026-07-17');}, 'No editing interval for short probation');
+$latest = '2026-10-10';
+kpiEditChanges([1=>$task],[$changed],$types,$tomorrow,$latest);
+$late = $changed; $late['due_date'] = '2026-10-11';
+rejects(function() use($task,$late,$types,$tomorrow,$latest){kpiEditChanges([1=>$task],[$late],$types,$tomorrow,$latest);}, 'Changed date exceeds end minus 21');
+rejects(function() use($task,$late,$types,$tomorrow,$latest){kpiEditChanges([1=>$task],[array_replace($late,['id'=>0])],$types,$tomorrow,$latest);}, 'New date exceeds end minus 21');
+$completedText=kpiEditDescribe([['action'=>'add','id'=>0,'after'=>kpiEditValues($task)]],$types,true,[123]);
+expect(strpos($completedText,'Добавлена новая KPI-задача #123') !== false,'New ID in notification');
 class KpiResult {private $rows; function __construct($rows){$this->rows=$rows;} function Fetch(){return array_shift($this->rows) ?: false;}}
 class CIBlockElement {
     static $elements = []; static $links = []; static $nextId = 100; static $updates = [];
     public $LAST_ERROR = '';
     static function GetList($a,$filter){return new KpiResult(isset(self::$elements[$filter['ID']])?[self::$elements[$filter['ID']]]:[]);}
     static function GetProperty($iblock,$id,$order,$filter){
+        if ($iblock === 359 && (int)($filter['ID'] ?? 0) === KPI_EDIT_ONCE_PROPERTY_ID) return new KpiResult([['VALUE'=>self::$elements[$id]['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? '']]);
         if ($iblock === 359) return new KpiResult(array_map(function($id){return ['VALUE'=>$id];},self::$links));
         $props=[];foreach(self::$elements[$id]['props'] as $code=>$value) $props[]=['CODE'=>$code,'VALUE'=>$value];return new KpiResult($props);
     }
     static function SetPropertyValuesEx($id,$iblock,$properties){
-        if($iblock===359){expect(array_keys($properties)===['ZADACHI_KPI'],'Only KPI links changed');self::$links=$properties['ZADACHI_KPI'];}
+        if($iblock===359){
+            foreach ($properties as $code=>$value) {
+                if ($code === 'ZADACHI_KPI') self::$links=$value;
+                elseif ($code === KPI_EDIT_ONCE_PROPERTY_ID) self::$elements[$id]['PROPERTY_' . $code . '_VALUE']=$value;
+                else throw new RuntimeException('Unexpected plan property');
+            }
+        }
         else self::$elements[$id]['props']=array_replace(self::$elements[$id]['props'],$properties);
     }
     function Add($fields){$id=self::$nextId++;self::$elements[$id]=['ID'=>$id,'NAME'=>$fields['NAME'],'PREVIEW_TEXT'=>$fields['PREVIEW_TEXT'],'props'=>$fields['PROPERTY_VALUES']];return $id;}

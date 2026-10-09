@@ -20,6 +20,33 @@ function kpiEditTomorrow()
     return (new DateTimeImmutable('tomorrow', new DateTimeZone('Europe/Moscow')))->format('Y-m-d');
 }
 
+const KPI_EDIT_ONCE_PROPERTY_ID = 3195;
+
+function kpiEditWindow($hire, $trialEnd)
+{
+    $hire = kpiEditDate($hire);
+    $trialEnd = kpiEditDate($trialEnd);
+    if (!$hire || !$trialEnd || $trialEnd <= $hire) throw new RuntimeException('Проверьте даты трудоустройства и окончания испытательного срока в ПВД.');
+    $zone = new DateTimeZone('Europe/Moscow');
+    $start = new DateTimeImmutable($hire, $zone);
+    $end = new DateTimeImmutable($trialEnd, $zone);
+    $halfDays = (int)ceil((int)$start->diff($end)->format('%a') / 2);
+    return ['first' => $start->modify('+' . $halfDays . ' days')->format('Y-m-d'), 'last' => $end->modify('-21 days')->format('Y-m-d')];
+}
+
+function kpiEditCheckWindow(array $window, $editedAt, $today)
+{
+    if (trim((string)$editedAt) !== '') throw new RuntimeException('KPI-задачи этого ПВД уже редактировались. Повторное редактирование невозможно.');
+    if ($window['first'] > $window['last']) throw new RuntimeException('Для этих дат испытательного срока нет доступного периода редактирования KPI.');
+    if ($today < $window['first']) throw new RuntimeException('Редактирование доступно с ' . date('d.m.Y', strtotime($window['first'])) . ' — после половины испытательного срока.');
+    if ($today > $window['last']) throw new RuntimeException('Редактирование завершено ' . date('d.m.Y', strtotime($window['last'])) . ' — за 3 недели до окончания испытательного срока.');
+}
+
+function kpiEditPlanState(array $plan)
+{
+    return [$plan['PROPERTY_2775_VALUE'] ?? '', $plan['PROPERTY_2776_VALUE'] ?? '', $plan['PROPERTY_2802_VALUE'] ?? '', $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? ''];
+}
+
 function kpiEditAllowed(array $task, $tomorrow)
 {
     return $task['status'] === 3396791 && $task['due_date'] !== '' && $task['due_date'] >= $tomorrow;
@@ -64,7 +91,7 @@ function kpiEditValues(array $row)
     ];
 }
 
-function kpiEditChanges(array $existing, array $submitted, array $types, $tomorrow)
+function kpiEditChanges(array $existing, array $submitted, array $types, $tomorrow, $latest = null)
 {
     $seen = [];
     $changes = [];
@@ -96,6 +123,9 @@ function kpiEditChanges(array $existing, array $submitted, array $types, $tomorr
             throw new RuntimeException('Заполните тип, результат, положительный целый вес и срок не ранее завтрашнего дня.');
         }
         $count++;
+        if ($latest !== null && ($id === 0 || $values !== kpiEditValues($existing[$id])) && $values['due_date'] > $latest) {
+            throw new RuntimeException('Планируемый срок должен быть не позднее ' . date('d.m.Y', strtotime($latest)) . ' — за 3 недели до окончания испытательного срока.');
+        }
         if ($id === 0) $changes[] = ['action' => 'add', 'id' => 0, 'after' => $values];
         elseif ($values !== kpiEditValues($existing[$id])) {
             $changes[] = ['action' => 'update', 'id' => $id, 'before' => kpiEditValues($existing[$id]), 'after' => $values];
@@ -110,15 +140,17 @@ function kpiEditChanges(array $existing, array $submitted, array $types, $tomorr
     return $changes;
 }
 
-function kpiEditDescribe(array $changes, array $types, $saved = false)
+function kpiEditDescribe(array $changes, array $types, $saved = false, array $created = [])
 {
     $labels = ['type' => 'Тип задачи', 'planned_result' => 'Планируемый результат', 'weight' => 'Вес (%)', 'due_date' => 'Планируемый срок'];
     $lines = [];
+    $createdIndex = 0;
     foreach ($changes as $change) {
+        $addedId = $change['action'] === 'add' && $saved ? ($created[$createdIndex++] ?? 0) : 0;
         $verbs = $saved
             ? ['add' => 'Добавлена новая KPI-задача', 'delete' => 'Удалена KPI-задача #', 'update' => 'Изменена KPI-задача #']
             : ['add' => 'Добавить новую KPI-задачу', 'delete' => 'Удалить KPI-задачу #', 'update' => 'Изменить KPI-задачу #'];
-        $lines[] = $verbs[$change['action']] . ($change['action'] === 'add' ? '' : $change['id']);
+        $lines[] = $verbs[$change['action']] . ($change['action'] === 'add' ? ($addedId > 0 ? ' #' . $addedId : '') : $change['id']);
         foreach ($labels as $key => $label) {
             $before = $change['before'][$key] ?? '';
             $after = $change['after'][$key] ?? '';
