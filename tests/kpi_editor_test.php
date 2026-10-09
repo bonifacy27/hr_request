@@ -56,6 +56,14 @@ rejects(function() use($task,$late,$types,$tomorrow,$latest){kpiEditChanges([1=>
 rejects(function() use($task,$late,$types,$tomorrow,$latest){kpiEditChanges([1=>$task],[array_replace($late,['id'=>0])],$types,$tomorrow,$latest);}, 'New date exceeds end minus 21');
 $completedText=kpiEditDescribe([['action'=>'add','id'=>0,'after'=>kpiEditValues($task)]],$types,true,[123]);
 expect(strpos($completedText,'Добавлена новая KPI-задача #123') !== false,'New ID in notification');
+require_once __DIR__ . '/../plans/delegate_permissions.php';
+expect(kpiEditActionAvailable(5,5,6,'01.07.2026','01.10.2026','','2026-08-16'), 'Manager action visible');
+expect(kpiEditActionAvailable(6,5,6,'01.07.2026','01.10.2026','','2026-09-10'), 'Recruiter action on last day');
+expect(kpiEditActionAvailable(3532,5,6,'01.07.2026','01.10.2026','','2026-08-20'), 'User 3532 action');
+expect(!kpiEditActionAvailable(9,5,6,'01.07.2026','01.10.2026','','2026-08-20'), 'Unrelated user action hidden');
+expect(!kpiEditActionAvailable(5,5,6,'01.07.2026','01.10.2026','','2026-08-15'), 'Action before midpoint hidden');
+expect(!kpiEditActionAvailable(5,5,6,'01.07.2026','01.10.2026','','2026-09-11'), 'Action after last day hidden');
+expect(!kpiEditActionAvailable(5,5,6,'01.07.2026','01.10.2026','16.08.2026 10:00:00','2026-08-20'), 'Already edited action hidden');
 class KpiResult {private $rows; function __construct($rows){$this->rows=$rows;} function Fetch(){return array_shift($this->rows) ?: false;}}
 class CIBlockElement {
     static $elements = []; static $links = []; static $nextId = 100; static $updates = [];

@@ -11,6 +11,7 @@ use Bitrix\Main\Loader;
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Планы ввода в должность');
 require_once __DIR__ . '/delegate_permissions.php';
+require_once __DIR__ . '/edit_tasks_lib.php';
 
 if (!Loader::includeModule('iblock') || !Loader::includeModule('bizproc')) {
     ShowError('Не удалось подключить модули iblock/bizproc.');
@@ -396,6 +397,7 @@ $managerIds = [];
 $recruiterIds = [];
 $filteredPlanIds = [];
 $currentUserId = (int)$USER->GetID();
+$kpiEditToday = (new DateTimeImmutable('today', new DateTimeZone('Europe/Moscow')))->format('Y-m-d');
 $filterCandidates = CIBlockElement::GetList(
     ['ID' => 'DESC'],
     ['IBLOCK_ID' => PLAN_IBLOCK_ID, 'ACTIVE' => 'Y', 'CHECK_PERMISSIONS' => 'Y'],
@@ -446,7 +448,7 @@ $plansResult = CIBlockElement::GetList(
     false,
     ['nPageSize' => PAGE_SIZE, 'bShowAll' => false],
     ['ID', 'NAME', 'PROPERTY_' . PROP_MANAGER, 'PROPERTY_' . PROP_EMPLOYMENT_DATE,
-        'PROPERTY_' . PROP_TRIAL_END_DATE, 'PROPERTY_' . PROP_RECRUITER,
+        'PROPERTY_' . PROP_TRIAL_END_DATE, 'PROPERTY_' . PROP_RECRUITER, 'PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID,
         'PROPERTY_' . PROP_EMPLOYEE_CARD, 'PROPERTY_' . PROP_PLAN_STATUS]
 );
 
@@ -683,6 +685,14 @@ $employmentSortOrder = $sortField === 'employment' && $sortDirection === 'DESC' 
                         <select class="form-control form-control-sm js-plan-action" aria-label="Действия с планом">
                             <option value="">Действия…</option>
                             <option value="<?= h($reportUrl) ?>">Посмотреть план</option>
+                            <?php if (kpiEditActionAvailable(
+                                $currentUserId, (int)$plan['MANAGER_ID'], (int)$plan['RECRUITER_ID'],
+                                $plan['PROPERTY_' . PROP_EMPLOYMENT_DATE . '_VALUE'] ?? '',
+                                $plan['PROPERTY_' . PROP_TRIAL_END_DATE . '_VALUE'] ?? '',
+                                $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? '', $kpiEditToday
+                            )): ?>
+                                <option value="/forms/staff_recruitment/plans/edit_tasks.php?PLAN_ID=<?= $planId ?>">Редактировать задачи ПВД</option>
+                            <?php endif; ?>
                             <?php if (plansCanReplaceManager($currentUserId, (int)$plan['RECRUITER_ID'])): ?>
                                 <option value="/forms/staff_recruitment/plans/delegate.php?PLAN_ID=<?= $planId ?>">Заменить руководителя</option>
                             <?php endif; ?>

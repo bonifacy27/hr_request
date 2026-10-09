@@ -42,6 +42,17 @@ function kpiEditCheckWindow(array $window, $editedAt, $today)
     if ($today > $window['last']) throw new RuntimeException('Редактирование завершено ' . date('d.m.Y', strtotime($window['last'])) . ' — за 3 недели до окончания испытательного срока.');
 }
 
+function kpiEditActionAvailable($userId, $managerId, $recruiterId, $hire, $trialEnd, $editedAt, $today)
+{
+    if ((int)$userId <= 0 || ((int)$userId !== (int)$managerId && !plansCanReplaceManager($userId, $recruiterId))) return false;
+    try {
+        kpiEditCheckWindow(kpiEditWindow($hire, $trialEnd), $editedAt, $today);
+        return true;
+    } catch (RuntimeException $exception) {
+        return false;
+    }
+}
+
 function kpiEditPlanState(array $plan)
 {
     return [$plan['PROPERTY_2775_VALUE'] ?? '', $plan['PROPERTY_2776_VALUE'] ?? '', $plan['PROPERTY_2802_VALUE'] ?? '', $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? ''];
