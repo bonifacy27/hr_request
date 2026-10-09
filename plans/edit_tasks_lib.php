@@ -20,7 +20,7 @@ function kpiEditTomorrow()
     return (new DateTimeImmutable('tomorrow', new DateTimeZone('Europe/Moscow')))->format('Y-m-d');
 }
 
-const KPI_EDIT_ONCE_PROPERTY = 'KPI_TASKS_EDITED_AT';
+const KPI_EDIT_ONCE_PROPERTY_ID = 3195;
 
 function kpiEditWindow($hire, $trialEnd)
 {
@@ -44,7 +44,7 @@ function kpiEditCheckWindow(array $window, $editedAt, $today)
 
 function kpiEditPlanState(array $plan)
 {
-    return [$plan['PROPERTY_2775_VALUE'] ?? '', $plan['PROPERTY_2776_VALUE'] ?? '', $plan['PROPERTY_2802_VALUE'] ?? '', $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY . '_VALUE'] ?? ''];
+    return [$plan['PROPERTY_2775_VALUE'] ?? '', $plan['PROPERTY_2776_VALUE'] ?? '', $plan['PROPERTY_2802_VALUE'] ?? '', $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? ''];
 }
 
 function kpiEditAllowed(array $task, $tomorrow)

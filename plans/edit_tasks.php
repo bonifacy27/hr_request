@@ -11,7 +11,7 @@ global $USER, $APPLICATION;
 if (!$USER || !$USER->IsAuthorized()) die('Требуется авторизация.');
 $planId = (int)($_GET['PLAN_ID'] ?? $_GET['id'] ?? $_GET['ID'] ?? 0);
 $plan = $planId > 0 ? CIBlockElement::GetList([], ['IBLOCK_ID' => 359, 'ID' => $planId, 'CHECK_PERMISSIONS' => 'Y'], false, false,
-    ['ID', 'NAME', 'PROPERTY_2775', 'PROPERTY_2796', 'PROPERTY_2776', 'PROPERTY_2802', 'PROPERTY_' . KPI_EDIT_ONCE_PROPERTY])->Fetch() : false;
+    ['ID', 'NAME', 'PROPERTY_2775', 'PROPERTY_2796', 'PROPERTY_2776', 'PROPERTY_2802', 'PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID])->Fetch() : false;
 if (!$plan) die('План не найден или недоступен. Укажите PLAN_ID или id.');
 function kpiEditUserId($value) {
     if (is_array($value)) $value = reset($value);
@@ -29,12 +29,12 @@ $today = (new DateTimeImmutable('today', new DateTimeZone('Europe/Moscow')))->fo
 $window = null;
 $editUnavailable = '';
 try {
-    $definition = CIBlockProperty::GetList([], ['IBLOCK_ID' => 359, 'CODE' => KPI_EDIT_ONCE_PROPERTY])->Fetch();
+    $definition = CIBlockProperty::GetList([], ['IBLOCK_ID' => 359, 'ID' => KPI_EDIT_ONCE_PROPERTY_ID])->Fetch();
     if (!$definition || $definition['PROPERTY_TYPE'] !== 'S' || ($definition['USER_TYPE'] ?? '') !== 'DateTime' || $definition['MULTIPLE'] !== 'N') {
-        throw new RuntimeException('Для редактирования необходимо одиночное поле типа «Дата/время» с кодом ' . KPI_EDIT_ONCE_PROPERTY . ' в инфоблоке ПВД №359.');
+        throw new RuntimeException('Для редактирования необходимо одиночное поле типа «Дата/время» с ID ' . KPI_EDIT_ONCE_PROPERTY_ID . ' в инфоблоке ПВД №359.');
     }
     $window = kpiEditWindow($plan['PROPERTY_2776_VALUE'] ?? '', $plan['PROPERTY_2802_VALUE'] ?? '');
-    kpiEditCheckWindow($window, $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY . '_VALUE'] ?? '', $today);
+    kpiEditCheckWindow($window, $plan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? '', $today);
 } catch (Throwable $exception) {
     $editUnavailable = $exception->getMessage();
 }
@@ -78,7 +78,7 @@ try {
             $transaction = true;
             // Сериализуем сохранения этого ПВД и повторно читаем статусы и сроки.
             $connection->queryExecute('SELECT ID FROM b_iblock_element WHERE ID = ' . $planId . ' FOR UPDATE');
-            $currentPlan = CIBlockElement::GetList([], ['IBLOCK_ID' => 359, 'ID' => $planId], false, false, ['ID', 'PROPERTY_2775', 'PROPERTY_2796', 'PROPERTY_2776', 'PROPERTY_2802', 'PROPERTY_' . KPI_EDIT_ONCE_PROPERTY])->Fetch();
+            $currentPlan = CIBlockElement::GetList([], ['IBLOCK_ID' => 359, 'ID' => $planId], false, false, ['ID', 'PROPERTY_2775', 'PROPERTY_2796', 'PROPERTY_2776', 'PROPERTY_2802', 'PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID])->Fetch();
             $currentManager = kpiEditUserId($currentPlan['PROPERTY_2775_VALUE'] ?? '');
             $currentRecruiter = kpiEditUserId($currentPlan['PROPERTY_2796_VALUE'] ?? '');
             if (!$currentPlan || (!$USER->IsAdmin() && $userId !== $currentManager && !plansCanReplaceManager($userId, $currentRecruiter))) {
@@ -89,7 +89,7 @@ try {
                 throw new RuntimeException('Задачи или руководитель изменились. Повторите проверку изменений.');
             }
             $currentWindow = kpiEditWindow($currentPlan['PROPERTY_2776_VALUE'] ?? '', $currentPlan['PROPERTY_2802_VALUE'] ?? '');
-            kpiEditCheckWindow($currentWindow, $currentPlan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY . '_VALUE'] ?? '', (new DateTimeImmutable('today', new DateTimeZone('Europe/Moscow')))->format('Y-m-d'));
+            kpiEditCheckWindow($currentWindow, $currentPlan['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? '', (new DateTimeImmutable('today', new DateTimeZone('Europe/Moscow')))->format('Y-m-d'));
             $changes = kpiEditChanges($rows, $pending['submitted'], $types, kpiEditTomorrow(), $currentWindow['last']);
             $description = kpiEditDescribe($changes, $types);
             if ($description !== $pending['description']) throw new RuntimeException('Список изменений устарел. Повторите проверку.');
@@ -98,8 +98,8 @@ try {
             $stamp = (new DateTimeImmutable('now', new DateTimeZone('Europe/Moscow')))->format('d.m.Y H:i:s');
             $jobToken = bin2hex(random_bytes(24));
             $created = kpiEditSave($planId, $changes, $rows, $types, $currentManager);
-            CIBlockElement::SetPropertyValuesEx($planId, 359, [KPI_EDIT_ONCE_PROPERTY => $stamp]);
-            $savedMarker = CIBlockElement::GetProperty(359, $planId, [], ['CODE' => KPI_EDIT_ONCE_PROPERTY])->Fetch();
+            CIBlockElement::SetPropertyValuesEx($planId, 359, [KPI_EDIT_ONCE_PROPERTY_ID => $stamp]);
+            $savedMarker = CIBlockElement::GetProperty(359, $planId, [], ['ID' => KPI_EDIT_ONCE_PROPERTY_ID])->Fetch();
             if (!$savedMarker || strtotime((string)$savedMarker['VALUE']) !== strtotime($stamp)) throw new RuntimeException('Не удалось сохранить признак однократного редактирования.');
             $text = 'В ПВД #' . $planId . ' ' . $plan['NAME'] . " внесены изменения задач:\n"
                 . 'Автор: ' . ($authorName ?: 'Пользователь #' . $userId) . "\n"

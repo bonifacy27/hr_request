@@ -62,7 +62,7 @@ class CIBlockElement {
     public $LAST_ERROR = '';
     static function GetList($a,$filter){return new KpiResult(isset(self::$elements[$filter['ID']])?[self::$elements[$filter['ID']]]:[]);}
     static function GetProperty($iblock,$id,$order,$filter){
-        if ($iblock === 359 && ($filter['CODE'] ?? '') === KPI_EDIT_ONCE_PROPERTY) return new KpiResult([['VALUE'=>self::$elements[$id]['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY . '_VALUE'] ?? '']]);
+        if ($iblock === 359 && (int)($filter['ID'] ?? 0) === KPI_EDIT_ONCE_PROPERTY_ID) return new KpiResult([['VALUE'=>self::$elements[$id]['PROPERTY_' . KPI_EDIT_ONCE_PROPERTY_ID . '_VALUE'] ?? '']]);
         if ($iblock === 359) return new KpiResult(array_map(function($id){return ['VALUE'=>$id];},self::$links));
         $props=[];foreach(self::$elements[$id]['props'] as $code=>$value) $props[]=['CODE'=>$code,'VALUE'=>$value];return new KpiResult($props);
     }
@@ -70,7 +70,7 @@ class CIBlockElement {
         if($iblock===359){
             foreach ($properties as $code=>$value) {
                 if ($code === 'ZADACHI_KPI') self::$links=$value;
-                elseif ($code === KPI_EDIT_ONCE_PROPERTY) self::$elements[$id]['PROPERTY_' . $code . '_VALUE']=$value;
+                elseif ($code === KPI_EDIT_ONCE_PROPERTY_ID) self::$elements[$id]['PROPERTY_' . $code . '_VALUE']=$value;
                 else throw new RuntimeException('Unexpected plan property');
             }
         }
