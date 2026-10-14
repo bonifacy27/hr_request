@@ -1,4 +1,40 @@
 <?php
+/** Attach the encrypted PDF through Bitrix's file-property API. */
+function offerSecureAttachPdf(int $offerId, string $savePath): int
+{
+    $property = CIBlockProperty::GetByID(3196, 218)->Fetch();
+    if (!$property || $property['CODE'] !== 'OFFER_PDF_DRAFT'
+        || $property['PROPERTY_TYPE'] !== 'F' || $property['MULTIPLE'] !== 'N') {
+        throw new RuntimeException('Свойство 3196 OFFER_PDF_DRAFT должно быть одиночным файловым свойством инфоблока 218');
+    }
+    $previous = CIBlockElement::GetProperty(218, $offerId, [], ['ID' => 3196])->Fetch();
+    $previousId = (int)($previous['VALUE'] ?? 0);
+    if (!is_file($savePath) || filesize($savePath) === 0) {
+        throw new RuntimeException('Не удалось подготовить PDF для записи в OFFER_PDF_DRAFT');
+    }
+    $file = CFile::MakeFileArray($savePath);
+    if (!$file) {
+        throw new RuntimeException('Не удалось подготовить PDF для записи в OFFER_PDF_DRAFT');
+    }
+    $file['name'] = basename($savePath);
+    $file['type'] = 'application/pdf';
+    // Bitrix registers the file and replaces the previous single-file value.
+    CIBlockElement::SetPropertyValuesEx($offerId, 218, [
+        'OFFER_PDF_DRAFT' => ['VALUE' => $file, 'DESCRIPTION' => ''],
+    ]);
+
+    // SetPropertyValuesEx has no reliable success return value: read it back.
+    $stored = CIBlockElement::GetProperty(218, $offerId, [], ['ID' => 3196])->Fetch();
+    $fileId = (int)($stored['VALUE'] ?? 0);
+    $storedFile = $fileId > 0 ? CFile::GetFileArray($fileId) : false;
+    if ($fileId <= 0 || $fileId === $previousId || !$storedFile
+        || (int)$storedFile['FILE_SIZE'] !== filesize($savePath)
+        || $storedFile['ORIGINAL_NAME'] !== $file['name']) {
+        throw new RuntimeException('Не удалось записать созданный PDF в OFFER_PDF_DRAFT');
+    }
+    return $fileId;
+}
+
 /** Text representation of the fields and conditions in offer_cli.php. */
 function offerSecureRows(array $props, array $recruiter, callable $resolveElementName): array
 {
