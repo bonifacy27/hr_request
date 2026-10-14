@@ -82,7 +82,8 @@ try {
         throw new RuntimeException('Не удалось сохранить PDF');
     }
     $tempPath = null;
-    echo "PDF saved: {$savePath}\n";
+    $fileId = offerSecureAttachPdf($offerId, $savePath);
+    echo "PDF saved: {$savePath}; OFFER_PDF_DRAFT file ID: {$fileId}\n";
 } catch (Throwable $e) {
     if ($tempPath && is_file($tempPath)) {
         unlink($tempPath);
