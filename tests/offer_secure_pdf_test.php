@@ -79,9 +79,9 @@ if (getenv('TCPDF_TEST_PATH')) {
     require_once getenv('TCPDF_TEST_PATH');
     $destination = getenv('OFFER_TEST_PDF');
     checkOffer((bool)$destination, 'Задайте OFFER_TEST_PDF для интеграционной проверки');
-    offerSecurePdf($rows, 12345)->Output($destination, 'F');
+    offerSecurePdf($rows, 12345, 'test')->Output($destination, 'F');
     $longRows = [['label' => 'Длинное значение <b>текст</b>', 'value' => str_repeat('Условия & подробности работы. ', 1500)]];
-    offerSecurePdf($longRows, 12345)->Output($destination . '.long.pdf', 'F');
+    offerSecurePdf($longRows, 12345, 'test')->Output($destination . '.long.pdf', 'F');
     try {
         offerSecurePdf($rows, 12345, '');
         throw new RuntimeException('Пустой пароль был принят');
