@@ -78,11 +78,18 @@ try {
     if (!is_dir($saveDir) && !mkdir($saveDir, 0700, true) && !is_dir($saveDir)) {
         throw new RuntimeException('Не удалось создать каталог PDF');
     }
+    if (!is_writable($saveDir)) {
+        throw new RuntimeException('Каталог PDF недоступен для записи текущему пользователю ОС: '
+            . $saveDir . '. Проверьте владельца и права каталога после запуска от root');
+    }
     $savePath = $saveDir . $outputFilename;
     // Publish atomically, with access restricted to the generating OS user.
     $tempPath = tempnam($saveDir, '.offer-');
     if ($tempPath === false) {
         throw new RuntimeException('Не удалось создать временный файл PDF');
+    }
+    if (realpath(dirname($tempPath)) !== realpath($saveDir)) {
+        throw new RuntimeException('Временный PDF создан вне целевого каталога: проверьте права на ' . $saveDir);
     }
     if (!chmod($tempPath, 0600)) {
         throw new RuntimeException('Не удалось установить права на файл PDF');
