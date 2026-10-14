@@ -29,11 +29,21 @@ foreach (['ADMIN_SECTION', 'NO_KEEP_STATISTIC', 'NO_AGENT_CHECK', 'DisableEvents
 
 $tempPath = null;
 try {
-    $_SERVER['DOCUMENT_ROOT'] = realpath(__DIR__ . '/../..');
-    $documentRoot = $_SERVER['DOCUMENT_ROOT'];
-    if (!$documentRoot || !is_file($documentRoot . '/bitrix/modules/main/include/prolog_before.php')) {
-        throw new RuntimeException('Не найдено ядро Bitrix: установите утилиту рядом с offer_cli.php');
+    // Find the portal root regardless of the depth of the forms directory.
+    $documentRoot = realpath(__DIR__);
+    while ($documentRoot !== false
+        && !is_file($documentRoot . '/bitrix/modules/main/include/prolog_before.php')) {
+        $parent = dirname($documentRoot);
+        if ($parent === $documentRoot) {
+            $documentRoot = false;
+            break;
+        }
+        $documentRoot = $parent;
     }
+    if ($documentRoot === false) {
+        throw new RuntimeException('Не найден bitrix/modules/main/include/prolog_before.php в родительских каталогах ' . __DIR__);
+    }
+    $_SERVER['DOCUMENT_ROOT'] = $documentRoot;
     require_once $documentRoot . '/bitrix/modules/main/include/prolog_before.php';
     global $USER;
     // Same trusted CLI execution context as offer_cli.php.
