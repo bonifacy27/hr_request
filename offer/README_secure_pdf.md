@@ -2,7 +2,11 @@
 
 Установить `offer_secure_cli.php` и `offer_secure_pdf.php` рядом с существующим
 `offer_cli.php`. Генератор использует то же расположение ядра Bitrix
-(`__DIR__/../..`), инфоблок 218 и `/tcpdf/tcpdf.php` в корне портала.
+(по наличию `bitrix/modules/main/include/prolog_before.php` в родительских
+каталогах), инфоблок 218 и `/tcpdf/tcpdf.php` в корне портала.
+Например, для `/home/bitrix/www/forms/staff_recruitment/offer/` корень
+автоматически определяется как `/home/bitrix/www`, независимо от текущей
+рабочей папки при запуске CLI.
 
 ```sh
 php offer_secure_cli.php 3513128 3513128_approval.pdf
