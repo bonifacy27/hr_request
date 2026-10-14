@@ -1,11 +1,32 @@
 <?php
-/** Attach the encrypted PDF through Bitrix's file-property API. */
-function offerSecureAttachPdf(int $offerId, string $savePath): int
+/** Uniform random alphanumeric password containing both letters and digits. */
+function offerSecureGeneratePassword(): string
 {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    do {
+        $password = '';
+        for ($i = 0; $i < 8; $i++) {
+            $password .= $alphabet[random_int(0, strlen($alphabet) - 1)];
+        }
+    } while (!preg_match('/[A-Za-z]/', $password) || !preg_match('/[0-9]/', $password));
+    return $password;
+}
+
+/** Attach the encrypted PDF through Bitrix's file-property API. */
+function offerSecureAttachPdf(int $offerId, string $savePath, string $password): int
+{
+    if (!preg_match('/\A[A-Za-z0-9]{8}\z/', $password)) {
+        throw new InvalidArgumentException('Пароль PDF должен содержать 8 латинских букв и цифр');
+    }
     $property = CIBlockProperty::GetByID(3196, 218)->Fetch();
     if (!$property || $property['CODE'] !== 'OFFER_PDF_DRAFT'
         || $property['PROPERTY_TYPE'] !== 'F' || $property['MULTIPLE'] !== 'N') {
         throw new RuntimeException('Свойство 3196 OFFER_PDF_DRAFT должно быть одиночным файловым свойством инфоблока 218');
+    }
+    $passwordProperty = CIBlockProperty::GetByID(3197, 218)->Fetch();
+    if (!$passwordProperty || $passwordProperty['CODE'] !== 'PDF_PASSWORD'
+        || $passwordProperty['PROPERTY_TYPE'] !== 'S' || $passwordProperty['MULTIPLE'] !== 'N') {
+        throw new RuntimeException('Свойство 3197 PDF_PASSWORD должно быть одиночным строковым свойством инфоблока 218');
     }
     $previous = CIBlockElement::GetProperty(218, $offerId, [], ['ID' => 3196])->Fetch();
     $previousId = (int)($previous['VALUE'] ?? 0);
@@ -21,6 +42,7 @@ function offerSecureAttachPdf(int $offerId, string $savePath): int
     // Bitrix registers the file and replaces the previous single-file value.
     CIBlockElement::SetPropertyValuesEx($offerId, 218, [
         'OFFER_PDF_DRAFT' => ['VALUE' => $file, 'DESCRIPTION' => ''],
+        'PDF_PASSWORD' => $password,
     ]);
 
     // SetPropertyValuesEx has no reliable success return value: read it back.
@@ -31,6 +53,10 @@ function offerSecureAttachPdf(int $offerId, string $savePath): int
         || (int)$storedFile['FILE_SIZE'] !== filesize($savePath)
         || $storedFile['ORIGINAL_NAME'] !== $file['name']) {
         throw new RuntimeException('Не удалось записать созданный PDF в OFFER_PDF_DRAFT');
+    }
+    $storedPassword = CIBlockElement::GetProperty(218, $offerId, [], ['ID' => 3197])->Fetch();
+    if (!hash_equals($password, (string)($storedPassword['VALUE'] ?? ''))) {
+        throw new RuntimeException('Не удалось записать пароль созданного PDF в PDF_PASSWORD');
     }
     return $fileId;
 }
@@ -234,7 +260,7 @@ function offerSecureNormalizeEquipment($text)
 }
 
 /** Build only an encrypted PDF; no unprotected intermediate file is written. */
-function offerSecurePdf(array $rows, int $offerId, string $password = 'test'): TCPDF
+function offerSecurePdf(array $rows, int $offerId, string $password): TCPDF
 {
     if ($password === '') {
         throw new InvalidArgumentException('Пароль на открытие PDF не может быть пустым');
