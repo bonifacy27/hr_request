@@ -1,6 +1,6 @@
 <?php
 /**
- * Text-only encrypted offer for approval (test password: test).
+ * Text-only encrypted offer; random password is stored in PDF_PASSWORD.
  * php offer_secure_cli.php <offerId> <outputFilename.pdf>
  * Install beside offer_cli.php; uses the same Bitrix root and TCPDF installation.
  */
@@ -72,7 +72,8 @@ try {
     require_once $documentRoot . '/tcpdf/tcpdf.php';
     require_once __DIR__ . '/offer_secure_pdf.php';
     $rows = offerSecureRows($props, $recruiter, $resolveElementName);
-    $pdf = offerSecurePdf($rows, $offerId, 'test');
+    $password = offerSecureGeneratePassword();
+    $pdf = offerSecurePdf($rows, $offerId, $password);
 
     $saveDir = $documentRoot . '/upload/application/offers/secure_pdf/';
     if (!is_dir($saveDir) && !mkdir($saveDir, 0700, true) && !is_dir($saveDir)) {
@@ -99,7 +100,7 @@ try {
         throw new RuntimeException('Не удалось сохранить PDF');
     }
     $tempPath = null;
-    $fileId = offerSecureAttachPdf($offerId, $savePath);
+    $fileId = offerSecureAttachPdf($offerId, $savePath, $password);
     echo "PDF saved: {$savePath}; OFFER_PDF_DRAFT file ID: {$fileId}\n";
 } catch (Throwable $e) {
     if ($tempPath && is_file($tempPath)) {
