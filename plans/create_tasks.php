@@ -25,7 +25,8 @@ Loader::includeModule('bizproc');
 
 global $USER, $APPLICATION;
 
-CJSCore::Init(['main.core', 'ui', 'ui.entity-selector', 'ajax', 'popup']);
+CJSCore::Init(['ajax', 'popup']);
+\Bitrix\Main\UI\Extension::load(['main.core', 'ui.entity-selector']);
 
 if (!$USER->IsAuthorized()) {
     header('Content-Type: text/html; charset=utf-8');
@@ -967,11 +968,24 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
         const dialog = new BX.UI.EntitySelector.Dialog({
             title: "Выбор сотрудников",
             multiple: true,
+            enableSearch: true,
             context: "PVD_CONTACTS_" + targetTextareaId,
-            entities: [{ id: "user", options: { inviteGuestLink: false, emailUsers: false } }],
+            entities: [
+                {
+                    id: "user",
+                    dynamicSearch: true,
+                    options: { inviteGuestLink: false, emailUsers: false }
+                },
+                {
+                    id: "department",
+                    dynamicSearch: true,
+                    options: { selectMode: "users" }
+                }
+            ],
             events: {
                 'Item:onSelect': function (event) {
                     const item = event.getData().item;
+                    if (!item || item.getEntityId() !== 'user') return;
                     const title = item && item.getTitle ? item.getTitle() : '';
                     if (!title) return;
 
