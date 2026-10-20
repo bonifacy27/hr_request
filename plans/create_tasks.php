@@ -6,13 +6,13 @@
  * ДОРАБОТКИ v1.3:
  * 1) Поля 1–6 обязательные:
  *    - 1–3: чекбоксы обязаны быть отмечены (уже было) + добавлена HTML-валидация и явная проверка (осталась).
- *    - 4.1–4.3, 5, 6: обязательные текстовые поля (уже было) — оставлено + усилена проверка.
+ *    - 4.1–4.4, 5, 6: обязательные текстовые поля (уже было) — оставлено + усилена проверка.
  * 2) Должна быть добавлена хотя бы 1 задача в таблице KPI:
  *    - Проверка на фронте: нельзя сохранить без хотя бы 1 непустой строки KPI.
  *    - Проверка на бэке: reject, если после фильтрации нет ни одной KPI-задачи.
  *
  * FIX v1.2 сохранён:
- *  - Предзаполнение 4.1/4.2/4.3 при повторном заходе (берём из задачи №4).
+ *  - Предзаполнение 4.1/4.2/4.3/4.4 при повторном заходе (берём из задачи №4).
  */
 
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_before.php');
@@ -197,7 +197,7 @@ function startAccessRightsWorkflow(int $templateId, int $elementId): void
 }
 
 /**
- * Парсинг полей 4.1/4.2/4.3 из текста результата задачи №4.
+ * Парсинг полей 4.1/4.2/4.3/4.4 из текста результата задачи №4.
  */
 function parseTask4Contacts(string $text): array
 {
@@ -354,6 +354,7 @@ if (!empty($existingBaseTaskIds)) {
 $pref_41 = '';
 $pref_42 = '';
 $pref_43 = '';
+$pref_44 = '';
 
 $pref_5  = "Положение о добровольном медицинском страховании\n"
          . "Инструкция по охране труда для дистанционных работников\n"
@@ -366,7 +367,7 @@ if (!empty($baseTasksByTip[$TIP_TASK_4]['result'])) {
     $pref_41 = trim((string)($parsed['org'] ?? ''));
     $pref_42 = trim((string)($parsed['mentors'] ?? ''));
     $pref_43 = trim((string)($parsed['internal'] ?? ''));
-    if ($pref_43 === '') $pref_43 = trim((string)($parsed['other'] ?? ''));
+    $pref_44 = trim((string)($parsed['other'] ?? ''));
 }
 
 if (!empty($baseTasksByTip[$TIP_TASK_5]['result'])) $pref_5 = $baseTasksByTip[$TIP_TASK_5]['result'];
@@ -378,6 +379,24 @@ if ($baseExecutorPropCode === '') $baseExecutorPropCode = 'UZ_SOTRUDNIKA';
 /* ==============================
  * POST handler
  * ============================== */
+
+// Имя для контактов берём из профиля, независимо от формата заголовка в селекторе.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['contact_user_id'])) {
+    if (!check_bitrix_sessid()) {
+        sendJsonResponse(['success' => false, 'message' => 'Сессия истекла. Обновите страницу.']);
+    }
+    $contactUserId = (int)$_POST['contact_user_id'];
+    $contactUser = $contactUserId > 0 ? CUser::GetByID($contactUserId)->Fetch() : false;
+    if (!$contactUser) {
+        sendJsonResponse(['success' => false, 'message' => 'Сотрудник не найден.']);
+    }
+    $lastName = trim((string)($contactUser['LAST_NAME'] ?? ''));
+    $firstName = trim((string)($contactUser['NAME'] ?? ''));
+    if ($lastName === '' || $firstName === '') {
+        sendJsonResponse(['success' => false, 'message' => 'В профиле сотрудника не заполнены фамилия или имя.']);
+    }
+    sendJsonResponse(['success' => true, 'name' => $lastName . ' ' . $firstName]);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payload'])) {
     $resp = [
@@ -404,15 +423,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payload'])) {
             throw new Exception('Поля 1–3 обязательны: отметьте все чек-боксы.');
         }
 
-        // 4.1–4.3, 5, 6 обязательные текстовые
+        // 4.1–4.4, 5, 6 обязательные текстовые
         $t41 = trim((string)($payload['contacts_41'] ?? ''));
         $t42 = trim((string)($payload['contacts_42'] ?? ''));
         $t43 = trim((string)($payload['contacts_43'] ?? ''));
+        $t44 = trim((string)($payload['contacts_44'] ?? ''));
         $t5  = trim((string)($payload['lna_5'] ?? ''));
         $t6  = trim((string)($payload['systems_6'] ?? ''));
 
-        if ($t41 === '' || $t42 === '' || $t43 === '' || $t5 === '' || $t6 === '') {
-            throw new Exception('Поля 4.1–4.3, 5 и 6 обязательны: заполните все значения.');
+        if ($t41 === '' || $t42 === '' || $t43 === '' || $t44 === '' || $t5 === '' || $t6 === '') {
+            throw new Exception('Поля 4.1–4.4, 5 и 6 обязательны: заполните все значения.');
         }
 
         // KPI tasks
@@ -485,7 +505,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['payload'])) {
                     "Организационные вопросы: " . $t41 . "\n" .
                     "Наставники/коллеги, по вопросам выполнения задач на ИС: " . $t42 . "\n" .
                     "Внутренние заказчики: " . $t43 . "\n" .
-                    "Прочие контакты: " . $t43,
+                    "Прочие контакты: " . $t44,
                 'due' => $ddl_5,
                 'kontrol' => $KONTROL_YES,
                 'btn' => 'Выполнить',
@@ -818,24 +838,31 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
 
     <h2>4. Взаимосвязи по должности (обязательно)</h2>
 
-    <div class="subhead">4.1 Наставники/коллеги по вопросам выполнения задач на ИС</div>
+    <div class="subhead">4.1 Организационные вопросы</div>
     <div class="field">
         <button type="button" class="btn btn-secondary" id="pick41">Выбрать пользователей</button>
-        <textarea id="contacts_41" required placeholder="ФИО через запятую"><?= htmlspecialchars($pref_41) ?></textarea>
+        <textarea id="contacts_41" required placeholder="Фамилия Имя через запятую"><?= htmlspecialchars($pref_41) ?></textarea>
+        <div class="hint">Укажите сотрудников по организационным вопросам</div>
+    </div>
+
+    <div class="subhead">4.2 Наставники/коллеги по вопросам выполнения задач на ИС</div>
+    <div class="field">
+        <button type="button" class="btn btn-secondary" id="pick42">Выбрать пользователей</button>
+        <textarea id="contacts_42" required placeholder="Фамилия Имя через запятую"><?= htmlspecialchars($pref_42) ?></textarea>
         <div class="hint">Укажите коллег, с которыми будет взаимодействовать новый сотрудник</div>
     </div>
 
-    <div class="subhead">4.2 Внутренние заказчики</div>
+    <div class="subhead">4.3 Внутренние заказчики</div>
     <div class="field">
-        <button type="button" class="btn btn-secondary" id="pick42">Выбрать пользователей</button>
-        <textarea id="contacts_42" required placeholder="ФИО через запятую"><?= htmlspecialchars($pref_42) ?></textarea>
+        <button type="button" class="btn btn-secondary" id="pick43">Выбрать пользователей</button>
+        <textarea id="contacts_43" required placeholder="Фамилия Имя через запятую"><?= htmlspecialchars($pref_43) ?></textarea>
         <div class="hint">Укажите внутренних заказчиков</div>
     </div>
 
-    <div class="subhead">4.3 Прочие контакты</div>
+    <div class="subhead">4.4 Прочие контакты</div>
     <div class="field">
-        <button type="button" class="btn btn-secondary" id="pick43">Выбрать пользователей</button>
-        <textarea id="contacts_43" required placeholder="ФИО через запятую"><?= htmlspecialchars($pref_43) ?></textarea>
+        <button type="button" class="btn btn-secondary" id="pick44">Выбрать пользователей</button>
+        <textarea id="contacts_44" required placeholder="Фамилия Имя через запятую"><?= htmlspecialchars($pref_44) ?></textarea>
         <div class="hint">Укажите прочие контакты, с которыми будет взаимодействовать сотрудник</div>
     </div>
 
@@ -957,6 +984,33 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
 
     document.getElementById('addRow').addEventListener('click', () => addRow());
 
+    let pendingContactNames = 0;
+    let contactNameQueue = Promise.resolve();
+
+    function appendContactName(ta, userId) {
+        pendingContactNames++;
+        document.getElementById('saveBtn').disabled = true;
+        // Последовательная обработка сохраняет порядок выбора пользователей.
+        contactNameQueue = contactNameQueue.then(async () => {
+            const body = new URLSearchParams({contact_user_id: String(userId), sessid: BX.bitrix_sessid()});
+            const response = await fetch(window.location.href, {
+                method: 'POST',
+                body: body
+            });
+            if (!response.ok) throw new Error('Не удалось получить имя сотрудника.');
+            const data = await response.json();
+            if (!data.success || !data.name) throw new Error(data.message || 'Не удалось получить имя сотрудника.');
+            const list = (ta.value || '').split(',').map(x => x.trim()).filter(Boolean);
+            if (!list.includes(data.name)) list.push(data.name);
+            ta.value = list.join(', ');
+        }).catch(error => {
+            alert('Ошибка выбора сотрудника: ' + error.message + ' Повторите выбор.');
+        }).finally(() => {
+            pendingContactNames--;
+            document.getElementById('saveBtn').disabled = pendingContactNames > 0;
+        });
+    }
+
     function openUserSelector(targetTextareaId) {
         const ta = document.getElementById(targetTextareaId);
 
@@ -986,13 +1040,7 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
                 'Item:onSelect': function (event) {
                     const item = event.getData().item;
                     if (!item || item.getEntityId() !== 'user') return;
-                    const title = item && item.getTitle ? item.getTitle() : '';
-                    if (!title) return;
-
-                    const cur = (ta.value || '').trim();
-                    const list = cur ? cur.split(',').map(x => x.trim()).filter(Boolean) : [];
-                    if (!list.includes(title.trim())) list.push(title.trim());
-                    ta.value = list.join(', ');
+                    appendContactName(ta, item.getId());
                 }
             }
         });
@@ -1004,6 +1052,7 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
         document.getElementById('pick41').addEventListener('click', () => openUserSelector('contacts_41'));
         document.getElementById('pick42').addEventListener('click', () => openUserSelector('contacts_42'));
         document.getElementById('pick43').addEventListener('click', () => openUserSelector('contacts_43'));
+        document.getElementById('pick44').addEventListener('click', () => openUserSelector('contacts_44'));
     });
 
     const confirmModal = document.getElementById('confirmModal');
@@ -1028,6 +1077,7 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
     }
 
     document.getElementById('saveBtn').addEventListener('click', () => {
+        if (pendingContactNames > 0) return;
         const cb1 = document.getElementById('cb1').checked;
         const cb2 = document.getElementById('cb2').checked;
         const cb3 = document.getElementById('cb3').checked;
@@ -1035,12 +1085,13 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
         const t41 = (document.getElementById('contacts_41').value || '').trim();
         const t42 = (document.getElementById('contacts_42').value || '').trim();
         const t43 = (document.getElementById('contacts_43').value || '').trim();
+        const t44 = (document.getElementById('contacts_44').value || '').trim();
         const t5  = (document.getElementById('lna_5').value || '').trim();
         const t6  = (document.getElementById('systems_6').value || '').trim();
 
         // v1.3: все 1–6 обязательные
         if (!cb1 || !cb2 || !cb3) { alert('Поля 1–3 обязательны: отметьте все чек-боксы.'); return; }
-        if (!t41 || !t42 || !t43 || !t5 || !t6) { alert('Поля 4.1–4.3, 5 и 6 обязательны: заполните все значения.'); return; }
+        if (!t41 || !t42 || !t43 || !t44 || !t5 || !t6) { alert('Поля 4.1–4.4, 5 и 6 обязательны: заполните все значения.'); return; }
 
         const { rows, nonEmpty } = getNonEmptyKpiRows();
 
@@ -1057,6 +1108,7 @@ $cb3Checked = !empty($baseTasksByTip[$TIP_TASK_3]['id']);
             contacts_41: t41,
             contacts_42: t42,
             contacts_43: t43,
+            contacts_44: t44,
             lna_5: t5,
             systems_6: t6,
             kpi_tasks: rows
