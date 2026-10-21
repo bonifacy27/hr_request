@@ -20,6 +20,7 @@ if (!Loader::includeModule('iblock')) {
 
 Extension::load(['main.core', 'ui.entity-selector']);
 
+const ACCESS_OPTIONS = ['Не предоставлять доступ', 'OWA/ActiveSync', 'VPN', 'VDI'];
 const IBL_ADAPTATION = 196;
 const IBL_ORGANIZATION = 308;
 const IBL_WORK_FORMAT = 234;
@@ -259,7 +260,7 @@ $fields = [
     ['id' => 992, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA', 'label' => 'Комментарии к заявке на создание АРМ сотрудника', 'type' => 'S'],
     ['id' => 994, 'code' => 'OPISANIE_K_ZAYAVKE_NA_PROPUSK', 'label' => 'Комментарии к заявке на пропуск', 'type' => 'S'],
     ['id' => 993, 'code' => 'OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH', 'label' => 'Комментарии к заявке на создание рабочего места (АХС)', 'type' => 'S'],
-    ['id' => 1901, 'code' => 'DOSTUPY', 'label' => 'Доступы', 'type' => 'L'],
+    ['id' => 3199, 'code' => 'DOSTUPY_NEW', 'label' => 'Доступы', 'type' => 'ACCESS'],
     ['id' => 1109, 'code' => 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE', 'label' => 'VDI: версия ОС на личном ПК/ноутбуке', 'type' => 'L'],
     ['id' => 1108, 'code' => 'LICHNAYA_POCHTA_KANDIDATA', 'label' => 'Личная почта кандидата', 'type' => 'S'],
 ];
@@ -268,7 +269,7 @@ $fields = [
 $requiredFields = [
     'FAMILIYA','IMYA','OTCHESTVO','STATUS_SOTRUDNIKA','POL','ORGANIZATSIYA','DOLZHNOST','OTDEL','DIREKTSIYA','RUKOVODITEL','FIO_RUKOVODITELYA','OTVETSTVENNYY_MENEDZHER_OPIA',
     'DATA_PRIEMA','DATA_OKONCHANIYA_IS','FORMAT_RABOTY_','ADRES_OFISA_LST','NACHALO_RABOCHEGO_DNYA','KABINET_SPISOK','NOMER_KABINETA',
-    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
+    'KONTAKTNYY_NOMER_TELEFONA','EST_LI_OBYAZATELSTVO_LST','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE','OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY_NEW','PROPUSK_NUZHEN','NEOBKHODIMAYA_MEBEL_TEKST'
 ];
 
 $fieldLabels = [];
@@ -282,7 +283,7 @@ $sections = [
  '3'=>['title'=>'3. Обязательства','fields'=>['EST_LI_OBYAZATELSTVO_LST','SODERZHANIE_OBYAZATELSTV']],
  '4'=>['title'=>'4. Контакты','fields'=>['KONTAKTNYY_NOMER_TELEFONA','LICHNAYA_POCHTA_KANDIDATA','FOTO_SOTRUDNIKA']],
  '5'=>['title'=>'5. Новость и ФИО','fields'=>['EST_REKOMENDATSIYA','PRINYAT_PO_REKOMENDATSII','OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','FIO_V_DATELNOM_PADEZHE','FIO_V_RODITELNOM_PADEZHE']],
- '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
+ '6'=>['title'=>'6. Рабочее место и доступы','fields'=>['OBORUDOVANIE_DLYA_RABOTY','RABOCHEE_MESTO','DOSTUPY_NEW','VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','PROPUSK_NUZHEN','OPISANIE_K_ZAYAVKE_NA_PROPUSK','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH']]
 ];
 
 $mode = 'manual';
@@ -405,7 +406,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
     foreach ($fields as $f) {
         $code = $f['code'];
         $value = $_POST[$code] ?? '';
-        if ($f['type'] === 'FILE') {
+        if ($f['type'] === 'ACCESS') {
+            $selectedAccess = is_array($value) ? $value : [];
+            $selectedAccess = array_values(array_intersect(ACCESS_OPTIONS, array_filter($selectedAccess, 'is_string')));
+            if (in_array(ACCESS_OPTIONS[0], $selectedAccess, true)) {
+                $selectedAccess = [ACCESS_OPTIONS[0]];
+            }
+            $value = implode(',', $selectedAccess);
+        } elseif ($f['type'] === 'FILE') {
             $value = $_FILES[$code] ?? null;
         } elseif ($f['type'] === 'FURNITURE') {
             $postedFurniture = is_array($value) ? $value : [$value];
@@ -459,6 +467,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && check_bitrix_sessid()) {
         } elseif (empty($f['virtual']) && $value !== '') {
             $propertyValues[$code] = $value;
         }
+    }
+
+    $requiresVdi = in_array('VDI', explode(',', $formData['DOSTUPY_NEW']), true);
+    $vdiCode = 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE';
+    if ($requiresVdi) {
+        $validVdiIds = array_column(getPropertyEnums(IBL_ADAPTATION, $vdiCode), 'ID');
+        if (!in_array($formData[$vdiCode], $validVdiIds, true)) {
+            $errors[] = 'Заполните обязательное поле «VDI: версия ОС на личном ПК/ноутбуке».';
+        }
+    } else {
+        $formData[$vdiCode] = '';
+        unset($propertyValues[$vdiCode]);
     }
 
     $yesObligationId = getPropertyEnumIdByValue(IBL_ADAPTATION, 'EST_LI_OBYAZATELSTVO_LST', 'Да');
@@ -646,6 +666,8 @@ if ($creationGuard !== null) {
     $creationGuard->release();
 }
 
+$selectedAccess = explode(',', $formData['DOSTUPY_NEW']);
+$requiresVdi = in_array('VDI', $selectedAccess, true);
 $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
 
 ?><style>
@@ -714,11 +736,20 @@ $newsDutiesRequired = isNewsDutiesRequired($formData['ORGANIZATSIYA'] ?? 0);
                     <h3 class="anketa-section-title"><?= h($sec['title']) ?></h3>
                     <div class="anketa-grid">
                     <?php foreach ($sec['fields'] as $code): $f = $fieldMap[$code]; ?>
-                        <div id="field_<?= h($code) ?>" class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','PRINYAT_PO_REKOMENDATSII','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
-                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'PRINYAT_PO_REKOMENDATSII'], true)) ? '<span class="req">*</span>' : '' ?><?php if ($code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' && $newsDutiesRequired): ?><span class="req" data-role="organization-required">*</span><?php endif; ?></label>
-                        <?php if ($f['type'] === 'L'): ?>
+                        <div id="field_<?= h($code) ?>" <?= $code === 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE' && !$requiresVdi ? 'style="display:none"' : '' ?> class="anketa-field <?= in_array($code, ['OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI','SODERZHANIE_OBYAZATELSTV','PRINYAT_PO_REKOMENDATSII','NEOBKHODIMAYA_MEBEL_TEKST','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_UCHETNOY_ZAPISI','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_ARM_SOTRUDNIKA','OPISANIE_K_ZAYAVKE_NA_PROPUSK','OPISANIE_K_ZAYAVKE_NA_SOZDANIE_RABOCHEGO_MESTA_AKH'], true) ? 'anketa-full' : '' ?>">
+                        <label for="<?= h($code) ?>"><?= h($f['label']) ?><?= (in_array($code, $requiredFields, true) || in_array($code, ['SODERZHANIE_OBYAZATELSTV', 'PRINYAT_PO_REKOMENDATSII', 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE'], true)) ? '<span class="req">*</span>' : '' ?><?php if ($code === 'OSNOVNYE_OBYAZANNOSTI_DLYA_NOVOSTI' && $newsDutiesRequired): ?><span class="req" data-role="organization-required">*</span><?php endif; ?></label>
+                        <?php if ($f['type'] === 'ACCESS'): ?>
+                            <div class="anketa-choice-box" id="DOSTUPY_NEW" role="group" aria-label="Доступы" aria-required="true">
+                                <?php foreach (ACCESS_OPTIONS as $index => $access): ?>
+                                    <label class="anketa-choice" for="access_<?= $index ?>">
+                                        <input type="checkbox" name="DOSTUPY_NEW[]" id="access_<?= $index ?>" value="<?= h($access) ?>" class="access-input" <?= in_array($access, $selectedAccess, true) ? 'checked' : '' ?> <?= $index > 0 && in_array(ACCESS_OPTIONS[0], $selectedAccess, true) ? 'disabled' : '' ?>>
+                                        <?= h($access) ?>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php elseif ($f['type'] === 'L'): ?>
                             <?php $options = getPropertyEnums(IBL_ADAPTATION, $code); ?>
-                            <select name="<?= h($code) ?>" id="<?= h($code) ?>">
+                            <select name="<?= h($code) ?>" id="<?= h($code) ?>" <?= $code === 'VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE' ? ($requiresVdi ? 'required aria-required="true"' : 'disabled') : '' ?>>
                                 <option value="">— не выбрано —</option>
                                 <?php foreach ($options as $opt): ?>
                                     <?php if (isset($f['allowed_values']) && !in_array($opt['ID'], $f['allowed_values'], true)) { continue; } ?>
@@ -950,6 +981,33 @@ BX.ready(function () {
         input.addEventListener('change', syncFurnitureValue);
     });
     syncFurnitureValue();
+
+    function syncAccessFields() {
+        const inputs = Array.from(document.querySelectorAll('.access-input'));
+        const noAccess = BX('access_0');
+        if (!noAccess) { return; }
+        inputs.forEach(function (input) {
+            if (input === noAccess) { return; }
+            input.disabled = noAccess.checked;
+            if (noAccess.checked) { input.checked = false; }
+        });
+        const hasAccess = inputs.some(function (input) { return input.checked; });
+        noAccess.setCustomValidity(hasAccess ? '' : 'Выберите хотя бы один вариант доступа.');
+        const requiresVdi = inputs.some(function (input) { return input.value === 'VDI' && input.checked; });
+        const vdi = BX('VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE');
+        const row = BX('field_VDI_VERSIYA_OS_NA_LICHNOM_PK_NOUTBUKE');
+        if (row) { row.style.display = requiresVdi ? '' : 'none'; }
+        if (vdi) {
+            vdi.disabled = !requiresVdi;
+            vdi.required = requiresVdi;
+            vdi.setAttribute('aria-required', requiresVdi ? 'true' : 'false');
+            if (!requiresVdi) { vdi.value = ''; }
+        }
+    }
+    document.querySelectorAll('.access-input').forEach(function (input) {
+        input.addEventListener('change', syncAccessFields);
+    });
+    syncAccessFields();
 
     function selectedOptionText(select) {
         return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text.trim() : '';
