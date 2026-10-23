@@ -1,6 +1,8 @@
 <?php
 use Bitrix\Main\Loader;
 
+require_once __DIR__ . '/start_workflow.php';
+
 require($_SERVER['DOCUMENT_ROOT'] . '/bitrix/header.php');
 $APPLICATION->SetTitle('Анкеты новых сотрудников');
 
@@ -600,21 +602,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'start_adaptation') {
-        $adaptationStatusId = (int)getElementPropertyValue($elementId, ['ID' => PROP_ADAPTATION_STATUS]);
-        if ($adaptationStatusId > 0) {
-            redirectWithMessage('danger', 'Создание заявок доступно только для анкеты без статуса адаптации.');
-        }
-        $bpErrors = [];
-        $workflowId = CBPDocument::StartWorkflow(
-            START_ADAPTATION_WORKFLOW_ID,
-            ['lists', 'Bitrix\\Lists\\BizprocDocumentLists', (string)$elementId],
-            [],
-            $bpErrors
-        );
-        if (!$workflowId || $bpErrors) {
-            redirectWithMessage('danger', 'Не удалось запустить процесс создания заявок Jira.');
-        }
-        redirectWithMessage('success', 'Процесс создания заявок Jira успешно запущен.');
+        $result = startAdaptationOnce($elementId);
+        redirectWithMessage($result[0], $result[1]);
     }
 
     if ($action === 'stop_adaptation') {
@@ -1241,6 +1230,8 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
         document.body.style.overflow = '';
     }
 
+    var startSubmitting = false;
+    window.addEventListener('pageshow', function() { startSubmitting = false; });
     document.querySelectorAll('.js-action-select').forEach(function(select) {
         select.addEventListener('change', function() {
             var action = select.value || '';
@@ -1250,6 +1241,8 @@ function sortLink($label, $sortKey, $currentSort, $currentOrder)
             } else if (action === 'edit') {
                 window.location.href = select.getAttribute('data-edit-url') || '';
             } else if (action === 'start' && elementId > 0) {
+                if (startSubmitting) { select.value = ''; return; }
+                startSubmitting = true;
                 document.getElementById('start-element-id').value = String(elementId);
                 document.getElementById('start-adaptation-form').submit();
             } else if (action === 'stop' && elementId > 0 && stopBackdrop && stopElementId) {
